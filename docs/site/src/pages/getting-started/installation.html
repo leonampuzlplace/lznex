@@ -18,16 +18,36 @@
   <code>_</code>), e é esse nome que entra nos <em>unit paths</em> do seu <code>.lpi</code>.
 </p>
 
+<h3 id="versions">De onde sai a versão</h3>
+<p>
+  O Boss usa versionamento semântico e resolve a dependência pelas <strong>tags</strong> do
+  repositório, no formato <code>vX.Y.Z</code>. Quem publica essas tags é a GitHub Action:
+  toda entrega em <code>production</code> com CI verde cria a tag seguinte e sincroniza a
+  versão do <code>boss.json</code> com ela. Os intervalos aceitos no seu
+  <code>boss.json</code> são os de sempre:
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Escrito assim</th><th>Aceita</th></tr></thead>
+<tbody>
+<tr><td><code>^1.0.4</code> · <code>1</code> · <code>1.x</code></td><td>novas versões minor e patch</td></tr>
+<tr><td><code>~1.0.4</code> · <code>1.0</code> · <code>1.0.x</code></td><td>só patch</td></tr>
+<tr><td><code>1.0.4</code></td><td>exatamente essa</td></tr>
+</tbody>
+</table>
+</div>
+
 <div class="callout note">
   <span class="ico">ℹ</span>
   <div class="body">
-    <span class="t">Coordenada</span>
+    <span class="t">O ZeosLib ainda é placeholder</span>
     <p>
-      O <code>boss.json</code> do repositório ainda aponta para
-      <code>github.com/CHANGEME/lznex</code> e <code>github.com/CHANGEME/zeoslib</code>.
-      Enquanto o pacote não for publicado, os Dockerfiles montam <code>modules/</code> com o
-      mesmo layout que o Boss produziria. O fork do Zeos precisa ter <code>boss.json</code>:
-      o Boss aborta se uma dependência não tiver manifesto.
+      A dependência do Zeos aponta para <code>github.com/CHANGEME/zeoslib</code>, porque o
+      Boss exige que toda dependência tenha <code>boss.json</code> — e o repositório oficial
+      do Zeos não tem. Enquanto não houver um fork com manifesto, os Dockerfiles clonam o
+      Zeos direto do repositório oficial e montam <code>modules/</code> com o mesmo layout
+      que o Boss produziria.
     </p>
   </div>
 </div>

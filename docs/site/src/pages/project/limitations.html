@@ -214,31 +214,30 @@ executed. Keep one migration per structural change so the damage stays small.</p
   não configuração. Veja <a href="#dialects">Dialetos</a>.
 </p>
 
-<h2 id="boss-placeholder">A coordenada do Boss é placeholder</h2>
+<h2 id="boss-placeholder">O ZeosLib ainda não é instalável pelo Boss</h2>
 <p>
-  <code>boss.json</code> ainda aponta para <code>github.com/CHANGEME/lznex</code> e
-  <code>github.com/CHANGEME/zeoslib</code>, porque o repositório não foi publicado.
-  Duas consequências:
+  A coordenada do LzNex é real — <code>github.com/leonampuzlplace/lznex</code> — e a versão
+  sai das tags que a Action publica. A do Zeos não: <code>boss.json</code> aponta para
+  <code>github.com/CHANGEME/zeoslib</code>, porque o Boss <strong>aborta quando uma
+  dependência não traz <code>boss.json</code></strong>, e o repositório oficial do Zeos não
+  tem o manifesto. Enquanto não existir um fork com ele, duas consequências:
 </p>
 
 <ul>
   <li>
-    <code>boss install</code> com a coordenada placeholder não resolve nada. Os Dockerfiles
-    contornam clonando o espelho do Zeos direto em
+    <code>boss install</code> não resolve o Zeos sozinho. Os Dockerfiles contornam clonando
+    o repositório oficial direto em
     <code>modules/&lt;host&gt;_&lt;org&gt;_&lt;repo&gt;</code>, no mesmo layout que o Boss
     produziria.
   </li>
   <li>
     Trocar a coordenada exige trocar também o nome da pasta nos <code>.lpi</code> — o Boss
-    cria <code>modules/github_com_ACME_lznex</code>, com ponto e barra virando
-    <code>_</code>, e esse caminho está escrito nos unit paths do projeto.
+    cria <code>modules/github_com_ACME_zeoslib</code>, com ponto e barra virando
+    <code>_</code>, e esse caminho está escrito nos unit paths do projeto. O
+    <code>Dockerfile</code> faz essa troca por <code>sed</code> a partir de
+    <code>ZEOS_COORD</code>.
   </li>
 </ul>
-
-<p>
-  O fork do Zeos precisa ter <code>boss.json</code>: o Boss aborta quando uma dependência
-  não traz o manifesto.
-</p>
 
 <div class="cards">
   <a class="card" href="#troubleshooting"><h4>Troubleshooting →</h4><p>Sintoma, causa e correção.</p></a>

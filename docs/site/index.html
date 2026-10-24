@@ -409,16 +409,36 @@ end;</pre>
   <code>_</code>), e é esse nome que entra nos <em>unit paths</em> do seu <code>.lpi</code>.
 </p>
 
+<h3 id="installation__versions">De onde sai a versão</h3>
+<p>
+  O Boss usa versionamento semântico e resolve a dependência pelas <strong>tags</strong> do
+  repositório, no formato <code>vX.Y.Z</code>. Quem publica essas tags é a GitHub Action:
+  toda entrega em <code>production</code> com CI verde cria a tag seguinte e sincroniza a
+  versão do <code>boss.json</code> com ela. Os intervalos aceitos no seu
+  <code>boss.json</code> são os de sempre:
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Escrito assim</th><th>Aceita</th></tr></thead>
+<tbody>
+<tr><td><code>^1.0.4</code> · <code>1</code> · <code>1.x</code></td><td>novas versões minor e patch</td></tr>
+<tr><td><code>~1.0.4</code> · <code>1.0</code> · <code>1.0.x</code></td><td>só patch</td></tr>
+<tr><td><code>1.0.4</code></td><td>exatamente essa</td></tr>
+</tbody>
+</table>
+</div>
+
 <div class="callout note">
   <span class="ico">ℹ</span>
   <div class="body">
-    <span class="t">Coordenada</span>
+    <span class="t">O ZeosLib ainda é placeholder</span>
     <p>
-      O <code>boss.json</code> do repositório ainda aponta para
-      <code>github.com/CHANGEME/lznex</code> e <code>github.com/CHANGEME/zeoslib</code>.
-      Enquanto o pacote não for publicado, os Dockerfiles montam <code>modules/</code> com o
-      mesmo layout que o Boss produziria. O fork do Zeos precisa ter <code>boss.json</code>:
-      o Boss aborta se uma dependência não tiver manifesto.
+      A dependência do Zeos aponta para <code>github.com/CHANGEME/zeoslib</code>, porque o
+      Boss exige que toda dependência tenha <code>boss.json</code> — e o repositório oficial
+      do Zeos não tem. Enquanto não houver um fork com manifesto, os Dockerfiles clonam o
+      Zeos direto do repositório oficial e montam <code>modules/</code> com o mesmo layout
+      que o Boss produziria.
     </p>
   </div>
 </div>
@@ -9099,31 +9119,30 @@ executed. Keep one migration per structural change so the damage stays small.</p
   não configuração. Veja <a href="#dialects">Dialetos</a>.
 </p>
 
-<h2 id="limitations__boss-placeholder">A coordenada do Boss é placeholder</h2>
+<h2 id="limitations__boss-placeholder">O ZeosLib ainda não é instalável pelo Boss</h2>
 <p>
-  <code>boss.json</code> ainda aponta para <code>github.com/CHANGEME/lznex</code> e
-  <code>github.com/CHANGEME/zeoslib</code>, porque o repositório não foi publicado.
-  Duas consequências:
+  A coordenada do LzNex é real — <code>github.com/leonampuzlplace/lznex</code> — e a versão
+  sai das tags que a Action publica. A do Zeos não: <code>boss.json</code> aponta para
+  <code>github.com/CHANGEME/zeoslib</code>, porque o Boss <strong>aborta quando uma
+  dependência não traz <code>boss.json</code></strong>, e o repositório oficial do Zeos não
+  tem o manifesto. Enquanto não existir um fork com ele, duas consequências:
 </p>
 
 <ul>
   <li>
-    <code>boss install</code> com a coordenada placeholder não resolve nada. Os Dockerfiles
-    contornam clonando o espelho do Zeos direto em
+    <code>boss install</code> não resolve o Zeos sozinho. Os Dockerfiles contornam clonando
+    o repositório oficial direto em
     <code>modules/&lt;host&gt;_&lt;org&gt;_&lt;repo&gt;</code>, no mesmo layout que o Boss
     produziria.
   </li>
   <li>
     Trocar a coordenada exige trocar também o nome da pasta nos <code>.lpi</code> — o Boss
-    cria <code>modules/github_com_ACME_lznex</code>, com ponto e barra virando
-    <code>_</code>, e esse caminho está escrito nos unit paths do projeto.
+    cria <code>modules/github_com_ACME_zeoslib</code>, com ponto e barra virando
+    <code>_</code>, e esse caminho está escrito nos unit paths do projeto. O
+    <code>Dockerfile</code> faz essa troca por <code>sed</code> a partir de
+    <code>ZEOS_COORD</code>.
   </li>
 </ul>
-
-<p>
-  O fork do Zeos precisa ter <code>boss.json</code>: o Boss aborta quando uma dependência
-  não traz o manifesto.
-</p>
 
 <div class="cards">
   <a class="card" href="#troubleshooting"><h4>Troubleshooting →</h4><p>Sintoma, causa e correção.</p></a>
