@@ -1,22 +1,5 @@
 unit LzNex.Raw;
 
-{ TLzNexRaw: template de SQL cru resolvido contra um dialeto.
-
-  Gramatica do template (copiada do knex):
-
-    ?        valor         -> placeholder do dialeto + bind
-    ??       identificador -> WrapQualified, sem bind
-    \?       um '?' literal, nao consome argumento
-    \:       um ':' literal
-    :nome    valor nomeado         -> placeholder + bind
-    :nome:   identificador nomeado -> WrapQualified
-
-  Build devolve TLzNexFragment, logo texto e binds saem JUNTOS e na mesma ordem:
-  nao existe a janela de erro do knex, onde o array de binds e separado do texto.
-
-  A contagem e validada ANTES de montar nada: argumento sobrando ou faltando e
-  erro de programacao, nunca um '?' sem bind chegando no banco. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -36,9 +19,9 @@ type
     FSQL: string;
     FArgs: TLzNexValues;
     FNamed: TLzNexNamedValues;
-    // Conta os '?'/'??' do template, pulando os escapados.
+
     function CountPositional: Integer;
-    // Escreve um valor: bind, identificador quotado, raw aninhado ou subquery.
+
     procedure EmitValue(const AClient: ILzNexClient; const AValue: TLzNexValue;
       const ASB: TStringBuilder; var ABinds: TLzNexBindings);
   public
@@ -48,20 +31,14 @@ type
     function Template: string;
   end;
 
-// Cria um raw com argumentos posicionais ('?' e '??').
 function LzNexRaw(const ASQL: string; const AArgs: array of const): ILzNexRaw;
 
-// Mesma coisa, com a lista de valores ja normalizada. Util para repassar
-// valores que vieram de outro ponto da API sem voltar para array of const.
 function LzNexRawValues(const ASQL: string; const AValues: TLzNexValues): ILzNexRaw;
 
-// Cria um raw com argumentos nomeados (':nome' e ':nome:').
-// Monte os pares com Vals(['nome', valor, ...]).
 function LzNexRawNamed(const ASQL: string; const ANamed: TLzNexNamedValues): ILzNexRaw;
 
 implementation
 
-// Caractere aceito dentro de um nome de parametro nomeado.
 function IsNameChar(const AChar: Char): Boolean;
 begin
   Result := ((AChar >= 'a') and (AChar <= 'z')) or
@@ -69,8 +46,6 @@ begin
             ((AChar >= '0') and (AChar <= '9')) or
             (AChar = '_');
 end;
-
-{ TLzNexRaw }
 
 constructor TLzNexRaw.Create(const ASQL: string; const AArgs: TLzNexValues;
   const ANamed: TLzNexNamedValues);
@@ -122,7 +97,7 @@ var
 begin
   case AValue.Kind of
     vkIdentifier:
-      // Identificador entregue num '?': sai quotado, sem bind.
+
       ASB.Append(AClient.WrapQualified(AValue.Text));
     vkRaw:
       begin
@@ -149,7 +124,7 @@ begin
         ABinds.Append(Frag.Bindings);
       end;
   else
-    // Placeholder recebe a posicao 1-based: dialeto com $n sabe se virar.
+
     ASB.Append(AClient.Placeholder(ABinds.Count + 1));
     ABinds.Add(AValue);
   end;
@@ -190,7 +165,6 @@ begin
     begin
       Ch := FSQL[I];
 
-      // '\?' e '\:' viram o caractere literal.
       if (Ch = '\') and (I < L) and ((FSQL[I + 1] = '?') or (FSQL[I + 1] = ':')) then
       begin
         SB.Append(FSQL[I + 1]);
@@ -267,8 +241,6 @@ begin
     SB.Free;
   end;
 end;
-
-{ helpers de modulo }
 
 function LzNexRaw(const ASQL: string; const AArgs: array of const): ILzNexRaw;
 begin

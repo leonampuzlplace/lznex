@@ -1,0 +1,58 @@
+<article>
+<h1>Union, CTE e hint</h1>
+<p class="subtitle">Operadores de conjunto, expressões de tabela comuns e dicas para o otimizador.</p>
+
+<h2 id="union">Union</h2>
+<div class="code"><pre data-lang="pascal">Old := Db.Query.Table('old').Where('y', 3);
+
+Db.Table('users').UnionAll(Old)
+Db.Table('users').Union(Db.Query.Table('old'))
+Db.Table('users').Intersect(A).Except_(B)
+Db.Table('users').Union(A).OrderBy('id')</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `users` union all (select * from `old` where `y` = ?)
+select * from `users` union (select * from `old`)
+select * from `users` intersect (select 1) except (select 2)
+select * from `users` union (select 1) order by `id` asc</pre>
+</div>
+</div>
+
+<p>
+  <code>Except_</code> leva sublinhado porque <code>except</code> é palavra reservada do
+  Pascal. O <code>order by</code> vale para o conjunto inteiro e por isso sai
+  <strong>depois</strong> do <code>union</code> — a ordem das seções é do dialeto, não da
+  ordem de chamada.
+</p>
+
+<h2 id="cte">CTE</h2>
+<div class="code"><pre data-lang="pascal">Recent := Db.Query.Table('logs').Where('d', '>', '2024-01-01');
+
+Db.Table('users').With_('recent', Recent)
+Db.Table('users').WithRecursive('tree', T).With_('other', O)</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">with `recent` as (select * from `logs` where `d` > ?) select * from `users`
+with recursive `tree` as (select 1), `other` as (select 2) select * from `users`</pre>
+</div>
+</div>
+
+<h2 id="hint">Hint</h2>
+<div class="code"><pre data-lang="pascal">Db.Table('users').HintComment('max_execution_time(1000)')</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select /*+ max_execution_time(1000) */ * from `users`</pre>
+</div>
+</div>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Hint é validado</span>
+    <p>
+      Um hint que contenha <code>*/</code> levanta <code>ELzNexBuilder</code>: fechar o
+      comentário por dentro permitiria emendar SQL arbitrário depois dele.
+    </p>
+  </div>
+</div>
+</article>

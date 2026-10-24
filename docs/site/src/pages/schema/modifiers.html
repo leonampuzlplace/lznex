@@ -1,0 +1,201 @@
+<article>
+<h1>Modificadores</h1>
+<p class="subtitle">
+  Cada modificador age sobre a <strong>última</strong> coluna adicionada. Quem decide a ordem
+  de emissão é o dialeto, não a ordem em que você chamou.
+</p>
+
+<h2 id="api">Os modificadores</h2>
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function NotNull: ILzNexTable</code></td><td>Remove a nulidade. Sai <code>not null</code> no DDL.</td></tr>
+<tr><td><code>function Nullable: ILzNexTable</code></td><td>Volta a permitir nulo (é o estado inicial de toda coluna). Sai <code>null</code>.</td></tr>
+<tr><td><code>function Unsigned: ILzNexTable</code></td><td>Numérico sem sinal. Emitido no MySQL; <strong>ignorado em silêncio</strong> no PostgreSQL.</td></tr>
+<tr><td><code>function Default_(const AValue: TLzNexValue): ILzNexTable</code></td><td>Valor padrão <strong>interpolado</strong> no DDL (string escapada, booleano vira <code>1</code>). O underscore é só para escapar a palavra reservada. <code>TLzNexValue.Unset</code> levanta <code>ELzNexSchema</code>; para nulo explícito use <code>TLzNexValue.Null</code>.</td></tr>
+<tr><td><code>function DefaultRaw(const ASQL: string): ILzNexTable</code></td><td>Padrão que é expressão, não valor: entra cru, sem quote (<code>CURRENT_TIMESTAMP</code>, <code>uuid_generate_v4()</code>). SQL vazio levanta.</td></tr>
+<tr><td><code>function Comment(const AText: string): ILzNexTable</code></td><td>Comentário da coluna. Inline no MySQL, comando separado no PostgreSQL.</td></tr>
+<tr><td><code>function Collate(const AName: string): ILzNexTable</code></td><td><code>collate '&lt;nome&gt;'</code> na coluna. Só o MySQL emite — o PostgreSQL não tem esse modificador na ordem dele.</td></tr>
+<tr><td><code>function After(const AColumn: string): ILzNexTable</code></td><td>Posiciona a coluna depois de outra (<code>after `id`</code>). Extensão do MySQL; no PostgreSQL não sai nada.</td></tr>
+<tr><td><code>function Primary: ILzNexTable</code></td><td>Entra a coluna atual na primary key. Chamado em duas colunas, monta uma PK composta. Veja <a href="#indexes">Índices e chaves</a>.</td></tr>
+<tr><td><code>function Unique: ILzNexTable</code></td><td>Índice único de uma coluna. Vira comando no <code>Post</code> do plano, não cláusula do <code>create table</code>.</td></tr>
+<tr><td><code>function Index: ILzNexTable</code></td><td>Índice comum de uma coluna. Também vira comando no <code>Post</code>.</td></tr>
+<tr><td><code>function Change: ILzNexTable</code></td><td>Marca a coluna como <strong>alteração</strong> em vez de adição. Só vale em alter table — veja <a href="#alter-table">Alterar tabela</a>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Modificador sem coluna levanta</span>
+    <p>
+      Todos agem sobre a última coluna adicionada. Chamar qualquer um antes de ter coluna
+      levanta <code>ELzNexSchema</code> com a mensagem apontando a forma correta
+      (<code>T.Str('email', 191).NotNull</code>). Não há modificador "solto" acumulando estado
+      no builder.
+    </p>
+  </div>
+</div>
+
+<h2 id="order">A ordem é do dialeto, não da chamada</h2>
+<p>
+  O builder só registra <em>quais</em> modificadores a coluna tem. Na compilação, o dialeto
+  percorre a <strong>sua</strong> lista fixa (<code>ModifierOrder</code>) e emite cada pedaço na
+  posição onde aquele banco aceita. As duas chamadas abaixo saem byte a byte idênticas:
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Sch.CreateTable('mods');
+T.Int('n').Default_(7).Unsigned.NotNull.Comment('qtd').Collate('utf8mb4_bin').After('id');
+
+T2 := Sch.CreateTable('mods');
+T2.Int('n').After('id').Collate('utf8mb4_bin').Comment('qtd').NotNull.Unsigned.Default_(7);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">create table `mods` (`n` int unsigned not null default 7 comment 'qtd' collate 'utf8mb4_bin' after `id`)</pre>
+  <p class="code-note">o mesmo texto para as duas, em qualquer ordem de chamada</p>
+</div>
+</div>
+
+<p>A ordem de emissão de cada dialeto:</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Dialeto</th><th>Ordem</th></tr></thead>
+<tbody>
+<tr><td>MySQL</td><td><code>unsigned</code> → <code>null</code>/<code>not null</code> → <code>default</code> → <code>comment</code> → <code>collate</code> → <code>after</code></td></tr>
+<tr><td>PostgreSQL</td><td><code>null</code>/<code>not null</code> → <code>default</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  Seguir a ordem de chamada geraria DDL inválido: <code>int not null unsigned</code> ou
+  <code>int default 7 not null</code> são erro de sintaxe no MySQL, que exige
+  <code>unsigned</code> colado no tipo e <code>default</code> depois da nulidade. É por isso que
+  a ordem não é negociável — e por isso a lista do PostgreSQL é curta: o que aquele banco não
+  tem como modificador de coluna simplesmente não entra na lista e nunca é emitido.
+</p>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Em Increments nenhum modificador sai</span>
+    <p>
+      <code>Increments</code> e <code>BigIncrements</code> já carregam o texto completo do tipo
+      (<code>int unsigned not null auto_increment primary key</code> no MySQL,
+      <code>serial primary key</code> no PostgreSQL). O compilador <strong>pula o laço de
+      modificadores</strong> nessas colunas, então um <code>.NotNull</code> ou
+      <code>.Default_(1)</code> encadeado ali não levanta e também não aparece no DDL.
+    </p>
+  </div>
+</div>
+
+<h2 id="nullability">Nulidade sempre explícita</h2>
+<p>
+  Coluna nasce <code>Nullable</code>, e o DDL sempre escreve qual dos dois é — nunca deixa a
+  decisão para o default do servidor:
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Sch.CreateTable('nul');
+T.Int('a').Nullable;
+T.Int('b').NotNull;</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">create table `nul` (`a` int null, `b` int not null)</pre>
+</div>
+</div>
+
+<h2 id="defaults">Defaults</h2>
+<p>
+  DDL não tem bind. O valor é <strong>interpolado</strong> e escapado pelo cliente do dialeto;
+  <code>Bindings.Count</code> do statement é zero. <code>DefaultRaw</code> entra cru, sem quote
+  nenhum, para o caso em que o padrão é expressão do banco.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Sch.CreateTable('def');
+T.Str('s', 10).Default_('abc');
+T.Bool('b').Default_(TLzNexValue.FromBoolean(True));
+T.Timestamp('ts').DefaultRaw('CURRENT_TIMESTAMP');</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">create table `def` (`s` varchar(10) null default 'abc', `b` tinyint(1) null default 1, `ts` timestamp null default CURRENT_TIMESTAMP)</pre>
+  <p class="code-note">binds: nenhum</p>
+</div>
+</div>
+
+<p>
+  Como o valor vai para dentro do texto, <code>Default_</code> é o único ponto do schema builder
+  onde entrada de usuário não passa por bind. Não monte default a partir de string vinda de fora;
+  se o padrão é dinâmico, prefira preencher no <code>insert</code>.
+</p>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">DEFAULT em TEXT, BLOB e JSON é omitido no MySQL</span>
+    <p>
+      O MySQL rejeita default literal nesses tipos com o erro 1101 (<em>BLOB, TEXT, GEOMETRY or
+      JSON column can't have a default value</em>) e derrubaria a migration inteira. O compilador
+      do MySQL então <strong>descarta o default em silêncio</strong> em <code>text</code>,
+      <code>tinytext</code>, <code>mediumtext</code>, <code>longtext</code>, <code>blob</code>,
+      <code>json</code> e <code>jsonb</code>. <code>Binary(n)</code> com tamanho vira
+      <code>varbinary(n)</code> e <strong>aceita</strong> default; sem tamanho vira
+      <code>blob</code> e não aceita.
+    </p>
+  </div>
+</div>
+
+<div class="code"><pre data-lang="pascal">T := Sch.CreateTable('txt');
+T.Text('t').Default_('x');</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">create table `txt` (`t` text null)</pre>
+  <p class="code-note">o default não aparece, e nada é levantado</p>
+</div>
+</div>
+
+<h2 id="by-dialect">Diferenças por dialeto</h2>
+<p>
+  <code>Unsigned</code> é a diferença que mais morde: o PostgreSQL não tem o conceito, e levantar
+  ali travaria toda migration escrita para MySQL. A escolha foi <strong>ignorar em silêncio</strong>
+  para a migration continuar rodando nos dois bancos.
+</p>
+
+<div class="code"><pre data-lang="pascal">T.Int('n').Unsigned.NotNull;</pre></div>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">create table `u` (`n` int unsigned not null)</pre>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">create table "u" ("n" integer not null)</pre>
+    <p class="code-note">se o domínio exige não-negativo, use <code>Specific</code> com um check</p>
+  </div>
+</div>
+
+<p>
+  <code>Comment</code> existe nos dois, com sintaxe diferente: o MySQL aceita inline na definição
+  da coluna, o PostgreSQL só como comando <code>comment on column</code>, que vai para o
+  <code>Post</code> do plano.
+</p>
+
+<div class="code"><pre data-lang="pascal">T.Str('email', 191).Comment('login of the user');</pre></div>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">create table `users` (`email` varchar(191) null comment 'login of the user')</pre>
+    <p class="code-note">Post: 0 comandos</p>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">create table "users" ("email" varchar(191) null)
+comment on column "users"."email" is 'login of the user'</pre>
+    <p class="code-note">Post: 1 comando</p>
+  </div>
+</div>
+
+<div class="cards">
+  <a class="card" href="#column-types"><h4>Tipos de coluna →</h4><p>O que cada método de tipo gera em cada banco.</p></a>
+  <a class="card" href="#indexes"><h4>Índices e chaves →</h4><p>Unique, index, primary e chave estrangeira.</p></a>
+</div>
+</article>

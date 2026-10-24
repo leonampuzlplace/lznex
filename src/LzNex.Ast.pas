@@ -1,15 +1,5 @@
 unit LzNex.Ast;
 
-{ AST da query: o que o builder acumula e o compiler le.
-
-  Fica ABAIXO de LzNex.Intf no grafo de units de proposito -- subquery e raw sao
-  guardados como IInterface (mesmo truque do TLzNexValue), entao a AST nao precisa
-  conhecer ILzNexQuery. Isso elimina referencia circular e deixa a Intf poder
-  expor a AST com tipo forte.
-
-  Cada statement tem Kind (enum) para o compiler despachar com `case`, em vez do
-  despacho por nome de metodo em string que o knex usa. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -27,7 +17,6 @@ type
   TLzNexStatement = class;
   TLzNexStatementList = class;
 
-  // Base de todo item da AST.
   TLzNexStatement = class
   private
     FKind: TLzNexStatementKind;
@@ -37,30 +26,24 @@ type
   public
     constructor Create(const AKind: TLzNexStatementKind;
       const AGroup: TLzNexStatementGroup);
-    // Copia PROFUNDA. O knex faz shallow e os clones compartilham
-    // statements; aqui isso viraria double free.
+
     function Clone: TLzNexStatement; virtual; abstract;
 
     property Kind: TLzNexStatementKind read FKind;
     property Group: TLzNexStatementGroup read FGroup;
-    // Conector com o predicado anterior do mesmo grupo.
+
     property BoolOp: TLzNexBoolOp read FBoolOp write FBoolOp;
-    // Prefixo NOT.
+
     property Negated: Boolean read FNegated write FNegated;
   end;
 
-  // Lista que E DONA dos statements.
   TLzNexStatementList = class(TObjectList<TLzNexStatement>)
   public
     constructor Create;
-    // Copia profunda de todos os itens para outra lista.
+
     procedure CloneInto(const ATarget: TLzNexStatementList);
   end;
 
-  // --- colunas e agregados ---
-
-  // Uma coluna do SELECT. Expr pode ser identificador,
-  // raw ou subquery; Alias vazio significa sem AS.
   TLzNexColumnStmt = class(TLzNexStatement)
   public
     Expr: TLzNexValue;
@@ -69,7 +52,6 @@ type
     function Clone: TLzNexStatement; override;
   end;
 
-  // Count/min/max/sum/avg de uma coluna.
   TLzNexAggregateStmt = class(TLzNexStatement)
   public
     Agg: TLzNexAggregate;
@@ -81,8 +63,6 @@ type
     function Clone: TLzNexStatement; override;
   end;
 
-  // DISTINCT. Columns vazio = DISTINCT simples;
-  // com colunas = DISTINCT ON (so PostgreSQL).
   TLzNexDistinctStmt = class(TLzNexStatement)
   public
     Columns: TLzNexValues;
@@ -90,10 +70,6 @@ type
     function Clone: TLzNexStatement; override;
   end;
 
-  // --- predicados (where e having compartilham as classes; muda o Group) ---
-
-  // "col OP valor". AsColumn=True compara com identificador
-  // em vez de bind (e o WhereColumn).
   TLzNexBasicStmt = class(TLzNexStatement)
   public
     Column: TLzNexValue;
@@ -105,8 +81,6 @@ type
     function Clone: TLzNexStatement; override;
   end;
 
-  // "col IN (...)". Sub preenchido = subquery no lugar da lista.
-  // Columns com mais de um item = IN de tupla ("(a,b) IN ((?,?),(?,?))").
   TLzNexInStmt = class(TLzNexStatement)
   public
     Columns: TLzNexValues;
@@ -118,7 +92,6 @@ type
     function Clone: TLzNexStatement; override;
   end;
 
-  // "col IS [NOT] NULL".
   TLzNexNullStmt = class(TLzNexStatement)
   public
     Column: TLzNexValue;
@@ -126,7 +99,6 @@ type
     function Clone: TLzNexStatement; override;
   end;
 
-  // "col [NOT] BETWEEN ? AND ?".
   TLzNexBetweenStmt = class(TLzNexStatement)
   public
     Column: TLzNexValue;
@@ -137,7 +109,6 @@ type
     function Clone: TLzNexStatement; override;
   end;
 
-  // "col [NOT] LIKE ?". CaseInsensitive pede o ILIKE do dialeto.
   TLzNexLikeStmt = class(TLzNexStatement)
   public
     Column: TLzNexValue;
@@ -148,7 +119,6 @@ type
     function Clone: TLzNexStatement; override;
   end;
 
-  // "[NOT] EXISTS (subquery)".
   TLzNexExistsStmt = class(TLzNexStatement)
   public
     Sub: IInterface;
@@ -156,7 +126,6 @@ type
     function Clone: TLzNexStatement; override;
   end;
 
-  // Fragmento cru num predicado.
   TLzNexRawStmt = class(TLzNexStatement)
   public
     Raw: IInterface;
@@ -165,8 +134,6 @@ type
     function Clone: TLzNexStatement; override;
   end;
 
-  // Grupo parentetizado "( ... )". E assim que WhereOpen/
-  // WhereClose substituem o callback do knex, sem precisar de closure.
   TLzNexGroupStmt = class(TLzNexStatement)
   public
     Items: TLzNexStatementList;
@@ -175,11 +142,6 @@ type
     function Clone: TLzNexStatement; override;
   end;
 
-  // --- join ---
-
-  // Uma cláusula ON. jcColumns compara identificadores;
-  // jcValue gera bind. Separado de proposito: no knex `on(a, true)` virava
-  // comparacao com o identificador "true", uma pegadinha classica.
   TLzNexJoinClause = class
   public
     ClauseKind: TLzNexJoinClauseKind;
@@ -200,7 +162,6 @@ type
     constructor Create;
   end;
 
-  // Um JOIN com suas cláusulas ON.
   TLzNexJoinStmt = class(TLzNexStatement)
   public
     JoinType: TLzNexJoinType;
@@ -214,9 +175,6 @@ type
     function Clone: TLzNexStatement; override;
   end;
 
-  // --- group by / order by ---
-
-  // Item do GROUP BY.
   TLzNexGroupByStmt = class(TLzNexStatement)
   public
     Expr: TLzNexValue;
@@ -224,7 +182,6 @@ type
     function Clone: TLzNexStatement; override;
   end;
 
-  // Item do ORDER BY, com direcao e posicao dos NULL.
   TLzNexOrderByStmt = class(TLzNexStatement)
   public
     Expr: TLzNexValue;
@@ -235,9 +192,6 @@ type
     function Clone: TLzNexStatement; override;
   end;
 
-  // --- union / with / hint ---
-
-  // UNION / UNION ALL / INTERSECT / EXCEPT.
   TLzNexUnionStmt = class(TLzNexStatement)
   public
     UnionKind: TLzNexUnionKind;
@@ -248,7 +202,6 @@ type
     function Clone: TLzNexStatement; override;
   end;
 
-  // CTE ("WITH alias (cols) AS (...)").
   TLzNexWithStmt = class(TLzNexStatement)
   public
     Alias: string;
@@ -260,7 +213,6 @@ type
     function Clone: TLzNexStatement; override;
   end;
 
-  // Comentario de hint do otimizador ("/*+ ... */").
   TLzNexHintStmt = class(TLzNexStatement)
   public
     Text: string;
@@ -268,43 +220,33 @@ type
     function Clone: TLzNexStatement; override;
   end;
 
-  // --- valores unicos da query (o "_single" do knex) ---
-
-  // Tudo que existe no maximo uma vez por query.
-  // Fica fora da AST porque nao e lista ordenada.
   TLzNexQuerySingle = record
     Method: TLzNexQueryMethod;
-    Table: TLzNexValue;            // identificador, subquery ou raw
+    Table: TLzNexValue;
     TableAlias: string;
     SchemaName: string;
-    QueryAlias: string;            // alias quando esta query e subquery
-    LimitValue: TLzNexValue;       // vkUnset = nao informado
+    QueryAlias: string;
+    LimitValue: TLzNexValue;
     OffsetValue: TLzNexValue;
     Lock: TLzNexLockMode;
     Wait: TLzNexWaitMode;
     InsertRows: array of TLzNexNamedValues;
     UpdateValues: TLzNexNamedValues;
-    Counters: TLzNexNamedValues;   // increment/decrement: valor e o delta
+    Counters: TLzNexNamedValues;
     Returning: TLzNexValues;
     Conflict: TLzNexConflictAction;
     ConflictTargets: TLzNexValues;
     ConflictMerge: TLzNexNamedValues;
     PluckColumn: string;
-    // Zera para o estado inicial.
+
     procedure Reset;
-    // Copia (arrays sao copiados, nao compartilhados).
+
     function Clone: TLzNexQuerySingle;
-    // HasLimit / HasOffset — se o valor foi informado.
+
     function HasLimit: Boolean;
     function HasOffset: Boolean;
   end;
 
-  // A arvore completa de uma query: os valores unicos mais uma
-  // lista por grupo.
-  //
-  // Existe para DESACOPLAR o compiler do builder: o compiler recebe isto, nao
-  // ILzNexQuery. Assim da para testar o compiler montando AST na mao, e testar
-  // o builder conferindo a AST que ele produz -- sem um depender do outro.
   TLzNexAst = class
   private
     FGroups: array[TLzNexStatementGroup] of TLzNexStatementList;
@@ -312,23 +254,21 @@ type
     Single: TLzNexQuerySingle;
     constructor Create;
     destructor Destroy; override;
-    // A lista do grupo. Nunca nil.
+
     function Group(const AGroup: TLzNexStatementGroup): TLzNexStatementList;
-    // Acrescenta um statement no grupo dele. A AST passa a ser dona.
+
     function Add(const AStatement: TLzNexStatement): TLzNexStatement;
-    // Se o grupo tem algum item.
+
     function Has(const AGroup: TLzNexStatementGroup): Boolean;
-    // Quantidade de itens no grupo.
+
     function CountOf(const AGroup: TLzNexStatementGroup): Integer;
-    // Remove e libera todos os itens do grupo.
+
     procedure ClearGroup(const AGroup: TLzNexStatementGroup);
-    // Copia PROFUNDA de toda a arvore.
+
     function Clone: TLzNexAst;
   end;
 
 implementation
-
-{ TLzNexStatement }
 
 constructor TLzNexStatement.Create(const AKind: TLzNexStatementKind;
   const AGroup: TLzNexStatementGroup);
@@ -340,11 +280,9 @@ begin
   FNegated := False;
 end;
 
-{ TLzNexStatementList }
-
 constructor TLzNexStatementList.Create;
 begin
-  inherited Create(True);   // OwnsObjects: a lista libera os statements
+  inherited Create(True);
 end;
 
 procedure TLzNexStatementList.CloneInto(const ATarget: TLzNexStatementList);
@@ -354,8 +292,6 @@ begin
   for I := 0 to Count - 1 do
     ATarget.Add(Items[I].Clone);
 end;
-
-{ TLzNexColumnStmt }
 
 constructor TLzNexColumnStmt.Create(const AExpr: TLzNexValue; const AAlias: string);
 begin
@@ -370,8 +306,6 @@ begin
   Result.BoolOp := BoolOp;
   Result.Negated := Negated;
 end;
-
-{ TLzNexAggregateStmt }
 
 constructor TLzNexAggregateStmt.Create(const AAgg: TLzNexAggregate;
   const AColumn: TLzNexValue; const AAlias: string; const ADistinct: Boolean);
@@ -388,8 +322,6 @@ begin
   Result := TLzNexAggregateStmt.Create(Agg, Column, Alias, Distinct);
 end;
 
-{ TLzNexDistinctStmt }
-
 constructor TLzNexDistinctStmt.Create(const AColumns: TLzNexValues);
 begin
   inherited Create(skDistinct, sgColumns);
@@ -400,8 +332,6 @@ function TLzNexDistinctStmt.Clone: TLzNexStatement;
 begin
   Result := TLzNexDistinctStmt.Create(Columns);
 end;
-
-{ TLzNexBasicStmt }
 
 constructor TLzNexBasicStmt.Create(const AGroup: TLzNexStatementGroup;
   const AColumn: TLzNexValue; const AOp: string; const AValue: TLzNexValue);
@@ -426,8 +356,6 @@ begin
   C.Negated := Negated;
   Result := C;
 end;
-
-{ TLzNexInStmt }
 
 constructor TLzNexInStmt.Create(const AGroup: TLzNexStatementGroup;
   const AColumns, AValues: TLzNexValues);
@@ -457,8 +385,6 @@ begin
   Result := C;
 end;
 
-{ TLzNexNullStmt }
-
 constructor TLzNexNullStmt.Create(const AGroup: TLzNexStatementGroup;
   const AColumn: TLzNexValue);
 begin
@@ -475,8 +401,6 @@ begin
   Result.BoolOp := BoolOp;
   Result.Negated := Negated;
 end;
-
-{ TLzNexBetweenStmt }
 
 constructor TLzNexBetweenStmt.Create(const AGroup: TLzNexStatementGroup;
   const AColumn, ALo, AHi: TLzNexValue);
@@ -497,8 +421,6 @@ begin
   Result.Negated := Negated;
 end;
 
-{ TLzNexLikeStmt }
-
 constructor TLzNexLikeStmt.Create(const AGroup: TLzNexStatementGroup;
   const AColumn, APattern: TLzNexValue; const ACaseInsensitive: Boolean);
 begin
@@ -515,8 +437,6 @@ begin
   Result.Negated := Negated;
 end;
 
-{ TLzNexExistsStmt }
-
 constructor TLzNexExistsStmt.Create(const AGroup: TLzNexStatementGroup;
   const ASub: IInterface);
 begin
@@ -531,8 +451,6 @@ begin
   Result.Negated := Negated;
 end;
 
-{ TLzNexRawStmt }
-
 constructor TLzNexRawStmt.Create(const AKind: TLzNexStatementKind;
   const AGroup: TLzNexStatementGroup; const ARaw: IInterface);
 begin
@@ -546,8 +464,6 @@ begin
   Result.BoolOp := BoolOp;
   Result.Negated := Negated;
 end;
-
-{ TLzNexGroupStmt }
 
 constructor TLzNexGroupStmt.Create(const AGroup: TLzNexStatementGroup);
 begin
@@ -575,8 +491,6 @@ begin
   Result := C;
 end;
 
-{ TLzNexJoinClause }
-
 function TLzNexJoinClause.Clone: TLzNexJoinClause;
 begin
   Result := TLzNexJoinClause.Create;
@@ -592,14 +506,10 @@ begin
   Result.UsingColumns := Copy(UsingColumns);
 end;
 
-{ TLzNexJoinClauseList }
-
 constructor TLzNexJoinClauseList.Create;
 begin
   inherited Create(True);
 end;
-
-{ TLzNexJoinStmt }
 
 constructor TLzNexJoinStmt.Create(const AJoinType: TLzNexJoinType;
   const ATable: TLzNexValue; const AAlias: string);
@@ -629,8 +539,6 @@ begin
   Result := C;
 end;
 
-{ TLzNexGroupByStmt }
-
 constructor TLzNexGroupByStmt.Create(const AExpr: TLzNexValue; const ARaw: Boolean);
 begin
   if ARaw then
@@ -644,8 +552,6 @@ function TLzNexGroupByStmt.Clone: TLzNexStatement;
 begin
   Result := TLzNexGroupByStmt.Create(Expr, Kind = skGroupByRaw);
 end;
-
-{ TLzNexOrderByStmt }
 
 constructor TLzNexOrderByStmt.Create(const AExpr: TLzNexValue;
   const ADir: TLzNexOrderDir; const ANulls: TLzNexNullsOrder; const ARaw: Boolean);
@@ -664,8 +570,6 @@ begin
   Result := TLzNexOrderByStmt.Create(Expr, Dir, Nulls, Kind = skOrderByRaw);
 end;
 
-{ TLzNexUnionStmt }
-
 constructor TLzNexUnionStmt.Create(const AUnionKind: TLzNexUnionKind;
   const ASub: IInterface; const AWrap: Boolean);
 begin
@@ -679,8 +583,6 @@ function TLzNexUnionStmt.Clone: TLzNexStatement;
 begin
   Result := TLzNexUnionStmt.Create(UnionKind, Sub, WrapInParens);
 end;
-
-{ TLzNexWithStmt }
 
 constructor TLzNexWithStmt.Create(const AAlias: string; const AColumns: TLzNexValues;
   const ASub: IInterface; const ARecursive: Boolean);
@@ -697,8 +599,6 @@ begin
   Result := TLzNexWithStmt.Create(Alias, Columns, Sub, Recursive);
 end;
 
-{ TLzNexHintStmt }
-
 constructor TLzNexHintStmt.Create(const AText: string);
 begin
   inherited Create(skHint, sgHint);
@@ -709,8 +609,6 @@ function TLzNexHintStmt.Clone: TLzNexStatement;
 begin
   Result := TLzNexHintStmt.Create(Text);
 end;
-
-{ TLzNexQuerySingle }
 
 procedure TLzNexQuerySingle.Reset;
 begin
@@ -757,8 +655,6 @@ function TLzNexQuerySingle.HasOffset: Boolean;
 begin
   Result := not OffsetValue.IsUnset;
 end;
-
-{ TLzNexAst }
 
 constructor TLzNexAst.Create;
 var

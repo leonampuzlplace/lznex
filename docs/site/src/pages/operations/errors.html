@@ -1,0 +1,259 @@
+<article>
+<h1>Erros</h1>
+<p class="subtitle">
+  Toda falha previsível tem classe própria, e todas descendem de <code>ELzNex</code>. Dá para
+  tratar por categoria sem casar texto de mensagem.
+</p>
+
+<h2 id="hierarchy">A hierarquia</h2>
+<p>
+  <code>ELzNex</code> é a base e nunca é levantada diretamente: existe para você capturar
+  "qualquer coisa do LzNex" numa linha. Abaixo dela, cada tipo de falha tem a sua classe — não
+  por burocracia, mas porque a reação é diferente em cada caso. Pool esgotado pede retry;
+  operador inválido pede correção de código; lock de migration pede esperar o outro processo.
+</p>
+<p>
+  A hierarquia é rasa: todas as classes herdam direto de <code>ELzNex</code>, com uma única
+  exceção — <code>ELzNexMigrationLock</code>, que herda de <code>ELzNexMigration</code>, porque
+  disputa de lock é um caso de migração. Todas vivem em <code>LzNex.Exceptions</code>.
+</p>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">As mensagens dizem o que fazer</span>
+    <p>
+      As mensagens são em inglês, como o resto do código, e são escritas para o desenvolvedor:
+      quando existe uma saída, ela está no texto ("set LibraryLocation", "run migrate:unlock",
+      "use LastInsertId or a SELECT afterwards"). Vale ler a mensagem inteira antes de
+      investigar.
+    </p>
+  </div>
+</div>
+
+<h2 id="classes">As classes</h2>
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr>
+  <td><code>ELzNex = class(Exception)</code></td>
+  <td>
+    Base de tudo. Não é levantada diretamente. Capture-a como rede final: pega qualquer falha
+    do LzNex e deixa passar o que não é dele.
+  </td>
+</tr>
+<tr>
+  <td><code>ELzNexConfig = class(ELzNex)</code></td>
+  <td>
+    Configuração inválida ou incompleta, antes de qualquer SQL. Exemplos:
+    <code>Connect</code> sem configuração; dialeto não registrado
+    (<code>Dialect "pg" is not registered. Available: mysql, mariadb.</code> — a unit do
+    dialeto ficou fora do <code>uses</code>); <code>Pool min (5) is greater than max (3)</code>;
+    JSON malformado; ambiente que não existe no arquivo; valor que deveria ser inteiro e não é.
+  </td>
+</tr>
+<tr>
+  <td><code>ELzNexConnection = class(ELzNex)</code></td>
+  <td>
+    A conexão física. Falha ao abrir
+    (<code>Could not open connection to mysql:3306/lznex: …</code>, com o lembrete de
+    <code>LibraryLocation</code>), uso de conexão já fechada
+    (<code>Connection already closed</code>) e uso de empréstimo já devolvido ao pool
+    (<code>This leased connection was already returned to the pool and cannot be used
+    anymore</code>).
+  </td>
+</tr>
+<tr>
+  <td><code>ELzNexPool = class(ELzNex)</code></td>
+  <td>
+    Dois casos, os dois descritos em <a href="#pool">Pool e threads</a>: pool esgotado depois do
+    <code>AcquireTimeout</code> (<code>Pool exhausted: 8 connections in total (max 8), 8 in
+    use. …</code>) e <code>Acquire</code> depois do <code>Shutdown</code>.
+  </td>
+</tr>
+<tr>
+  <td><code>ELzNexBuilder = class(ELzNex)</code></td>
+  <td>
+    A cadeia de chamadas está errada — é bug no código que monta a query, e o SQL nunca é
+    gerado. Operador fora da lista fechada; <code>WhereClose</code> sem <code>WhereOpen</code>;
+    <code>ToSQL</code> com grupo aberto; <code>FromSub</code>/<code>JoinSub</code> sem alias;
+    <code>Vals</code> com número ímpar de itens; <code>On*</code> antes de qualquer
+    <code>Join</code>; <code>TLzNexValue</code> lido como tipo que não é o dele; query criada
+    com <code>NewQuery</code> (que só monta SQL) tentando executar.
+  </td>
+</tr>
+<tr>
+  <td><code>ELzNexCompile = class(ELzNex)</code></td>
+  <td>
+    O builder está coerente, mas o dialeto não dá conta. <code>RETURNING is not supported by
+    mysql. Use LastInsertId or a SELECT afterwards.</code>; <code>DISTINCT ON is not supported
+    by mysql. Use plain Distinct or group by.</code>; <code>Section "limit" is not valid in
+    delete on dialect postgresql.</code>; <code>UPDATE without SET: no column to update.</code>;
+    subquery no <code>from</code> sem alias.
+  </td>
+</tr>
+<tr>
+  <td>
+    <code>ELzNexQuery = class(ELzNex)</code><br>
+    <code>constructor CreateFmt(const AMessage, ASQL: string)</code><br>
+    <code>property SQL: string read FSQL</code>
+  </td>
+  <td>
+    O SQL chegou ao banco e o banco recusou — ou o bind não era bindável. É a única classe que
+    carrega o SQL: <code>E.SQL</code> devolve o texto exato que foi enviado, e a mensagem já
+    traz esse texto numa segunda linha prefixada por <code>SQL: </code>. Exemplos:
+    <code>Failed to prepare: …</code>, <code>Failed to execute: …</code>,
+    <code>Query failed: …</code>, <code>Bind 2 is not a bindable value: …</code>,
+    <code>The query did not return a resultset</code>, <code>Cursor already released</code>.
+  </td>
+</tr>
+<tr>
+  <td><code>ELzNexSchema = class(ELzNex)</code></td>
+  <td>
+    Definição de tabela incoerente, detectada ao compilar o DDL: <code>Index without columns on
+    table "users".</code>, <code>enum without items in MySQL DDL.</code> Veja
+    <a href="#schema">Schema builder</a>.
+  </td>
+</tr>
+<tr>
+  <td><code>ELzNexMigration = class(ELzNex)</code></td>
+  <td>
+    Histórico ou registro de migrations inconsistente: id duplicado entre duas migrations (com as
+    duas classes na mensagem); <code>Migration "x" does not exist in any source.</code>;
+    <code>Migration "x" is already applied.</code>; <code>Migration "x" is not applied.</code>;
+    migration aplicada que não existe mais em fonte nenhuma (arquivo renomeado, ou unit fora do
+    agregador e não linkada); <code>No migration source registered…</code>; e a falha de uma
+    migration, embrulhada como <code>Migration &lt;nome&gt; failed: &lt;erro original&gt;</code>.
+  </td>
+</tr>
+<tr>
+  <td><code>ELzNexMigrationLock = class(ELzNexMigration)</code></td>
+  <td>
+    A tabela de lock já está tomada: outro processo está migrando agora, ou um processo morreu
+    segurando o lock. A mensagem termina mandando rodar <code>migrate:unlock</code>. Por herdar
+    de <code>ELzNexMigration</code>, capture-a <strong>antes</strong> da mãe. No
+    <a href="#cli">CLI</a> ela tem exit code próprio (<code>3</code>) justamente para o script
+    distinguir disputa de falha.
+  </td>
+</tr>
+<tr>
+  <td><code>ELzNexTransaction = class(ELzNex)</code></td>
+  <td>
+    Uso errado do escopo transacional: <code>Commit</code> ou <code>Rollback</code> em transação
+    já concluída (<code>…on an already completed transaction (level 1). Commit and Rollback end
+    the transaction; …</code>); concluir a externa com savepoint interno aberto (savepoints têm
+    de fechar em ordem LIFO); <code>Transaction already released</code>; nível de isolamento que
+    o banco recusou. Veja <a href="#transactions">Transações</a>.
+  </td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="handling">Tratando</h2>
+<p>
+  Do mais específico para o mais genérico — o FPC avalia os <code>on</code> na ordem escrita, e
+  um <code>on E: ELzNex</code> no topo engoliria todos os outros.
+</p>
+
+<div class="code"><pre data-lang="pascal">try
+  Db.Table('users').Insert(Vals(['email', Email]));
+except
+  on E: ELzNexQuery do
+  begin
+    // o banco recusou: E.SQL tem o texto exato que foi enviado
+    Log('SQL recusado: ' + E.SQL);
+    Log('motivo: ' + E.Message);
+    raise;
+  end;
+  on E: ELzNexBuilder do
+    // bug nosso: a query nem chegou a ser gerada
+    Log('query mal montada: ' + E.Message);
+  on E: ELzNex do
+    // qualquer outra falha do LzNex (config, pool, conexao, transacao...)
+    Log('LzNex (' + E.ClassName + '): ' + E.Message);
+end;</pre></div>
+
+<p>
+  <code>E.SQL</code> é o que separa "o banco recusou" de "não sei o que foi enviado". A mensagem
+  também contém o SQL, mas na propriedade ele vem limpo, pronto para log estruturado ou para
+  colar num cliente e reproduzir:
+</p>
+
+<div class="code"><pre data-lang="out">ELzNexQuery: Failed to execute: Duplicate entry 'ana@ex.com' for key 'users.email_unique'
+SQL: insert into `users` (`email`) values (?)</pre></div>
+
+<p>
+  Num servidor HTTP, o par útil é <code>ELzNexQuery</code> (vira 4xx ou 5xx, dependendo de ser
+  violação de constraint ou falha de infra) e <code>ELzNexPool</code> (vira 503: o banco não
+  está indisponível, o pool é que não tem conexão livre agora — o cliente pode tentar de novo).
+</p>
+
+<h2 id="builder-vs-compile">ELzNexBuilder contra ELzNexCompile</h2>
+<p>
+  As duas levantam antes de o SQL sair, mas significam coisas opostas, e confundi-las custa
+  tempo de depuração.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th></th><th><code>ELzNexBuilder</code></th><th><code>ELzNexCompile</code></th></tr></thead>
+<tbody>
+<tr>
+  <td>o que aconteceu</td>
+  <td>A cadeia de chamadas não faz sentido em SQL nenhum.</td>
+  <td>A cadeia é coerente, mas <strong>este</strong> banco não tem o recurso.</td>
+</tr>
+<tr>
+  <td>o que fazer</td>
+  <td>Corrigir o código: falta um <code>WhereClose</code>, um alias, um argumento.</td>
+  <td>Escrever esse trecho de outro jeito para este banco — a mensagem costuma dizer qual.</td>
+</tr>
+<tr>
+  <td>muda de dialeto?</td>
+  <td>Não. É erro em qualquer um.</td>
+  <td>Sim. O mesmo código passa no outro dialeto.</td>
+</tr>
+<tr>
+  <td>exemplo</td>
+  <td><code>WhereClose</code> sem <code>WhereOpen</code>; operador fora da lista fechada.</td>
+  <td><code>Returning</code> em MySQL; <code>DistinctOn</code> em MySQL; <code>limit</code> em <code>delete</code> no PostgreSQL.</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="code"><pre data-lang="pascal">// ELzNexBuilder: errado em qualquer banco
+Db.Table('t').Where('a', '; drop table users; --', 1);
+// Operator "; drop table users; --" is not allowed. The list is closed on purpose...
+
+// ELzNexCompile: correto em PostgreSQL, impossivel em MySQL
+Db.Table('users').Returning(['id']).Insert(Vals(['name', 'Ana']));
+// Returning: dialect "mysql" does not support RETURNING</pre></div>
+
+<p>
+  Na prática: <code>ELzNexCompile</code> quase sempre quer dizer "troque este trecho por
+  <code>InsertGetId</code>, por <code>Distinct</code> simples, por <code>group by</code>, ou por
+  um segundo select". A tabela de capacidades em <a href="#dialects/capabilities">Dialetos</a>
+  lista cada recurso e a alternativa em cada banco.
+</p>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Capacidade é checada cedo quando dá</span>
+    <p>
+      <code>Returning</code> levanta já na chamada do método, não na compilação, porque a
+      capacidade dá para consultar naquele instante. Outros casos, como seção proibida no verbo,
+      só são conhecidos quando a árvore está completa e levantam no <code>ToSQL</code>. Em
+      ambos a classe é <code>ELzNexCompile</code> — o <strong>quando</strong> muda, o
+      significado não.
+    </p>
+  </div>
+</div>
+
+<div class="cards">
+  <a class="card" href="#troubleshooting"><h4>Troubleshooting →</h4><p>Sintoma por sintoma: linker, biblioteca, conexão presa.</p></a>
+  <a class="card" href="#limitations"><h4>Limitações →</h4><p>O que o LzNex não faz, e por quê.</p></a>
+</div>
+</article>

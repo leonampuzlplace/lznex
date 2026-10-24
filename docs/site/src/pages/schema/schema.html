@@ -1,0 +1,277 @@
+<article>
+<h1>Schema builder</h1>
+<p class="subtitle">
+  Uma tabela declarada em Pascal vira um plano de DDL: a lista de comandos que o dialeto
+  precisa rodar, na ordem certa.
+</p>
+
+<h2 id="entry-point">Db.Schema</h2>
+<p>
+  <code>Db.Schema</code> é a porta de entrada de todo o DDL. Ela devolve um
+  <code>ILzNexSchema</code> já amarrado ao dialeto da conexão — é o dialeto que decide o
+  SQL, não o builder.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function CreateTable(const AName: string): ILzNexTable</code></td><td>Abre uma tabela nova.</td></tr>
+<tr><td><code>function Table(const AName: string): ILzNexTable</code></td><td>Altera uma tabela existente.</td></tr>
+<tr><td><code>function WithSchema(const AName: string): ILzNexSchema</code></td><td>Qualifica as tabelas seguintes com um schema/database.</td></tr>
+<tr><td><code>function HasTable(const AName: string): Boolean</code></td><td>Consulta <code>information_schema</code>.</td></tr>
+<tr><td><code>function HasColumn(const ATable, AColumn: string): Boolean</code></td><td>O mesmo, por coluna.</td></tr>
+<tr><td><code>procedure DropTable(const AName: string)</code></td><td>Executa na hora, sem plano.</td></tr>
+<tr><td><code>procedure DropTableIfExists(const AName: string)</code></td><td>Idem, com <code>if exists</code>.</td></tr>
+<tr><td><code>procedure RenameTable(const AFrom, ATo: string)</code></td><td>Sintaxe própria de cada banco.</td></tr>
+<tr><td><code>procedure Truncate(const AName: string)</code></td><td>Em PostgreSQL sai com <code>restart identity</code>.</td></tr>
+<tr><td><code>procedure Raw(const ASQL: string; const AArgs: array of const)</code></td><td>Escapada para o que o builder não cobre.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="create-and-table">CreateTable e Table devolvem ILzNexTable</h3>
+<p>
+  Os dois devolvem a mesma interface, mas em modos diferentes: <code>CreateTable</code> em
+  <code>tmCreate</code> e <code>Table</code> em <code>tmAlter</code>. O modo é verificado
+  método a método, então uma operação de <code>alter</code> em modo <code>create</code>
+  levanta <code>ELzNexSchema</code> na hora da chamada — não na compilação.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Db.Schema.CreateTable('x');
+T.DropColumn('y');       // ELzNexSchema: DropColumn só vale em alter table
+
+T := Db.Schema.Table('x');
+T.Engine('InnoDB');      // ELzNexSchema: Engine só vale em create table</pre></div>
+
+<p>Para o que é exclusivo do <code>alter</code>, veja <a href="#alter-table">Alterar tabela</a>.</p>
+
+<h3 id="with-schema">WithSchema</h3>
+<p>
+  <code>Db.Schema</code> devolve um builder <strong>novo</strong> a cada chamada, e
+  <code>WithSchema</code> guarda o nome nesse objeto. Guarde a referência, ou o qualificador
+  se perde no caminho.
+</p>
+
+<div class="code"><pre data-lang="pascal">Sch := Db.Schema.WithSchema('reports');
+T := Sch.CreateTable('q');
+T.Int('a');</pre>
+<div class="code-out">
+  <div class="code-label">DDL</div>
+  <pre data-lang="sql">create table `reports`.`q` (`a` int null)</pre>
+</div>
+</div>
+
+<h2 id="last-column">O modificador cai na última coluna</h2>
+<p>
+  O FPC 3.2.2 não tem função anônima, então não existe um objeto "coluna" para encadear à
+  parte: <code>NotNull</code>, <code>Default_</code>, <code>Unique</code>,
+  <code>References</code> e companhia aplicam-se sempre à <strong>última coluna
+  adicionada</strong> ao builder.
+</p>
+
+<div class="code"><pre data-lang="pascal">T.Str('email', 191).NotNull.Unique;   // os dois caem em email
+T.Str('name');
+T.NotNull;                            // cai em name, não em email</pre></div>
+
+<p>
+  A ordem em que você chama os modificadores não muda nada: quem define a ordem das palavras
+  no DDL é o dialeto.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Db.Schema.CreateTable('mods');
+T.Int('n').Default_(7).Unsigned.NotNull.Comment('qtd').Collate('utf8mb4_bin').After('id');</pre>
+<div class="code-out">
+  <div class="code-label">DDL</div>
+  <pre data-lang="sql">create table `mods` (`n` int unsigned not null default 7 comment 'qtd' collate 'utf8mb4_bin' after `id`)</pre>
+  <p class="code-note">chamar os seis na ordem inversa dá exatamente o mesmo texto</p>
+</div>
+</div>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">DropColumn e RenameColumn zeram a última coluna</span>
+    <p>
+      Os dois não produzem uma coluna encadeável, então limpam o ponteiro interno. Um
+      modificador depois deles levanta <code>ELzNexSchema</code> em vez de grudar na coluna
+      anterior — o erro aparece na compilação do seu código de migration, não em produção.
+    </p>
+  </div>
+</div>
+
+<div class="code"><pre data-lang="pascal">T := Db.Schema.CreateTable('x');
+T.NotNull;    // ELzNexSchema: o modificador age na ÚLTIMA coluna adicionada</pre></div>
+
+<p>A lista completa de modificadores está em <a href="#modifiers">Modificadores</a>.</p>
+
+<h2 id="example">Um create table completo</h2>
+
+<div class="code"><pre data-lang="pascal">var
+  T: ILzNexTable;
+  N: Integer;
+begin
+  T := Db.Schema.CreateTable('posts');
+  T.Increments('id');
+  T.Str('title', 191).NotNull;
+  T.Str('slug', 191).NotNull.Unique;
+  T.Int('user_id').Unsigned.NotNull
+    .References('id').InTable('users').OnDelete('cascade');
+  T.Bool('published').NotNull;
+  T.Json('meta');
+  T.Timestamps;
+  T.Engine('InnoDB').Charset('utf8mb4');
+
+  N := T.Execute;   // 3
+end;</pre>
+<div class="code-out">
+  <div class="code-label">DDL</div>
+  <pre data-lang="sql">create table `posts` (`id` int unsigned not null auto_increment primary key, `title` varchar(191) not null, `slug` varchar(191) not null, `user_id` int unsigned not null, `published` tinyint(1) not null, `meta` json null, `created_at` timestamp not null default CURRENT_TIMESTAMP, `updated_at` timestamp not null default CURRENT_TIMESTAMP) engine = InnoDB default character set utf8mb4
+
+alter table `posts` add unique `posts_slug_unique`(`slug`)
+
+alter table `posts` add constraint `posts_user_id_foreign` foreign key (`user_id`) references `users` (`id`) on delete cascade</pre>
+  <p class="code-note">3 comandos: 1 create table + 1 unique + 1 FK</p>
+</div>
+</div>
+
+<p>
+  Alguns pontos do exemplo: <code>Increments</code> já traz
+  <code>not null auto_increment primary key</code> no próprio tipo;
+  <code>Timestamps</code> adiciona duas colunas de uma vez; <code>Engine</code> e
+  <code>Charset</code> só existem no <code>create</code> e saem depois do parêntese, na
+  cláusula de opções da tabela. A tradução de cada tipo está em
+  <a href="#column-types">Tipos de coluna</a>.
+</p>
+
+<h2 id="ddl-plan">O plano de DDL</h2>
+<p>
+  <code>ToSQL</code> devolve um <code>TLzNexDdlPlan</code>: um record com três listas de
+  fragmentos, não uma string. DDL não cabe num comando só — um <code>create table</code> com
+  índice e FK são vários comandos que precisam rodar em ordem.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>Pre: TLzNexFragments</code></td><td>O que tem de rodar <strong>antes</strong> do corpo. Reservado no contrato; nenhum dos dialetos atuais o usa, então vem vazio.</td></tr>
+<tr><td><code>Statements: TLzNexFragments</code></td><td>O corpo: o <code>create table</code> (sempre 1) ou os comandos de <code>alter</code> agregados (adições, alterações, drops e cada rename).</td></tr>
+<tr><td><code>Post: TLzNexFragments</code></td><td>O que depende da tabela já existir: índice, unique, FK, drop de índice e — fora do MySQL — os <code>comment on</code>.</td></tr>
+<tr><td><code>function All: TLzNexFragments</code></td><td>As três listas concatenadas na ordem Pre → Statements → Post. É o que <code>Execute</code> roda.</td></tr>
+<tr><td><code>function Count: Integer</code></td><td>Total de comandos no plano, sem montar o array.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  Os fragmentos do plano não carregam bind nenhum: em DDL o <code>default</code> é
+  interpolado e escapado no texto, porque o banco não aceita parâmetro em definição de
+  coluna.
+</p>
+
+<h2 id="tosql-execute">ToSQL inspeciona, Execute roda</h2>
+<p>
+  <code>ToSQL</code> compila e devolve — não toca na conexão. É o que você usa em teste, em
+  revisão de migration ou para imprimir o DDL antes de aplicar.
+</p>
+
+<div class="code"><pre data-lang="pascal">var
+  T: ILzNexTable;
+  P: TLzNexDdlPlan;
+  Cmds: TLzNexFragments;
+  I: Integer;
+begin
+  T := Db.Schema.CreateTable('users');
+  T.Increments('id');
+  T.Str('email', 191).NotNull.Unique;
+  T.Str('name').Index;
+
+  P := T.ToSQL;
+  Writeln(P.Count);                 // 3
+  Writeln(Length(P.Statements));    // 1
+  Writeln(Length(P.Post));          // 2
+
+  Cmds := P.All;
+  for I := 0 to High(Cmds) do
+    Writeln(Cmds[I].Text);
+end;</pre>
+<div class="code-out">
+  <div class="code-label">saída</div>
+  <pre data-lang="out">3
+1
+2
+create table `users` (`id` int unsigned not null auto_increment primary key, `email` varchar(191) not null, `name` varchar(255) null)
+alter table `users` add unique `users_email_unique`(`email`)
+alter table `users` add index `users_name_index`(`name`)</pre>
+</div>
+</div>
+
+<p>
+  <code>Execute</code> compila o mesmo plano, roda <code>All</code> comando por comando na
+  conexão e devolve <strong>quantos comandos rodaram</strong> — não quantas linhas foram
+  afetadas, que em DDL não quer dizer nada.
+</p>
+
+<div class="code"><pre data-lang="pascal">N := T.Execute;   // 3, os mesmos 3 comandos do plano acima</pre></div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">Cada um exige uma coisa diferente</span>
+    <p>
+      <code>ToSQL</code> precisa de um <code>ILzNexClient</code> (o dialeto);
+      <code>Execute</code> precisa também de um <code>ILzNex</code>. Um builder montado em
+      modo só-SQL compila mas não executa: <code>Execute</code> levanta
+      <code>ELzNexSchema</code> dizendo exatamente isso.
+    </p>
+  </div>
+</div>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">O plano não é atômico</span>
+    <p>
+      <code>Execute</code> roda os comandos em sequência, um por vez. Se o terceiro falhar, os
+      dois primeiros já foram aplicados — e em MySQL cada DDL faz commit implícito, então
+      envolver tudo numa <a href="#transactions">transação</a> não desfaz o estrago. Plano que
+      falha no meio pede correção manual ou um <code>down</code> que tolere tabela
+      parcialmente criada.
+    </p>
+  </div>
+</div>
+
+<h2 id="indexes-outside">Índice e FK nunca entram no create table</h2>
+<p>
+  Só a <strong>primary key</strong> sai inline. Todo o resto — <code>Index</code>,
+  <code>Unique</code>, <code>References</code> — vira comando separado no
+  <code>Post</code>, um por índice. A razão é prática: a sintaxe de índice e de FK inline
+  divergem entre os bancos (e em PostgreSQL o <code>create index</code> nem é parte do
+  <code>create table</code>), enquanto o <code>alter table ... add</code> é igual nos dois.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Db.Schema.CreateTable('pk1');
+T.Int('a').NotNull;
+T.Int('b').NotNull;
+T.Primary(['a', 'b']);</pre>
+<div class="code-out">
+  <div class="code-label">DDL</div>
+  <pre data-lang="sql">create table `pk1` (`a` int not null, `b` int not null, primary key (`a`, `b`))</pre>
+  <p class="code-note">1 comando: PK composta é inline, o Post fica vazio</p>
+</div>
+</div>
+
+<p>
+  Os nomes de índice e de constraint são derivados da tabela e das colunas quando você não
+  dá um — <code>posts_slug_unique</code>, <code>posts_user_id_foreign</code>. A regra de
+  formação, o <code>ConstraintName</code> e as ações de FK estão em
+  <a href="#indexes">Índices e chaves</a>.
+</p>
+
+<h2 id="next-steps">Próximos passos</h2>
+<div class="cards">
+  <a class="card" href="#column-types"><h4>Tipos de coluna →</h4><p>O que cada método vira em MySQL e em PostgreSQL.</p></a>
+  <a class="card" href="#modifiers"><h4>Modificadores →</h4><p>NotNull, default, unsigned, comment, collate, after.</p></a>
+  <a class="card" href="#indexes"><h4>Índices e chaves →</h4><p>Index, unique, primary e FK, com os nomes automáticos.</p></a>
+  <a class="card" href="#alter-table"><h4>Alterar tabela →</h4><p>Add, change, drop e rename numa tabela que já existe.</p></a>
+</div>
+</article>

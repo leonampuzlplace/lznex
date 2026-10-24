@@ -1,11 +1,5 @@
 unit LzNex.Client;
 
-{ TLzNexClientBase: dialeto base com defaults ANSI, e o registry de dialetos.
-
-  Incluir um banco novo (PostgreSQL, Firebird) = descender desta classe e
-  sobrescrever o que muda. O registry e populado no `initialization` de cada
-  unit de dialeto, entao o core nao conhece nenhum banco especifico. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -26,11 +20,9 @@ type
   TLzNexClientBase = class;
   TLzNexClientClass = class of TLzNexClientBase;
 
-  // Dialeto base. Defaults ANSI: identificador entre aspas
-  // duplas, placeholder '?', sem RETURNING.
   TLzNexClientBase = class(TInterfacedObject, ILzNexClient)
   protected
-    // Caractere de quoting de identificador. MySQL troca por backtick.
+
     function QuoteChar: string; virtual;
   public
     function DialectName: string; virtual; abstract;
@@ -52,43 +44,28 @@ type
     function Components(const AMethod: TLzNexQueryMethod): TLzNexComponents; virtual;
     function InvalidComponents(const AMethod: TLzNexQueryMethod): TLzNexComponents; virtual;
 
-    // Fabricas: abstratas de proposito. As units de compiler usam esta unit,
-    // entao esta unit NAO pode usa-las de volta (seria ciclo). Cada unit de
-    // dialeto, que conhece as duas, implementa.
     function NewCompiler: ILzNexCompiler; virtual; abstract;
     function NewSchemaCompiler: ILzNexSchemaCompiler; virtual; abstract;
   end;
 
-// Registra um dialeto pelo nome ('mysql', 'postgresql').
-// Chamado no initialization da unit do dialeto.
 procedure RegisterClient(const AName: string; const AClass: TLzNexClientClass);
 
-// Instancia o dialeto pelo nome. Levanta se nao registrado,
-// listando os disponiveis (o erro diz o que fazer: dar `uses` na unit).
 function CreateClient(const AName: string): ILzNexClient;
 
-// Se o dialeto esta disponivel.
 function IsClientRegistered(const AName: string): Boolean;
 
-// Nomes dos dialetos registrados, separados por vírgula.
 function RegisteredClients: string;
 
-// Valida o operador contra a whitelist e normaliza o caso.
-// Operador fora da lista levanta: fecha a porta para injecao via operador.
 function NormalizeOperator(const AOp: string): string;
 
-// Quebra 'schema.tabela.coluna' nos segmentos.
 function SplitQualified(const AName: string): TLzNexStringArray;
 
-// Posicao do ' as ' (case-insensitive) ou 0 se nao houver.
 function FindAliasSeparator(const AName: string): Integer;
 
 implementation
 
 var
   GClients: TDictionary<string, TLzNexClientClass>;
-
-{ TLzNexClientBase }
 
 function TLzNexClientBase.QuoteChar: string;
 begin
@@ -104,7 +81,7 @@ begin
     Exit(N);
 
   Q := QuoteChar;
-  // Dobra o caractere de quoting dentro do nome -- e o escape padrao em SQL.
+
   Result := Q + StringReplace(N, Q, Q + Q, [rfReplaceAll]) + Q;
 end;
 
@@ -152,8 +129,7 @@ end;
 
 function TLzNexClientBase.Placeholder(const AIndex: Integer): string;
 begin
-  // O Zeos aceita '?' posicional em MySQL, PostgreSQL e Firebird, entao o indice
-  // e ignorado aqui. O hook existe para dialeto que precise de $1/:1.
+
   Result := LZNEX_PLACEHOLDER;
 end;
 
@@ -181,7 +157,7 @@ begin
     vkIdentifier:
       Result := WrapQualified(AValue.Text);
   else
-    // String e o resto: dobra a aspa simples. SO para log -- execucao usa bind.
+
     Result := QuotedStr(AValue.AsString);
   end;
 end;
@@ -241,8 +217,7 @@ function TLzNexClientBase.InvalidComponents(
 begin
   case AMethod of
     qmDelete:
-      // ANSI nao aceita HAVING nem LIMIT em DELETE. MySQL aceita LIMIT e
-      // sobrescreve isto.
+
       Result := TLzNexComponents.Create(cpHaving, cpGroup, cpLimit);
     qmUpdate:
       Result := TLzNexComponents.Create(cpHaving, cpGroup);
@@ -252,8 +227,6 @@ begin
     Result := nil;
   end;
 end;
-
-{ registry }
 
 procedure RegisterClient(const AName: string; const AClass: TLzNexClientClass);
 begin
@@ -298,7 +271,7 @@ var
   I: Integer;
 begin
   Norm := LowerCase(Trim(AOp));
-  // Normaliza espaco interno: 'not  like' -> 'not like'.
+
   while Pos('  ', Norm) > 0 do
     Norm := StringReplace(Norm, '  ', ' ', [rfReplaceAll]);
 
@@ -327,9 +300,7 @@ function FindAliasSeparator(const AName: string): Integer;
 var
   I, L: Integer;
 begin
-  // Busca ' as ' sem alocar lower-case da string inteira.
-  // Devolve a posicao do ESPACO que abre o separador, entao a expressao e
-  // Copy(1, pos-1) e o alias comeca em pos+4 (o separador tem 4 caracteres).
+
   Result := 0;
   L := Length(AName);
   for I := 1 to L - 3 do

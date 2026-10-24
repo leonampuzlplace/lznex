@@ -1,0 +1,262 @@
+<article>
+<h1>Schema</h1>
+<p class="subtitle">
+  Referência de <code>ILzNexSchema</code>, <code>ILzNexTable</code> e das duas interfaces de
+  definição que o compilador de DDL lê.
+</p>
+
+<h2 id="ilznexschema">ILzNexSchema</h2>
+<p>
+  Ponto de entrada do DDL, obtido em <code>Db.Schema</code>. <code>CreateTable</code> devolve um
+  builder em modo <em>create</em> e <code>Table</code> um builder em modo <em>alter</em> — é o
+  <code>TableMethod</code> que decide quais métodos são válidos adiante.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function WithSchema(const AName: string): ILzNexSchema</code></td><td>Fixa o schema/catálogo usado pelas tabelas criadas <strong>depois</strong> desta chamada. Altera o próprio builder e devolve ele mesmo.</td></tr>
+<tr><td><code>function CreateTable(const AName: string): ILzNexTable</code></td><td>Builder em modo create. Nome vazio levanta <code>ELzNexSchema</code>.</td></tr>
+<tr><td><code>function Table(const AName: string): ILzNexTable</code></td><td>Builder em modo alter da tabela existente.</td></tr>
+<tr><td><code>function HasTable(const AName: string): Boolean</code></td><td>Consulta <code>information_schema.tables</code> com a tabela (e o schema, se houver) como bind.</td></tr>
+<tr><td><code>function HasColumn(const ATable, AColumn: string): Boolean</code></td><td>O mesmo em <code>information_schema.columns</code>.</td></tr>
+<tr><td><code>procedure DropTable(const AName: string)</code></td><td><code>drop table</code>. Tabela ausente é erro do banco.</td></tr>
+<tr><td><code>procedure DropTableIfExists(const AName: string)</code></td><td><code>drop table if exists</code>.</td></tr>
+<tr><td><code>procedure RenameTable(const AFrom, ATo: string)</code></td><td>Renomeia pelo SQL do dialeto.</td></tr>
+<tr><td><code>procedure Truncate(const AName: string)</code></td><td><code>truncate table</code>.</td></tr>
+<tr><td><code>procedure Raw(const ASQL: string; const AArgs: array of const)</code></td><td>Escapatória: manda o DDL direto pela fachada, com a mesma gramática de binds do <a href="#raw-sql">SQL cru</a>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">Tudo aqui precisa de conexão</span>
+    <p>
+      Um <code>ILzNexSchema</code> criado em modo somente-SQL (sem <code>ILzNex</code>) ainda
+      monta builders e gera DDL por <code>ToSQL</code>, mas <code>HasTable</code>,
+      <code>DropTable</code>, <code>Raw</code> e companhia levantam
+      <code>ELzNexSchema</code> por não terem onde executar.
+    </p>
+  </div>
+</div>
+
+<h2 id="ilznextable">ILzNexTable</h2>
+<p>
+  Um builder só, usado tanto para <code>create table</code> quanto para
+  <code>alter table</code>. Todos os métodos devolvem <code>ILzNexTable</code> para encadear.
+</p>
+
+<h3 id="columns">Colunas</h3>
+<p>
+  Cada chamada empurra uma coluna nova e passa a ser a <em>última coluna</em>, que é o alvo dos
+  modificadores da subtabela seguinte. Toda coluna nasce <code>nullable</code>; as duas de
+  incremento são a exceção.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Increments(const AName: string = 'id'): ILzNexTable</code></td><td>Inteiro auto-incremento. Já vem not null, unsigned, auto-increment e chave primária.</td></tr>
+<tr><td><code>function BigIncrements(const AName: string = 'id'): ILzNexTable</code></td><td>O mesmo em 64 bits.</td></tr>
+<tr><td><code>function TinyInt(const AName: string): ILzNexTable</code></td><td>Inteiro pequeno.</td></tr>
+<tr><td><code>function SmallInt(const AName: string): ILzNexTable</code></td><td>Inteiro pequeno.</td></tr>
+<tr><td><code>function Int(const AName: string): ILzNexTable</code></td><td>Inteiro.</td></tr>
+<tr><td><code>function BigInt(const AName: string): ILzNexTable</code></td><td>Inteiro de 64 bits.</td></tr>
+<tr><td><code>function Bool(const AName: string): ILzNexTable</code></td><td>Booleano.</td></tr>
+<tr><td><code>function Decimal(const AName: string; const APrecision: Integer = 8; const AScale: Integer = 2): ILzNexTable</code></td><td>Decimal exato. Precisão &lt;= 0 gera <code>decimal</code> sem parâmetro.</td></tr>
+<tr><td><code>function Float(const AName: string): ILzNexTable</code></td><td>Ponto flutuante simples.</td></tr>
+<tr><td><code>function Double(const AName: string): ILzNexTable</code></td><td>Ponto flutuante duplo.</td></tr>
+<tr><td><code>function Char_(const AName: string; const ALength: Integer = 255): ILzNexTable</code></td><td>Texto de largura fixa. O sublinhado existe porque <code>char</code> é palavra reservada.</td></tr>
+<tr><td><code>function Str(const AName: string; const ALength: Integer = 255): ILzNexTable</code></td><td><code>varchar</code>.</td></tr>
+<tr><td><code>function Text(const AName: string): ILzNexTable</code></td><td>Texto longo.</td></tr>
+<tr><td><code>function MediumText(const AName: string): ILzNexTable</code></td><td>Texto médio.</td></tr>
+<tr><td><code>function LongText(const AName: string): ILzNexTable</code></td><td>Texto muito longo.</td></tr>
+<tr><td><code>function Binary(const AName: string; const ALength: Integer = 0): ILzNexTable</code></td><td>Binário de largura fixa.</td></tr>
+<tr><td><code>function Blob(const AName: string): ILzNexTable</code></td><td>Binário longo.</td></tr>
+<tr><td><code>function Date(const AName: string): ILzNexTable</code></td><td>Data.</td></tr>
+<tr><td><code>function Time(const AName: string): ILzNexTable</code></td><td>Hora.</td></tr>
+<tr><td><code>function DateTime(const AName: string): ILzNexTable</code></td><td>Data e hora.</td></tr>
+<tr><td><code>function Timestamp(const AName: string): ILzNexTable</code></td><td>Timestamp.</td></tr>
+<tr><td><code>function Json(const AName: string): ILzNexTable</code></td><td>Documento JSON.</td></tr>
+<tr><td><code>function Uuid(const AName: string): ILzNexTable</code></td><td>UUID. Onde não há tipo nativo, cai em texto de 36.</td></tr>
+<tr><td><code>function Enum(const AName: string; const AItems: array of string): ILzNexTable</code></td><td>Lista fechada de valores. Lista vazia levanta <code>ELzNexSchema</code>.</td></tr>
+<tr><td><code>function Specific(const AName, ATypeSQL: string): ILzNexTable</code></td><td>Tipo escrito à mão, interpolado como está no DDL. Tipo vazio levanta.</td></tr>
+<tr><td><code>function Timestamps(const ADefaultNow: Boolean = True): ILzNexTable</code></td><td>Cria <code>created_at</code> e <code>updated_at</code>. Com <code>True</code> as duas ficam not null com default <code>CURRENT_TIMESTAMP</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="modifiers">Modificadores</h3>
+<p>
+  Agem sobre a <strong>última coluna adicionada</strong> — não há parâmetro de coluna. Chamados
+  sem coluna anterior (ou depois de um <code>DropColumn</code>/<code>RenameColumn</code>, que
+  limpam a referência) levantam <code>ELzNexSchema</code> com o nome do modificador.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function NotNull: ILzNexTable</code></td><td>Remove o <code>nullable</code> que toda coluna recebe ao nascer.</td></tr>
+<tr><td><code>function Nullable: ILzNexTable</code></td><td>Devolve o <code>nullable</code> (útil depois de um <code>NotNull</code>).</td></tr>
+<tr><td><code>function Unsigned: ILzNexTable</code></td><td>Sem sinal, onde o dialeto suporta.</td></tr>
+<tr><td><code>function Default_(const AValue: TLzNexValue): ILzNexTable</code></td><td>Default literal. Um <code>TLzNexValue</code> não setado levanta — para NULL explícito use <code>TLzNexValue.Null</code>.</td></tr>
+<tr><td><code>function DefaultRaw(const ASQL: string): ILzNexTable</code></td><td>Default como expressão SQL (<code>CURRENT_TIMESTAMP</code>, <code>uuid_generate_v4()</code>). SQL vazio levanta.</td></tr>
+<tr><td><code>function Comment(const AText: string): ILzNexTable</code></td><td>Comentário da coluna. Em dialeto sem comentário inline, vira statement separado no plano.</td></tr>
+<tr><td><code>function Collate(const AName: string): ILzNexTable</code></td><td>Collation da coluna.</td></tr>
+<tr><td><code>function After(const AColumn: string): ILzNexTable</code></td><td>Posiciona a coluna, onde o dialeto suporta.</td></tr>
+<tr><td><code>function Primary: ILzNexTable</code></td><td>Entra a última coluna na chave primária. Chamadas repetidas <strong>acumulam</strong> no mesmo índice primário em vez de criar vários.</td></tr>
+<tr><td><code>function Unique: ILzNexTable</code></td><td>Índice único de uma coluna.</td></tr>
+<tr><td><code>function Index: ILzNexTable</code></td><td>Índice comum de uma coluna.</td></tr>
+<tr><td><code>function Change: ILzNexTable</code></td><td>Marca a coluna como alteração em vez de inclusão. Só em modo alter.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="foreign-keys-and-indexes">Chave estrangeira e índices</h3>
+<p>
+  <code>References</code> abre uma FK sobre a última coluna e passa a ser o alvo de
+  <code>InTable</code>, <code>OnDelete</code> e <code>OnUpdate</code>. Os métodos com lista de
+  colunas criam índices independentes da coluna corrente.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function References(const AColumn: string): ILzNexTable</code></td><td>Coluna referenciada. Aceita <code>'users.id'</code>, que já preenche a tabela.</td></tr>
+<tr><td><code>function InTable(const ATable: string): ILzNexTable</code></td><td>Tabela referenciada. Sem <code>References</code> antes, levanta.</td></tr>
+<tr><td><code>function OnDelete(const AAction: string): ILzNexTable</code></td><td>Ação de exclusão. A lista é fechada: <code>cascade</code>, <code>restrict</code>, <code>set null</code>, <code>no action</code>, <code>set default</code> — ela é interpolada no DDL, não vira bind.</td></tr>
+<tr><td><code>function OnUpdate(const AAction: string): ILzNexTable</code></td><td>O mesmo na atualização.</td></tr>
+<tr><td><code>function ConstraintName(const AName: string): ILzNexTable</code></td><td>Nome explícito para o último índice ou FK, no lugar do nome derivado.</td></tr>
+<tr><td><code>function Primary(const AColumns: array of string): ILzNexTable</code></td><td>Chave primária composta. Lista vazia levanta.</td></tr>
+<tr><td><code>function Unique(const AColumns: array of string): ILzNexTable</code></td><td>Índice único composto.</td></tr>
+<tr><td><code>function Index(const AColumns: array of string): ILzNexTable</code></td><td>Índice composto.</td></tr>
+<tr><td><code>function DropColumn(const AName: string): ILzNexTable</code></td><td>Remove coluna. Só em alter.</td></tr>
+<tr><td><code>function DropIndex(const AColumns: array of string): ILzNexTable</code></td><td>Remove índice pelo nome derivado das colunas. Só em alter.</td></tr>
+<tr><td><code>function DropUnique(const AColumns: array of string): ILzNexTable</code></td><td>Remove índice único. Só em alter.</td></tr>
+<tr><td><code>function DropForeign(const AColumns: array of string): ILzNexTable</code></td><td>Remove FK. Só em alter.</td></tr>
+<tr><td><code>function DropPrimary: ILzNexTable</code></td><td>Remove a chave primária. Só em alter.</td></tr>
+<tr><td><code>function RenameColumn(const AFrom, ATo: string): ILzNexTable</code></td><td>Renomeia coluna. Só em alter; os dois nomes são obrigatórios.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="table-options">Opções de tabela</h3>
+<p>
+  Valem apenas em <code>create table</code>: num builder em modo alter levantam
+  <code>ELzNexSchema</code>, porque opção de tabela não pertence a um alter aqui. Dialeto que não
+  conhece a opção simplesmente a ignora na compilação.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Engine(const AName: string): ILzNexTable</code></td><td>Engine de armazenamento.</td></tr>
+<tr><td><code>function Charset(const AName: string): ILzNexTable</code></td><td>Charset da tabela.</td></tr>
+<tr><td><code>function TableCollate(const AName: string): ILzNexTable</code></td><td>Collation da tabela. O nome difere de <code>Collate</code>, que é da coluna.</td></tr>
+<tr><td><code>function TableComment(const AText: string): ILzNexTable</code></td><td>Comentário da tabela.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="terminals">Terminais</h3>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function ToSQL: TLzNexDdlPlan</code></td><td>Compila sem executar. Devolve o plano com <code>Pre</code>, <code>Statements</code> e <code>Post</code> — um DDL pode precisar de mais de um comando.</td></tr>
+<tr><td><code>function Execute: Integer</code></td><td>Executa <code>ToSQL.All</code> em ordem, na mesma conexão, e devolve quantos comandos rodaram. Num builder sem <code>ILzNex</code> levanta <code>ELzNexSchema</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Execute não é atômico por conta própria</span>
+    <p>
+      Os comandos do plano vão um a um. Em dialeto onde DDL dá commit implícito
+      (<code>DdlIsTransactional</code> falso), falhar no terceiro comando deixa os dois primeiros
+      aplicados — envolver numa transação não desfaz. Veja
+      <a href="#migrations">migrations</a>.
+    </p>
+  </div>
+</div>
+
+<h3 id="reading">Leitura</h3>
+<p>
+  Estes métodos existem para o compilador de DDL: é por eles que um
+  <code>ILzNexSchemaCompiler</code> lê o que o builder acumulou. Também servem para testar o
+  builder sem banco.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function TableName: string</code></td><td>Nome da tabela, sem quote.</td></tr>
+<tr><td><code>function SchemaName: string</code></td><td>Schema herdado do <code>WithSchema</code>, ou vazio.</td></tr>
+<tr><td><code>function TableMethod: TLzNexTableMethod</code></td><td><code>tmCreate</code> ou <code>tmAlter</code> — decide qual rotina do compilador roda.</td></tr>
+<tr><td><code>function ColumnCount: Integer</code></td><td>Quantidade de colunas acumuladas, incluindo as marcadas como drop.</td></tr>
+<tr><td><code>function ColumnAt(const AIndex: Integer): ILzNexColumnDef</code></td><td>Coluna na ordem de inclusão. Índice fora da faixa levanta.</td></tr>
+<tr><td><code>function IndexCount: Integer</code></td><td>Quantidade de índices e FKs.</td></tr>
+<tr><td><code>function IndexAt(const AIndex: Integer): ILzNexIndexDef</code></td><td>Índice ou FK na ordem de inclusão.</td></tr>
+<tr><td><code>function RenamedColumns: TLzNexNamedValues</code></td><td>Pares nome antigo → nome novo registrados por <code>RenameColumn</code>.</td></tr>
+<tr><td><code>function EngineName: string</code></td><td>Engine pedida, ou vazio.</td></tr>
+<tr><td><code>function CharsetName: string</code></td><td>Charset pedido, ou vazio.</td></tr>
+<tr><td><code>function CollateName: string</code></td><td>Collation da tabela, ou vazio.</td></tr>
+<tr><td><code>function CommentText: string</code></td><td>Comentário da tabela, ou vazio.</td></tr>
+<tr><td><code>function Client: ILzNexClient</code></td><td>Dialeto do builder. <code>ToSQL</code> sem dialeto levanta.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="defs">ILzNexColumnDef e ILzNexIndexDef</h2>
+<p>
+  São as duas interfaces que o compilador de DDL consome: o builder só acumula, e quem traduz
+  tipo, modificador e índice para texto é o <code>ILzNexSchemaCompiler</code> do dialeto. Interessam
+  a quem escreve um dialeto novo — veja <a href="#dialects">dialetos</a>. Quem apenas usa o schema
+  não toca nelas.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function ColumnName: string</code></td><td>Nome da coluna, sem quote.</td></tr>
+<tr><td><code>function ColumnType: TLzNexColumnType</code></td><td>Tipo lógico. O compilador traduz em <code>ColumnTypeSQL</code>.</td></tr>
+<tr><td><code>function Param1: Integer</code></td><td>Primeiro parâmetro do tipo: comprimento, ou precisão no decimal.</td></tr>
+<tr><td><code>function Param2: Integer</code></td><td>Segundo parâmetro: escala do decimal.</td></tr>
+<tr><td><code>function EnumItems: TLzNexValues</code></td><td>Itens do enum. Vazio nos outros tipos.</td></tr>
+<tr><td><code>function SpecificType: string</code></td><td>Texto do tipo em <code>ctSpecific</code>.</td></tr>
+<tr><td><code>function HasModifier(const AMod: TLzNexColumnModifier): Boolean</code></td><td>Consulta um modificador. O compilador percorre <code>ModifierOrder</code> chamando isto.</td></tr>
+<tr><td><code>function DefaultValue: TLzNexValue</code></td><td>Default. Pode ser um valor, um <code>vkRaw</code> (de <code>DefaultRaw</code>) ou não setado.</td></tr>
+<tr><td><code>function CommentText: string</code></td><td>Comentário da coluna.</td></tr>
+<tr><td><code>function CollateName: string</code></td><td>Collation da coluna.</td></tr>
+<tr><td><code>function AfterColumn: string</code></td><td>Coluna de referência do <code>After</code>.</td></tr>
+<tr><td><code>function IsChange: Boolean</code></td><td>Verdadeiro quando vem de <code>Change</code>: é alteração, não inclusão.</td></tr>
+<tr><td><code>function IsDrop: Boolean</code></td><td>Verdadeiro quando vem de <code>DropColumn</code>. Nesse caso só o nome importa.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  <code>ILzNexIndexDef</code> cobre índice, único, primária e FK no mesmo formato — é o
+  <code>IndexKind</code> que diferencia, e os quatro campos de referência só vêm preenchidos em
+  <code>ixForeign</code>.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function IndexKind: TLzNexIndexKind</code></td><td><code>ixIndex</code>, <code>ixUnique</code>, <code>ixPrimary</code> ou <code>ixForeign</code>.</td></tr>
+<tr><td><code>function Columns: TLzNexValues</code></td><td>Colunas locais, como identificadores. Vazio num <code>DropPrimary</code>.</td></tr>
+<tr><td><code>function IndexNameOverride: string</code></td><td>Nome vindo de <code>ConstraintName</code>. Vazio significa "derive o nome".</td></tr>
+<tr><td><code>function RefTable: string</code></td><td>Tabela referenciada. Vazio fora de FK.</td></tr>
+<tr><td><code>function RefColumns: TLzNexValues</code></td><td>Colunas referenciadas.</td></tr>
+<tr><td><code>function OnDeleteAction: string</code></td><td>Ação de exclusão, já normalizada em minúsculas.</td></tr>
+<tr><td><code>function OnUpdateAction: string</code></td><td>Ação de atualização, já normalizada.</td></tr>
+<tr><td><code>function IsDrop: Boolean</code></td><td>Verdadeiro nos <code>Drop*</code>: o compilador emite a remoção em vez da criação.</td></tr>
+</tbody>
+</table>
+</div>
+</article>

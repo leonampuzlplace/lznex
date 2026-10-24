@@ -1,0 +1,332 @@
+<article>
+<h1>Pool e threads</h1>
+<p class="subtitle">
+  Uma conexão por operação, emprestada e devolvida sozinha. O que muda quando o
+  código roda dentro de um servidor que atende cada requisição numa thread.
+</p>
+
+<h2 id="why">Por que um pool próprio</h2>
+<p>
+  O LzNex fala com o banco através do Zeos, e uma <code>IZConnection</code> do Zeos
+  <strong>não pode ser compartilhada entre threads</strong>: o estado de protocolo é um só
+  (statement preparado, resultset corrente, nível de transação). Duas threads usando a mesma
+  conexão embaralham esse estado — o sintoma vai de resultado trocado a erro de protocolo.
+</p>
+<p>
+  Ao mesmo tempo, um servidor HTTP em FPC atende <strong>cada conexão numa thread</strong>. Ou seja:
+  concorrência não é opcional, é o modo normal de operação. Abrir uma conexão nova por
+  requisição resolveria o isolamento, mas paga TCP, handshake e autenticação a cada chamada.
+</p>
+<p>
+  O pool é a saída: um conjunto de conexões reutilizáveis, cada uma emprestada a uma única
+  thread de cada vez. Quem atende a requisição recebe uma conexão exclusiva pelo tempo da
+  operação e devolve depois.
+</p>
+
+<h2 id="guarantees">As duas garantias</h2>
+<p>
+  Tudo o que o pool promete cabe em duas frases, e as duas são verificadas pela suíte de
+  concorrência.
+</p>
+
+<div class="cards">
+  <a class="card" href="#pool/normal-use"><h4>Devolução automática →</h4><p>A conexão volta no destrutor do empréstimo. Não existe chamada de devolução para esquecer — nem no caminho de exceção.</p></a>
+  <a class="card" href="#pool/configuration"><h4>Teto respeitado →</h4><p>Nunca mais que <code>max</code> conexões abertas. Com todas ocupadas, <code>Acquire</code> espera; estourar o timeout levanta <code>ELzNexPool</code> com diagnóstico.</p></a>
+</div>
+
+<p>
+  O empréstimo é um <code>ILzNexConnection</code> que embrulha a conexão real. Quando a última
+  referência morre, o destrutor devolve a conexão de dentro ao pool. É só isso: não há
+  <code>Release</code> público para chamar, nem <code>try/finally</code> para montar. Se uma exceção
+  sobe no meio da query, a conexão volta no desempilhamento.
+</p>
+<p>
+  Na devolução, o pool ainda verifica o estado da conexão: se ficou com transação aberta, faz
+  <code>Rollback</code>; se está fechada ou deu erro na verificação, descarta em vez de devolver
+  uma conexão suja ao próximo que pedir.
+</p>
+
+<div class="code"><pre data-lang="out">ELzNexPool: Pool exhausted: 8 connections in total (max 8), 8 in use.
+Waited 30000 ms and none was returned. Either max is too low, or some
+ILzNexConnection is being kept alive beyond the request scope.</pre></div>
+
+<p>
+  A mensagem é assim de propósito: diz o tamanho atual, o teto, quantas estão em uso e quanto
+  esperou. Com esses quatro números dá para separar as duas causas possíveis — <code>max</code>
+  baixo para a carga, ou alguém segurando um <code>ILzNexConnection</code> além do escopo da
+  requisição.
+</p>
+
+<h2 id="configuration">Configuração</h2>
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Pool(const AMin, AMax: Integer): ILzNexConfig</code></td><td>Mínimo aberto no <code>Connect</code> e teto de conexões simultâneas.</td></tr>
+<tr><td><code>function AcquireTimeout(const AMilliseconds: Integer): ILzNexConfig</code></td><td>Quanto <code>Acquire</code> espera por uma conexão livre antes de levantar.</td></tr>
+<tr><td><code>function Size: Integer</code></td><td>Total de conexões que o pool controla (ociosas + em uso).</td></tr>
+<tr><td><code>function InUse: Integer</code></td><td>Quantas estão emprestadas agora.</td></tr>
+<tr><td><code>procedure Shutdown</code></td><td>Fecha as ociosas e encerra o pool.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="code"><pre data-lang="pascal">Db := Connect(NewConfig
+  .Client('mysql')
+  .Host('mysql').Port(3306).Database('lznex')
+  .User('root').Password('secret')
+  .LibraryLocation('/usr/lib/x86_64-linux-gnu/libmariadb.so.3')
+  .Pool(2, 8)
+  .AcquireTimeout(30000));
+
+Writeln(Db.Pool.Size, ' conexoes, ', Db.Pool.InUse, ' em uso');</pre></div>
+
+<p>
+  <code>min</code> é aberto já no <code>Connect</code>: a primeira requisição não paga o custo de
+  abrir. <code>max</code> é limite rígido — o pool nunca abre a de número <code>max + 1</code>, só
+  espera. Os padrões são <code>Pool(2, 10)</code> e <code>AcquireTimeout(30000)</code>; a
+  espera é em passos de 5 ms, não é busy loop.
+</p>
+<p>
+  <code>min</code> maior que <code>max</code>, <code>max</code> menor que 1 ou <code>min</code>
+  negativo levantam <code>ELzNexConfig</code> na criação do pool, não na primeira query. Veja
+  <a href="#configuration">Configuração</a> para o arquivo JSON e as variáveis de ambiente
+  equivalentes.
+</p>
+
+<h2 id="normal-use">No uso normal ninguém toca no pool</h2>
+<p>
+  <code>Db.Pool</code> existe para diagnóstico e para teste. No código de aplicação você não
+  chama <code>Acquire</code>: cada operação terminal da query pega uma conexão, usa e devolve.
+  Uma conexão por operação.
+</p>
+
+<div class="code"><pre data-lang="pascal">// cada linha pega e devolve uma conexao, por conta propria
+Db.Table('users').Count;
+Db.Table('users').Where('id', 1).Value('name');
+Db.Table('users').Insert(Vals(['name', 'Ana']));</pre></div>
+
+<p>
+  <code>InsertGetId</code> é o caso que exige cuidado, e é tratado: ele pega a conexão
+  <strong>uma vez</strong> e roda o <code>insert</code> e o <code>LastInsertId</code>
+  <strong>na mesma</strong> conexão. Se fossem duas, o id voltaria de outra sessão — em
+  concorrência, o id de outra thread.
+</p>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Cursor aberto segura o empréstimo</span>
+    <p>
+      <code>Get</code> devolve um <code>ILzNexResult</code> que carrega o empréstimo junto: a
+      conexão só volta ao pool quando o cursor é liberado. Um resultset guardado num campo de
+      classe prende uma conexão pelo tempo de vida do objeto. Consuma o cursor e solte-o
+      (<code>R := nil</code>), ou use <code>ToRows</code> para materializar as linhas e liberar
+      a conexão.
+    </p>
+  </div>
+</div>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">No FPC 3.2.2 o temporário de interface só morre no fim da rotina</span>
+    <p>
+      Várias operações dentro de <strong>uma mesma</strong> rotina acumulam empréstimos: cada
+      temporário de <code>ILzNexConnection</code> só é liberado quando a rotina retorna. O
+      sintoma é <code>InUse</code> subindo num laço longo e, no limite, pool esgotado. A solução
+      é escopo: cada passo numa rotina sua, como no diagnóstico
+      <code>tests/DiagPool.lpr</code>.
+    </p>
+  </div>
+</div>
+
+<h2 id="thread-rules">Regras para código multi-thread</h2>
+<ul>
+  <li>
+    <strong>Uma facade por processo.</strong> O <code>ILzNex</code> devolvido por
+    <code>Connect</code> é compartilhável entre threads — ele é a porta do pool, não uma
+    conexão. Abrir uma facade por requisição significa abrir um pool por requisição.
+  </li>
+  <li>
+    <strong>Nunca uma conexão global compartilhada.</strong> Não guarde o resultado de
+    <code>Db.Connection</code> numa variável global, num singleton ou num campo de longa vida:
+    isso é exatamente o <code>IZConnection</code> compartilhado que o pool existe para evitar — e
+    de quebra prende o empréstimo para sempre.
+  </li>
+  <li>
+    <strong>Query e transação não atravessam thread.</strong> Monte, execute e descarte na
+    mesma thread. Um <code>ILzNexQuery</code> ou <code>ILzNexTransaction</code> passado para outra
+    thread leva consigo a conexão emprestada.
+  </li>
+  <li>
+    <strong><code>cthreads</code> no início do <code>uses</code> em Unix.</strong> Sem ela o RTL
+    não inicializa o suporte a threads e a seção crítica do pool não protege nada. Precisa ser a
+    <strong>primeira</strong> unit do programa.
+  </li>
+  <li>
+    <strong>Cursor aberto segura o empréstimo.</strong> Vale repetir aqui: um
+    <code>ILzNexResult</code> vivo é uma conexão fora do pool.
+  </li>
+</ul>
+
+<div class="code"><pre data-lang="pascal">program Api;
+
+{$MODE DELPHI}{$H+}
+
+uses
+  {$IFDEF UNIX}{$IFDEF UseCThreads}
+  cthreads,
+  {$ENDIF}{$ENDIF}
+  SysUtils,
+  Horse,
+  LzNex,
+  LzNex.Client.MySQL;</pre></div>
+
+<h2 id="test-suite">O que a suíte de concorrência verifica</h2>
+<p>
+  <code>tests/Test.Concurrency.pas</code> roda contra um MySQL real (precisa de
+  <code>LZNEX_IT</code> no ambiente, senão os testes são ignorados). Cinco perguntas:
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Teste</th><th>O que prova</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>MixedOperationsDoNotInterleave</code></td>
+  <td>
+    8 threads × 15 voltas de <code>InsertGetId</code> + <code>Value</code> +
+    <code>Update</code> + <code>Count</code> + transação. Cada thread confere se o id que
+    recebeu aponta para <strong>a linha dela</strong> (a tag gravada tem que ser a dela). No fim,
+    a contagem total e a contagem por worker batem no número exato.
+  </td>
+</tr>
+<tr>
+  <td><code>ParallelTransactionsAreIsolated</code></td>
+  <td>
+    Uma thread abre transação, insere e <strong>não</strong> commita. A thread principal conta
+    essas linhas e tem que ver zero: dado não commitado não vaza para outra conexão. Depois do
+    <code>Rollback</code>, continua zero.
+  </td>
+</tr>
+<tr>
+  <td><code>PoolReleasesEveryConnection</code></td>
+  <td>
+    Depois de 6 threads de carga, <code>Pool.InUse = 0</code> e <code>Pool.Size &lt;= 8</code>:
+    nada ficou preso e o teto foi respeitado.
+  </td>
+</tr>
+<tr>
+  <td><code>MoreThreadsThanConnectionsStillWorks</code></td>
+  <td>
+    12 threads com <code>Pool(2, 3)</code>. Todas terminam sem erro e com os ids corretos — a
+    espera limitada funciona. O pool esgotado de verdade levanta <code>ELzNexPool</code> com o
+    diagnóstico acima.
+  </td>
+</tr>
+<tr>
+  <td><code>OpenCursorHoldsItsLease</code></td>
+  <td>
+    Dois <code>Get</code> abertos ao mesmo tempo marcam <code>InUse = 2</code>; anular o
+    primeiro cursor volta para 1, anular o segundo volta para 0.
+  </td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">A conexão volta no Commit/Rollback, não no fim do procedimento</span>
+    <p>
+      O worker do teste abre e fecha uma transação por volta do laço e anula o
+      <code>ILzNexTransaction</code> no <code>finally</code>. Isso importa porque, no FPC 3.2.2, se
+      a devolução dependesse do fim da rotina, um laço de 15 voltas prenderia 15 conexões.
+      Encerrar a transação (<code>Commit</code> ou <code>Rollback</code>) é o que libera.
+    </p>
+  </div>
+</div>
+
+<h2 id="server">Servidor: uma facade, uma conexão por requisição</h2>
+<p>
+  O exemplo em <code>example/api/src/Api.lpr</code> é o molde: a facade é global e aberta uma
+  vez; cada handler usa <code>Db.Table(...)</code> normalmente e cada requisição acaba com uma
+  conexão emprestada e devolvida.
+</p>
+
+<div class="code"><pre data-lang="pascal">var
+  // uma facade para o processo inteiro -- nunca uma conexao global
+  Db: ILzNex;
+
+procedure OpenDatabase;
+begin
+  Db := Connect(NewConfig
+    .Client('mysql')
+    .Host(EnvOr('DB_HOST', 'mysql'))
+    .Port(StrToIntDef(EnvOr('DB_PORT', '3306'), 3306))
+    .Database(EnvOr('DB_NAME', 'lznex'))
+    .User(EnvOr('DB_USER', 'root'))
+    .Password(EnvOr('DB_PASS', 'secret'))
+    .LibraryLocation(EnvOr('DB_LIB', '/usr/lib/x86_64-linux-gnu/libmariadb.so.3'))
+    .Charset('utf8mb4')
+    .Pool(2, 8));
+end;
+
+procedure GetUsers(Req: THorseRequest; Res: THorseResponse);
+var
+  Rows: ILzNexResult;
+begin
+  try
+    // esta thread pega uma conexao aqui e devolve quando Rows morrer
+    Rows := Db.Table('users')
+      .Select(['id', 'name', 'email'])
+      .OrderBy('id')
+      .Limit(20)
+      .Get;
+    Res.Status(200).ContentType('application/json').Send(Rows.ToJSON);
+  except
+    on E: Exception do
+      Res.Status(500).ContentType('application/json')
+         .Send('{"error":' + JsonQuote(E.Message) + '}');
+  end;
+end;
+
+begin
+  OpenDatabase;
+  THorse.Get('/users', GetUsers);
+  try
+    THorse.Listen(9000);
+  finally
+    Db.Shutdown;
+    Db := nil;
+  end;
+end.</pre></div>
+
+<p>
+  Dimensionar <code>max</code> é um cálculo de banco, não de servidor: ele precisa caber no
+  <code>max_connections</code> do MySQL ou no <code>max_connections</code> do PostgreSQL,
+  somado ao que os outros processos já usam. Threads além de <code>max</code> não falham —
+  esperam.
+</p>
+
+<h2 id="shutdown">Shutdown</h2>
+<p>
+  <code>Shutdown</code> marca o pool como encerrado e fecha as conexões ociosas. As que estão
+  emprestadas naquele instante continuam funcionando até serem devolvidas — e aí são fechadas em
+  vez de voltar para a lista. Depois disso, qualquer <code>Acquire</code> levanta:
+</p>
+
+<div class="code"><pre data-lang="out">ELzNexPool: Pool already shut down: Acquire after Shutdown</pre></div>
+
+<p>
+  Chame no <code>finally</code> do <code>Listen</code>, como no exemplo. O destrutor da facade
+  também chama <code>Shutdown</code>, mas depender dele significa depender da ordem de finalização
+  das units — explícito é melhor.
+</p>
+
+<div class="cards">
+  <a class="card" href="#transactions"><h4>Transações →</h4><p>Escopo, savepoints e o que acontece com a conexão no Commit.</p></a>
+  <a class="card" href="#errors"><h4>Erros →</h4><p><code>ELzNexPool</code>, <code>ELzNexConnection</code> e as demais classes.</p></a>
+</div>
+</article>

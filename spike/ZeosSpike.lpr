@@ -1,8 +1,5 @@
 program ZeosSpike;
 
-{ Spike da Etapa 0: prova que o Zeos 8 compila em FPC sem LCL e que conecta num
-  MySQL 8 com caching_sha2_password usando a camada DBC (sem TDataset). }
-
 {$MODE DELPHI}{$H+}
 
 uses
@@ -12,17 +9,16 @@ uses
   SysUtils,
   Classes,
   ZDbcIntfs,
-  ZDbcMySql;  // registra o driver 'mysql'/'mariadb' no initialization
+  ZDbcMySql;
 
 const
   LIB_CANDIDATES: array[0..3] of string = (
     '/usr/lib/x86_64-linux-gnu/libmariadb.so.3',
     '/usr/lib/x86_64-linux-gnu/libmariadb.so',
     '/usr/lib/x86_64-linux-gnu/libmysqlclient.so.24',
-    ''  // vazio = deixa o Zeos tentar o auto-load
+    ''
   );
 
-// Env — le variavel de ambiente com valor default.
 function Env(const AName, ADefault: string): string;
 begin
   Result := GetEnvironmentVariable(AName);
@@ -30,7 +26,6 @@ begin
     Result := ADefault;
 end;
 
-// BuildUrl — monta a TZURL do Zeos. ALib vazio deixa o auto-load decidir.
 function BuildUrl(const ALib: string): TZURL;
 begin
   Result := TZURL.Create;
@@ -42,11 +37,10 @@ begin
   Result.Password := Env('DB_PASS', 'secret');
   if ALib <> '' then
     Result.LibLocation := ALib;
-  // utf8mb4 desde a conexao; sem isso emoji vira '?' silenciosamente.
+
   Result.Properties.Values['codepage'] := 'utf8mb4';
 end;
 
-// TryConnect — tenta conectar com uma lib especifica. Nao levanta: devolve nil e o erro.
 function TryConnect(const ALib: string; out AError: string): IZConnection;
 var
   Url: TZURL;
@@ -70,7 +64,6 @@ begin
   end;
 end;
 
-// Connect — percorre os candidatos de lib e devolve a primeira conexao que abrir.
 function Connect: IZConnection;
 var
   I: Integer;
@@ -100,7 +93,6 @@ begin
   end;
 end;
 
-// Step — imprime o titulo de uma etapa do spike.
 procedure Step(const ATitle: string);
 begin
   Writeln;
@@ -108,7 +100,6 @@ begin
   Flush(Output);
 end;
 
-// Exec — roda um comando sem resultset e devolve as linhas afetadas.
 function Exec(const AConn: IZConnection; const ASQL: string): Integer;
 var
   Stmt: IZStatement;
@@ -130,8 +121,7 @@ var
   Nome: string;
   Vazado: Pointer;
 begin
-  // LEAK=1 vaza de proposito: serve para provar que o -gh esta realmente ativo
-  // neste binario (sem isso, "nenhum relatorio" seria ambiguo).
+
   if GetEnvironmentVariable('LEAK') = '1' then
   begin
     GetMem(Vazado, 4321);

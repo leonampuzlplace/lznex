@@ -1,11 +1,5 @@
 program ProbeSchema;
 
-{ Sonda do schema builder (DDL). Roda SEM banco: so ToSQL.
-
-  O client MySQL de verdade e de outro agente, entao aqui se define um
-  descendente minimo de TLzNexClientBase com backtick, cujo NewSchemaCompiler
-  aponta para NewMySQLSchemaCompiler. }
-
 {$MODE DELPHI}{$H+}
 
 uses
@@ -49,7 +43,7 @@ end;
 
 function TProbeMySQLClient.NewCompiler: ILzNexCompiler;
 begin
-  Result := nil;   // a sonda nao usa compiler de query
+  Result := nil;
 end;
 
 function TProbeMySQLClient.NewSchemaCompiler: ILzNexSchemaCompiler;
@@ -108,8 +102,7 @@ begin
 end;
 
 const
-  // Repeticoes de cada caminho de erro. Alto o bastante para um orfao de um
-  // bloco por chamada aparecer no heaptrc.
+
   LOOPS = 200;
 
 var
@@ -129,9 +122,6 @@ begin
   Sch := NewSchema(nil, Cli);
   Cmp := NewMySQLSchemaCompiler(Cli);
 
-  // ------------------------------------------------------------------
-  // 1. cada tipo de coluna
-  // ------------------------------------------------------------------
   T := Sch.CreateTable('all_types');
   T.TinyInt('c_tiny');
   T.SmallInt('c_small');
@@ -186,9 +176,6 @@ begin
   Check('enum lista os itens', Has(S, '`c_enum` enum(''a'', ''b'') null'));
   Check('specific passa o tipo cru', Has(S, '`c_spec` geometry null'));
 
-  // ------------------------------------------------------------------
-  // 2. increments
-  // ------------------------------------------------------------------
   T := Sch.CreateTable('inc');
   T.Increments;
   CheckEq('increments vira PK auto_increment',
@@ -202,9 +189,6 @@ begin
     'create table `binc` (`uid` bigint unsigned not null auto_increment primary key)',
     Stmt(T.ToSQL, 0));
 
-  // ------------------------------------------------------------------
-  // 3. modificadores e a ORDEM do dialeto
-  // ------------------------------------------------------------------
   T := Sch.CreateTable('mods');
   T.Int('n').Default_(7).Unsigned.NotNull.Comment('qtd').Collate('utf8mb4_bin').After('id');
   CheckEq('ordem dos modificadores e a do dialeto, nao a de chamada',
@@ -240,9 +224,6 @@ begin
   CheckEq('DEFAULT em TEXT e omitido no MySQL',
     'create table `txt` (`t` text null)', Stmt(T.ToSQL, 0));
 
-  // ------------------------------------------------------------------
-  // 4. timestamps
-  // ------------------------------------------------------------------
   T := Sch.CreateTable('ts1');
   T.Timestamps;
   CheckEq('Timestamps usa TIMESTAMP (nao DATETIME) com default',
@@ -256,9 +237,6 @@ begin
     'create table `ts2` (`created_at` timestamp null, `updated_at` timestamp null)',
     Stmt(T.ToSQL, 0));
 
-  // ------------------------------------------------------------------
-  // 5. create: UM create table + N comandos depois
-  // ------------------------------------------------------------------
   T := Sch.CreateTable('users');
   T.Increments('id');
   T.Str('email', 191).NotNull.Unique;
@@ -284,9 +262,6 @@ begin
   CheckEq('unique composto une as colunas no nome',
     'alter table `comp` add unique `comp_a_b_unique`(`a`, `b`)', Post(P, 0));
 
-  // ------------------------------------------------------------------
-  // 6. primary key inline
-  // ------------------------------------------------------------------
   T := Sch.CreateTable('pk1');
   T.Int('a').NotNull;
   T.Int('b').NotNull;
@@ -304,9 +279,6 @@ begin
     'create table `pk2` (`a` int not null, `b` int not null, primary key (`a`, `b`))',
     Stmt(T.ToSQL, 0));
 
-  // ------------------------------------------------------------------
-  // 7. chave estrangeira
-  // ------------------------------------------------------------------
   T := Sch.CreateTable('posts');
   T.Increments('id');
   T.Int('user_id').Unsigned.NotNull
@@ -330,9 +302,6 @@ begin
   Check('ConstraintName sobrepoe o nome automatico',
     Has(Post(T.ToSQL, 0), 'add constraint `fk_posts_user` foreign key'));
 
-  // ------------------------------------------------------------------
-  // 8. opcoes de tabela e schema
-  // ------------------------------------------------------------------
   T := Sch.CreateTable('opt');
   T.Increments;
   T.Engine('InnoDB').Charset('utf8mb4').TableCollate('utf8mb4_bin').TableComment('oi');
@@ -347,9 +316,6 @@ begin
     Has(Stmt(T.ToSQL, 0), 'create table `outro`.`q` ('));
   Sch.WithSchema('');
 
-  // ------------------------------------------------------------------
-  // 9. alter: agregacao
-  // ------------------------------------------------------------------
   T := Sch.Table('users');
   T.Str('nick', 50);
   T.Int('age').NotNull;
@@ -392,9 +358,6 @@ begin
   Check('comentario de coluna e inline no MySQL',
     Has(Stmt(T.ToSQL, 0), 'add `n` int null comment ''contador'''));
 
-  // ------------------------------------------------------------------
-  // 10. comandos soltos do compiler
-  // ------------------------------------------------------------------
   CheckEq('drop table', 'drop table `users`', Cmp.DropTableSQL('users', False).Text);
   CheckEq('drop table if exists', 'drop table if exists `users`',
     Cmp.DropTableSQL('users', True).Text);
@@ -423,9 +386,6 @@ begin
   CheckEq('sufixo do nome por tipo', 't_c_unique',
     Cmp.IndexName('t', StringsToValues(['c']), ixUnique));
 
-  // ------------------------------------------------------------------
-  // 11. erros de uso
-  // ------------------------------------------------------------------
   Ok := False;
   try
     T := Sch.CreateTable('x');
@@ -582,14 +542,6 @@ begin
   end;
   Check('alter sem nenhuma operacao levanta', Ok);
 
-  // ------------------------------------------------------------------
-  // 12. caminhos de erro em LACO.
-  //
-  // Excecao no meio da montagem e onde nasce objeto orfao: quem aloca e so
-  // depois chama algo que levanta perde o unico dono do bloco. O caminho feliz
-  // nunca mostra isso, entao cada caminho de erro roda 200x: um orfao de 1
-  // bloco por chamada vira 200 blocos no heaptrc, impossivel de passar batido.
-  // ------------------------------------------------------------------
   N := 0;
   for I := 1 to LOOPS do
     try
@@ -713,8 +665,6 @@ begin
     end;
   Check('opcao de tabela em alter: levanta antes de alocar', N = LOOPS);
 
-  // Tabela descartada com estado pendente (nunca compilada): o grafo todo tem
-  // que morrer junto com a interface.
   for I := 1 to LOOPS do
   begin
     T := Sch.CreateTable('dangling');

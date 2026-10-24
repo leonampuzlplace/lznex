@@ -1,0 +1,189 @@
+<article>
+<h1>Insert, upsert e update</h1>
+<p class="subtitle">
+  <code>Vals(['coluna', valor, …])</code> monta os pares, e a ordem informada é a ordem do SQL.
+</p>
+
+<h2 id="insert">Insert</h2>
+<div class="code"><pre data-lang="pascal">N  := Db.Table('users').Insert(Vals(['name', 'ana', 'age', 30]));
+Id := Db.Table('users').InsertGetId(Vals(['name', 'Leonam', 'email', 'l@x.com']));</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">insert into `users` (`name`, `age`) values (?, ?)</pre>
+  <p class="code-note">binds: ana | 30 · Insert devolve linhas afetadas; InsertGetId, o id gerado</p>
+</div>
+</div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">InsertGetId e o pool</span>
+    <p>
+      O <code>InsertGetId</code> faz o insert e lê <code>LastInsertId</code> na
+      <strong>mesma conexão</strong>. Com pool, duas chamadas independentes poderiam cair em
+      conexões diferentes e devolver o id de outra thread. Isso está testado com 8 threads,
+      cada id conferido contra a linha daquela thread.
+    </p>
+  </div>
+</div>
+
+<h3 id="insert-many">InsertMany</h3>
+<p>
+  Várias linhas num único comando. Coluna ausente em uma das linhas vira <code>default</code>,
+  <strong>não</strong> <code>NULL</code> — é o <code>vkUnset</code> de
+  <a href="#values">TLzNexValue</a> em ação. Coluna que aparece só numa linha posterior entra
+  no fim da lista de colunas.
+</p>
+
+<div class="code"><pre data-lang="pascal">Db.Table('users').InsertMany([
+  Vals(['name', 'ana', 'age', 30]),
+  Vals(['name', 'bob'])
+]);
+
+Db.Table('users').InsertMany([
+  Vals(['name', 'ana']),
+  Vals(['name', 'bob', 'age', 40])
+]);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">insert into `users` (`name`, `age`) values (?, ?), (?, default)
+insert into `users` (`name`, `age`) values (?, default), (?, ?)</pre>
+  <p class="code-note">binds: ana | 30 | bob · ana | bob | 40</p>
+</div>
+</div>
+
+<p>Valor cru numa coluna do insert:</p>
+<div class="code"><pre data-lang="pascal">V := Vals(['name', 'ana']);
+V[0].Value := TLzNexValue.Raw(Db.Raw('upper(?)', ['ana']));
+Db.Table('users').Insert(V);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">insert into `users` (`name`) values (upper(?))</pre>
+</div>
+</div>
+
+<h3 id="returning">Returning</h3>
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="pascal">Db.Table('users').Returning(['id']);
+// ELzNexCompile: MySQL nao suporta RETURNING. Use InsertGetId.</pre>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="pascal">Db.Table('users').Returning(['id', 'created_at']).Insert(Vals(['name', 'ana']));
+Db.Table('users').Where('id', 7).Returning(['id']).Update(Vals(['name', 'x']));
+Db.Table('users').Where('id', 7).Returning(['id']).Delete;</pre>
+    <div class="code-out">
+      <div class="code-label">SQL</div>
+      <pre data-lang="sql">insert into "users" ("name") values (?) returning "id", "created_at"
+update "users" set "name" = ? where "id" = ? returning "id"
+delete from "users" where "id" = ? returning "id"</pre>
+    </div>
+  </div>
+</div>
+
+<h2 id="upsert">Upsert</h2>
+<p>
+  <code>OnConflict</code> devolve <code>ILzNexOnConflict</code>, que só tem
+  <code>Ignore</code>, <code>Merge</code> e <code>MergeValues</code>. Esquecer de completar a
+  cláusula <strong>não compila</strong>.
+</p>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="pascal">Db.Table('users').OnConflict(['email']).Ignore
+  .Insert(Vals(['name', 'ana']));
+
+Db.Table('users').OnConflict(['email']).Merge
+  .Insert(Vals(['name', 'ana', 'age', 30]));
+
+Db.Table('users').OnConflict(['email']).Merge(['age'])
+  .Insert(Vals(['name', 'ana', 'age', 30]));
+
+Db.Table('users').OnConflict(['email']).MergeValues(Vals(['age', 99]))
+  .Insert(Vals(['name', 'ana', 'age', 30]));</pre>
+    <div class="code-out">
+      <div class="code-label">SQL</div>
+      <pre data-lang="sql">insert ignore into `users` (`name`) values (?)
+insert into `users` (`name`, `age`) values (?, ?) on duplicate key update `name` = values(`name`), `age` = values(`age`)
+insert into `users` (`name`, `age`) values (?, ?) on duplicate key update `age` = values(`age`)
+insert into `users` (`name`, `age`) values (?, ?) on duplicate key update `age` = ?</pre>
+      <p class="code-note">no insert ignore a coluna de conflito não aparece: o MySQL resolve no verbo</p>
+    </div>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="pascal">Db.Table('users').OnConflict(['email']).Ignore
+  .Insert(Vals(['name', 'ana']));
+
+Db.Table('users').OnConflict([]).Ignore
+  .Insert(Vals(['name', 'ana']));
+
+Db.Table('users').OnConflict(['email']).Merge
+  .Insert(Vals(['name', 'ana', 'age', 30]));
+
+Db.Table('users').OnConflict(['email']).MergeValues(Vals(['name', 'fixed']))
+  .Insert(Vals(['name', 'ana']));</pre>
+    <div class="code-out">
+      <div class="code-label">SQL</div>
+      <pre data-lang="sql">insert into "users" ("name") values (?) on conflict ("email") do nothing
+insert into "users" ("name") values (?) on conflict do nothing
+insert into "users" ("name", "age") values (?, ?) on conflict ("email") do update set "name" = excluded."name", "age" = excluded."age"
+insert into "users" ("name") values (?) on conflict ("email") do update set "name" = ?</pre>
+      <p class="code-note">no Postgres, do update exige a coluna de conflito: Merge sem OnConflict([...]) levanta ELzNexCompile</p>
+    </div>
+  </div>
+</div>
+
+<p>
+  Em <code>MergeValues</code>, um valor <code>TLzNexValue.Unset</code> reaproveita o valor que
+  veio no insert em vez de gerar bind — útil para misturar colunas fixas e colunas copiadas.
+</p>
+
+<h2 id="update">Update, increment e delete</h2>
+<div class="code"><pre data-lang="pascal">N := Db.Table('users').Where('id', 7).Update(Vals(['name', 'x', 'email', 'y']));
+Db.Table('users').Where('id', 7).Increment('hits');          // +1
+Db.Table('users').Increment('hits', 10);
+Db.Table('users').Decrement('stock', 2);
+N := Db.Table('users').Where('id', 3).Delete;
+Db.Table('logs').Truncate;</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">update `users` set `name` = ?, `email` = ? where `id` = ?
+update `users` set `hits` = `hits` + ? where `id` = ?
+update `users` set `hits` = `hits` + ?
+update `users` set `stock` = `stock` + ?
+delete from `users` where `id` = ?
+truncate `logs`</pre>
+  <p class="code-note">o bind de Decrement é -2: o delta negativo vai no valor, não no SQL</p>
+</div>
+</div>
+
+<p>
+  <code>Increment</code> e <code>Decrement</code> geram <code>col = col + ?</code> — a soma
+  acontece no banco, sem o ciclo ler-somar-gravar e sem a corrida que ele traz.
+  <code>Update</code> sem colunas levanta <code>ELzNexBuilder</code>; AST de update sem
+  <code>set</code> levanta <code>ELzNexCompile</code>.
+</p>
+
+<h3 id="dialect-notes">Particularidades por dialeto</h3>
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">-- update com join, alias e limit
+update `users` as `u` inner join `tenants` as `t` on `t`.`id` = `u`.`tenant_id` set `name` = ? limit ?
+
+-- delete com limit
+delete from `users` where `id` = ? limit ?
+
+-- delete com join repete o alvo antes do from
+delete `u` from `users` as `u` inner join `tenants` as `t` on `t`.`id` = `u`.`tenant_id`
+
+-- truncate sem reiniciar a sequencia
+truncate `users`</pre>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">-- limit em delete nao e aceito: levanta ELzNexCompile mencionando 'limit'
+
+-- truncate reinicia a identidade
+truncate "users" restart identity</pre>
+  </div>
+</div>
+</article>

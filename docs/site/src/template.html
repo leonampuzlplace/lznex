@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LzNex · Documentação</title>
+<script src="assets/tailwind.js"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        bg:      'rgb(var(--c-bg) / <alpha-value>)',
+        surface: 'rgb(var(--c-surface) / <alpha-value>)',
+        panel:   'rgb(var(--c-panel) / <alpha-value>)',
+        brd:     'rgb(var(--c-border) / <alpha-value>)',
+        brds:    'rgb(var(--c-border-strong) / <alpha-value>)',
+        fg:      'rgb(var(--c-fg) / <alpha-value>)',
+        muted:   'rgb(var(--c-muted) / <alpha-value>)',
+        faint:   'rgb(var(--c-faint) / <alpha-value>)',
+        accent:  'rgb(var(--c-accent) / <alpha-value>)',
+        brand:   'rgb(var(--c-brand) / <alpha-value>)',
+        acclow:  'rgb(var(--c-accent) / 0.12)',
+        code:    'rgb(var(--c-code) / <alpha-value>)',
+        codefg:  'rgb(var(--c-code-fg) / <alpha-value>)',
+        kw:      'rgb(var(--c-kw) / <alpha-value>)',
+        str:     'rgb(var(--c-str) / <alpha-value>)',
+        num:     'rgb(var(--c-num) / <alpha-value>)',
+        com:     'rgb(var(--c-com) / <alpha-value>)',
+        idf:     'rgb(var(--c-idf) / <alpha-value>)'
+      },
+      fontFamily: {
+        sans: ['ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'Inter', 'Helvetica Neue', 'Arial', 'sans-serif'],
+        mono: ['ui-monospace', 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', 'monospace']
+      },
+      maxWidth: { prose: '46rem' }
+    }
+  }
+}
+</script>
+<style type="text/tailwindcss">
+  @layer base {
+    /* Paleta do Supabase Docs: cinzas neutros e o verde da marca. */
+    :root {
+      --c-bg: 255 255 255;          /* #ffffff */
+      --c-surface: 247 247 247;     /* #f7f7f7 */
+      --c-panel: 252 252 252;       /* #fcfcfc */
+      --c-border: 230 230 230;      /* #e6e6e6 */
+      --c-border-strong: 206 206 206;
+      --c-fg: 23 23 23;             /* #171717 */
+      --c-muted: 98 98 98;
+      --c-faint: 143 143 143;
+      --c-accent: 43 138 94;        /* #2b8a5e  brand-600, legivel sobre branco */
+      --c-brand: 62 207 142;        /* #3ecf8e  brand-500 */
+      --c-code: 248 248 248;        /* bloco de codigo no tema claro */
+      --c-code-fg: 40 40 40;
+      --c-kw: 124 58 237;
+      --c-str: 21 128 61;
+      --c-num: 3 105 161;
+      --c-com: 143 143 143;
+      --c-idf: 180 83 9;
+    }
+    .dark {
+      --c-bg: 28 28 28;             /* #1c1c1c */
+      --c-surface: 36 36 36;        /* #242424 */
+      --c-panel: 23 23 23;          /* #171717 */
+      --c-border: 46 46 46;         /* #2e2e2e */
+      --c-border-strong: 62 62 62;  /* #3e3e3e */
+      --c-fg: 237 237 237;          /* #ededed */
+      --c-muted: 160 160 160;       /* #a0a0a0 */
+      --c-faint: 112 112 112;       /* #707070 */
+      --c-accent: 62 207 142;       /* #3ecf8e */
+      --c-brand: 62 207 142;
+      --c-code: 18 18 18;           /* #121212 */
+      --c-code-fg: 214 214 214;
+      --c-kw: 167 139 250;
+      --c-str: 62 207 142;
+      --c-num: 125 211 252;
+      --c-com: 112 112 112;
+      --c-idf: 251 191 36;
+    }
+    html { scroll-behavior: smooth; }
+    body { @apply bg-bg text-fg font-sans antialiased; }
+    ::selection { @apply bg-acclow; }
+    /* barras de rolagem discretas */
+    .scroll-thin::-webkit-scrollbar { @apply w-1.5 h-1.5; }
+    .scroll-thin::-webkit-scrollbar-thumb { @apply rounded-full bg-brds; }
+    .scroll-thin::-webkit-scrollbar-track { @apply bg-transparent; }
+  }
+
+  @layer components {
+    /* -------------------------------------------------- prosa */
+    article { @apply max-w-3xl; }
+    article h1 { @apply text-[1.95rem] sm:text-[2.15rem] font-semibold tracking-[-0.025em] leading-[1.15] mb-3; }
+    article > .subtitle { @apply text-[1.0625rem] leading-relaxed text-muted mb-9; }
+    article h2 { @apply text-[1.35rem] font-semibold tracking-[-0.02em] mt-12 mb-3 scroll-mt-24; }
+    article h3 { @apply text-[1.0625rem] font-semibold tracking-[-0.01em] mt-8 mb-2.5 scroll-mt-24; }
+    article h4 { @apply text-[0.94rem] font-semibold mt-6 mb-2 scroll-mt-24; }
+    article p { @apply text-[0.945rem] leading-7 mb-3.5; }
+    article ul { @apply list-disc pl-5 mb-4 text-[0.945rem] leading-7 marker:text-faint; }
+    article ol { @apply list-decimal pl-5 mb-4 text-[0.945rem] leading-7 marker:text-faint; }
+    article li { @apply my-1; }
+    article a { @apply text-accent underline decoration-accent/35 underline-offset-[3px] hover:decoration-accent; }
+    article strong { @apply font-semibold text-fg; }
+    article hr { @apply my-10 border-brd; }
+    article :not(pre) > code {
+      @apply font-mono text-[0.84em] px-1 py-px rounded border border-brd bg-surface text-fg whitespace-nowrap;
+    }
+
+    /* -------------------------------------------------- código */
+    .code { @apply relative mb-5 overflow-hidden rounded-lg border border-brd bg-code; }
+    .code-head { @apply flex h-9 items-center gap-2 border-b border-brd bg-surface/60 pl-3.5 pr-2; }
+    .code-lang { @apply font-mono text-[0.66rem] uppercase tracking-[0.08em] text-faint; }
+    .code pre { @apply m-0 overflow-x-auto px-4 py-3.5 font-mono text-[0.795rem] leading-[1.65] text-codefg; }
+    .code pre::-webkit-scrollbar { @apply h-2; }
+    .code pre::-webkit-scrollbar-thumb { @apply rounded bg-brds; }
+    .code-out { @apply border-t border-brd bg-surface/40; }
+    .code-label { @apply px-4 pt-2 font-mono text-[0.63rem] uppercase tracking-[0.09em] text-faint; }
+    .code-out pre { @apply pt-1 text-[0.77rem]; }
+    .code-note { @apply m-0 px-4 pb-3 font-mono text-[0.72rem] leading-relaxed text-faint; }
+
+    .tabs-inline { @apply -ml-1 flex gap-0.5; }
+    .tabs-inline button { @apply rounded px-2.5 py-[3px] font-mono text-[0.72rem] text-faint hover:text-fg; }
+    .tabs-inline button.on { @apply bg-brand/15 text-accent; }
+    .copy { @apply ml-auto grid h-6 w-6 place-items-center rounded-md text-faint hover:bg-surface hover:text-fg; }
+    .copy svg { @apply h-3.5 w-3.5; }
+    .copy.done { @apply text-brand; }
+    .pane { @apply hidden; }
+    .pane.on { @apply block; }
+
+    /* realce */
+    .t-kw  { @apply text-kw; }
+    .t-str { @apply text-str; }
+    .t-com { @apply italic text-com; }
+    .t-num { @apply text-num; }
+    .t-id  { @apply text-idf; }
+    .t-ph  { @apply font-semibold text-accent; }
+
+    /* -------------------------------------------------- avisos */
+    .callout { @apply mb-5 flex gap-3 rounded-lg border border-brd border-l-[3px] bg-surface px-4 py-3.5 text-[0.9rem]; }
+    .callout .ico { @apply shrink-0 text-[0.95rem] leading-6; }
+    .callout .body { @apply min-w-0; }
+    .callout .body > :last-child { @apply mb-0; }
+    .callout .t { @apply mb-0.5 block text-[0.82rem] font-semibold; }
+    .callout p { @apply text-[0.9rem] leading-6 mb-2; }
+    .callout .code { @apply mt-2.5 mb-0; }
+    .callout.note { @apply border-l-sky-500/70; }
+    .callout.note .t { @apply text-sky-500 dark:text-sky-300; }
+    .callout.warn { @apply border-l-orange-500; }
+    .callout.warn .t { @apply text-orange-600 dark:text-orange-400; }
+    .callout.trap { @apply border-l-amber-500; }
+    .callout.trap .t { @apply text-amber-600 dark:text-amber-400; }
+
+    /* -------------------------------------------------- tabelas */
+    .table-wrap { @apply mb-5 overflow-x-auto rounded-lg border border-brd scroll-thin; }
+    .table-wrap table { @apply w-full border-collapse text-[0.86rem]; }
+    .table-wrap th {
+      @apply border-b border-brd bg-surface px-3.5 py-2.5 text-left align-top
+             text-[0.7rem] font-bold uppercase tracking-[0.06em] text-faint whitespace-nowrap;
+    }
+    .table-wrap td { @apply border-b border-brd/60 px-3.5 py-2.5 text-left align-top leading-6; }
+    .table-wrap tbody tr:last-child td { @apply border-b-0; }
+    .table-wrap tbody tr:hover { @apply bg-surface; }
+    .table-wrap td code { @apply whitespace-pre-wrap; }
+    table.api td:first-child { @apply w-[46%]; }
+    table.api td:first-child code { @apply border-0 bg-transparent p-0 font-mono text-[0.78rem] text-fg; }
+    .yes { @apply font-semibold text-emerald-600 dark:text-emerald-400; }
+    .no { @apply text-faint; }
+    tr.flash { animation: flash 1.8s ease-out; }
+    @keyframes flash { 0%, 30% { background: rgb(var(--c-accent) / .14); } 100% { background: transparent; } }
+
+    /* -------------------------------------------------- blocos */
+    .badges { @apply mb-7 flex flex-wrap gap-1.5; }
+    .badge { @apply rounded-full border border-brd bg-surface px-2.5 py-0.5 font-mono text-[0.72rem] text-muted; }
+    .badge b { @apply font-semibold text-fg; }
+
+    .cards { @apply mb-6 grid gap-3 sm:grid-cols-2; }
+    .card { @apply block rounded-lg border border-brd bg-surface px-4 py-3.5 no-underline; }
+    a.card { @apply hover:border-accent/60; }
+    .card h4 { @apply mt-0 mb-1 text-[0.92rem] font-semibold; }
+    .card p { @apply mb-0 text-[0.85rem] leading-6 text-muted; }
+
+    /* -------------------------------------------------- navegação */
+    .nav-sec { @apply mb-6; }
+    .nav-sec h4 { @apply mb-1.5 px-2.5 text-[0.68rem] font-bold uppercase tracking-[0.09em] text-faint; }
+    .nav-link {
+      @apply block rounded-md border-l-2 border-transparent px-2.5 py-1 text-[0.845rem]
+             leading-snug text-muted no-underline hover:bg-surface hover:text-fg;
+    }
+    .nav-link.active { @apply border-l-accent bg-acclow font-semibold text-accent; }
+
+    .toc-link { @apply block border-l border-brd px-3 py-1 text-[0.79rem] leading-snug text-muted no-underline hover:text-fg; }
+    .toc-link.lvl3 { @apply pl-6 text-[0.765rem]; }
+    .toc-link.active { @apply border-l-accent font-semibold text-accent; }
+
+    .pager { @apply mt-14 grid gap-3 border-t border-brd pt-6 sm:grid-cols-2; }
+    .pager-link { @apply rounded-lg border border-brd px-4 py-3 no-underline hover:border-accent/60 hover:bg-surface; }
+    .pager-link .dir { @apply block text-[0.74rem] text-faint; }
+    .pager-link .ttl { @apply text-[0.9rem] font-semibold text-accent; }
+    .pager-link.next { @apply sm:text-right; }
+
+    .hit { @apply flex items-baseline gap-2.5 border-b border-brd/70 border-l-2 border-l-transparent px-4 py-2 no-underline; }
+    .hit:last-child { @apply border-b-0; }
+    .hit:hover, .hit.sel { @apply border-l-accent bg-acclow; }
+    .hit-label { @apply min-w-0 break-words text-[0.86rem] text-fg; }
+    .hit-label.mono { @apply font-mono text-[0.78rem]; }
+    .hit-ctx { @apply ml-auto shrink-0 text-[0.72rem] text-faint; }
+
+    .kbd { @apply rounded border border-brd bg-surface px-1.5 py-px font-mono text-[0.68rem] leading-normal text-faint; }
+    .icon-btn { @apply grid h-[34px] w-[34px] place-items-center rounded-md border border-transparent text-muted hover:border-brd hover:bg-surface hover:text-fg; }
+  }
+</style>
+</head>
+
+<body class="min-h-screen">
+
+<!-- ================================================================
+     Topbar
+     ================================================================ -->
+<header class="fixed inset-x-0 top-0 z-50 flex h-14 items-center gap-3 border-b border-brd bg-bg/85 px-3 backdrop-blur-md sm:px-5">
+  <button id="menu-btn" class="icon-btn lg:hidden" aria-label="Abrir menu">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="h-[18px] w-[18px]"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+  </button>
+
+  <a href="#introducao" class="flex shrink-0 items-center gap-2.5 no-underline">
+    <span class="grid h-7 w-7 place-items-center rounded-lg bg-brand text-[0.8rem] font-extrabold tracking-tight text-neutral-900">Lz</span>
+    <span class="hidden text-[1.02rem] font-semibold tracking-tight text-fg sm:inline">LzNex</span>
+    <span class="hidden h-4 w-px bg-brd md:inline-block"></span>
+    <span class="hidden text-[0.72rem] uppercase tracking-[0.12em] text-faint md:inline">Docs</span>
+  </a>
+
+  <button id="search-btn"
+    class="mx-auto flex h-[34px] w-full max-w-md items-center gap-2 rounded-lg border border-brd bg-surface px-2.5 text-left text-[0.84rem] text-faint hover:border-brds hover:text-muted">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-[15px] w-[15px] shrink-0"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+    <span class="hidden sm:inline">Buscar na documentação…</span>
+    <span class="kbd ml-auto hidden sm:inline-block">Ctrl K</span>
+  </button>
+
+  <button id="theme-btn" class="icon-btn shrink-0" aria-label="Alternar tema" title="Alternar tema">
+    <svg class="hidden h-[17px] w-[17px] dark:block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/></svg>
+    <svg class="h-[17px] w-[17px] dark:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
+  </button>
+</header>
+
+<div id="scrim" class="fixed inset-0 top-14 z-40 hidden bg-black/50 lg:hidden"></div>
+
+<!-- ================================================================
+     Layout
+     ================================================================ -->
+<div class="mx-auto flex max-w-[1600px] pt-14">
+
+  <nav id="sidebar"
+    class="scroll-thin fixed bottom-0 left-0 top-14 z-40 w-[17.5rem] -translate-x-full overflow-y-auto border-r border-brd bg-panel px-3 py-5 transition-transform duration-200
+           lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)] lg:translate-x-0"></nav>
+
+  <main class="min-w-0 flex-1 px-4 pb-24 pt-6 sm:px-7 sm:pt-8 lg:px-10 xl:px-14">
+    <div id="crumb" class="mb-3 flex flex-wrap gap-x-2 text-[0.76rem] text-faint"></div>
+
+    <div id="toc-inline-box" class="mb-7 xl:hidden">
+      <details class="rounded-lg border border-brd bg-surface px-3.5 py-2.5">
+        <summary class="cursor-pointer list-none text-[0.82rem] font-semibold text-muted marker:content-none">
+          <span class="text-faint">▸</span> Nesta página
+        </summary>
+        <div id="toc-inline" class="mt-2"></div>
+      </details>
+    </div>
+
+<!-- PAGES -->
+  </main>
+
+  <aside id="toc-col" class="scroll-thin sticky top-14 hidden h-[calc(100vh-3.5rem)] w-56 shrink-0 overflow-y-auto py-9 pr-5 xl:block">
+    <p class="mb-2.5 pl-3 text-[0.68rem] font-bold uppercase tracking-[0.09em] text-faint">Nesta página</p>
+    <div id="toc"></div>
+  </aside>
+</div>
+
+<!-- ================================================================
+     Busca
+     ================================================================ -->
+<div id="overlay" class="fixed inset-0 z-[100] hidden bg-black/60 px-3 pt-[10vh] backdrop-blur-[2px]">
+  <div class="mx-auto max-w-xl overflow-hidden rounded-xl border border-brd bg-bg shadow-2xl">
+    <input id="q" type="search" placeholder="Buscar método, tipo ou seção…" autocomplete="off" spellcheck="false"
+      class="w-full border-0 border-b border-brd bg-transparent px-4 py-3.5 text-[0.98rem] text-fg outline-none placeholder:text-faint">
+    <div id="hits" class="scroll-thin max-h-[55vh] overflow-y-auto"></div>
+    <div class="flex gap-3.5 border-t border-brd bg-surface px-4 py-2 text-[0.72rem] text-faint">
+      <span><span class="kbd">↑↓</span> navegar</span>
+      <span><span class="kbd">↵</span> abrir</span>
+      <span><span class="kbd">esc</span> fechar</span>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ==================================================================
+   Estrutura da navegação. A ordem define a sidebar e o anterior/próximo.
+   ================================================================== */
+// ['Titulo visivel', 'pasta-em-pages', [['id-da-pagina', 'Titulo visivel'], ...]]
+var NAV = [
+  ['Começando', 'getting-started', [
+    ['introduction', 'Introdução'], ['installation', 'Instalação'], ['connection', 'Conexão'],
+    ['configuration', 'Configuração'], ['logging', 'Log de queries']
+  ]],
+  ['Query builder', 'query-builder', [
+    ['query-builder', 'Visão geral'], ['columns', 'Fonte e colunas'], ['where', 'Where e grupos'],
+    ['joins', 'Joins'], ['ordering', 'Agrupar, ordenar e paginar'], ['unions-and-ctes', 'Union, CTE e hint'],
+    ['reading', 'Executar e ler'], ['writing', 'Insert, upsert e update'], ['utilities', 'Clone, clear e ToSQL']
+  ]],
+  ['Dados', 'data', [
+    ['values', 'Valores e binds'], ['raw-sql', 'SQL cru'], ['results', 'Resultados']
+  ]],
+  ['Schema', 'schema', [
+    ['schema', 'Schema builder'], ['column-types', 'Tipos de coluna'], ['modifiers', 'Modificadores'],
+    ['indexes', 'Índices e chaves'], ['alter-table', 'Alterar tabela']
+  ]],
+  ['Operação', 'operations', [
+    ['migrations', 'Migrations'], ['seeds', 'Seeds'], ['transactions', 'Transações'],
+    ['pool', 'Pool e threads'], ['cli', 'CLI'], ['dialects', 'Dialetos'], ['errors', 'Erros']
+  ]],
+  ['Referência', 'reference', [
+    ['api-facade', 'ILzNex'], ['api-query', 'ILzNexQuery'], ['api-join', 'Join e upsert'],
+    ['api-result', 'Resultados'], ['api-schema', 'Schema'], ['api-infra', 'Conexão, pool e transação'],
+    ['api-config', 'Config e logger'], ['api-migrations', 'Migrations e seeds'],
+    ['api-client', 'Dialeto e compiladores'], ['api-types', 'Value, Fragment e Bindings'],
+    ['api-enums', 'Enums e constantes'], ['api-functions', 'Funções de módulo']
+  ]],
+  ['Projeto', 'project', [
+    ['tests', 'Testes e Docker'], ['limitations', 'Limitações'], ['troubleshooting', 'Troubleshooting']
+  ]]
+];
+
+var PAGES = [], TITLE = {}, GROUP = {};
+NAV.forEach(function (g) {
+  g[2].forEach(function (p) { PAGES.push(p[0]); TITLE[p[0]] = p[1]; GROUP[p[0]] = g[0]; });
+});
+
+(function buildSidebar() {
+  var html = '';
+  NAV.forEach(function (g) {
+    html += '<div class="nav-sec"><h4>' + g[0] + '</h4>';
+    g[2].forEach(function (p) {
+      html += '<a class="nav-link" href="#' + p[0] + '" data-page="' + p[0] + '">' + p[1] + '</a>';
+    });
+    html += '</div>';
+  });
+  document.getElementById('sidebar').innerHTML = html;
+})();
+
+/* ==================================================================
+   Realce de sintaxe (opera sobre textContent)
+   ================================================================== */
+(function () {
+  var PAS = ('and array as begin break case class const constructor continue destructor div do downto else end except ' +
+    'false finally for function if implementation in inherited initialization interface is mod nil not of or override ' +
+    'procedure program property raise record repeat result then to try type unit until uses var while with xor overload ' +
+    'virtual abstract static public private protected published out true').split(' ');
+  var SQL = ('select insert update delete truncate from where and or not in is null like ilike between exists set values ' +
+    'into inner left right full outer cross join on using group by having order asc desc limit offset union all intersect ' +
+    'except with recursive distinct as count sum avg min max create table alter add drop column modify rename to index ' +
+    'unique primary key foreign references constraint default comment engine character collate if cascade restart identity ' +
+    'serial bigserial int integer bigint smallint tinyint varchar char text mediumtext longtext tinytext blob bytea json ' +
+    'jsonb uuid boolean date time datetime timestamp decimal float double precision real enum check unsigned auto_increment ' +
+    'for share nowait skip locked conflict do nothing excluded duplicate ignore returning straight_join current_schema ' +
+    'database information_schema coalesce upper lower year field json_extract max_execution_time values').split(' ');
+
+  function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function w(c, s) { return '<span class="' + c + '">' + esc(s) + '</span>'; }
+
+  function pascal(src) {
+    var out = '', i = 0, n = src.length, kw = {};
+    PAS.forEach(function (k) { kw[k] = 1; });
+    while (i < n) {
+      var c = src[i];
+      if (c === '{') { var j = src.indexOf('}', i); j = j < 0 ? n - 1 : j; out += w('t-com', src.slice(i, j + 1)); i = j + 1; continue; }
+      if (c === '/' && src[i + 1] === '/') { var k = src.indexOf('\n', i); k = k < 0 ? n : k; out += w('t-com', src.slice(i, k)); i = k; continue; }
+      if (c === "'") {
+        var j2 = i + 1;
+        while (j2 < n) {
+          if (src[j2] === "'" && src[j2 + 1] === "'") { j2 += 2; continue; }
+          if (src[j2] === "'" || src[j2] === '\n') break;
+          j2++;
+        }
+        out += w('t-str', src.slice(i, Math.min(j2 + 1, n))); i = j2 + 1; continue;
+      }
+      if (/[0-9]/.test(c) && !/[A-Za-z_0-9]/.test(src[i - 1] || '')) {
+        var m = /^[0-9][0-9_.]*/.exec(src.slice(i)); out += w('t-num', m[0]); i += m[0].length; continue;
+      }
+      if (/[A-Za-z_]/.test(c)) {
+        var m2 = /^[A-Za-z_][A-Za-z_0-9]*/.exec(src.slice(i))[0];
+        if (kw[m2.toLowerCase()]) out += w('t-kw', m2);
+        else if (/^(I|T|E)[A-Z]/.test(m2)) out += w('t-id', m2);
+        else out += esc(m2);
+        i += m2.length; continue;
+      }
+      out += esc(c); i++;
+    }
+    return out;
+  }
+
+  function sql(src) {
+    var out = '', i = 0, n = src.length, kw = {};
+    SQL.forEach(function (k) { kw[k] = 1; });
+    while (i < n) {
+      var c = src[i];
+      if (c === '-' && src[i + 1] === '-') { var k = src.indexOf('\n', i); k = k < 0 ? n : k; out += w('t-com', src.slice(i, k)); i = k; continue; }
+      if (c === '/' && src[i + 1] === '*') { var j = src.indexOf('*/', i); j = j < 0 ? n - 2 : j; out += w('t-com', src.slice(i, j + 2)); i = j + 2; continue; }
+      if (c === '`' || c === '"') { var j2 = src.indexOf(c, i + 1); j2 = j2 < 0 ? n - 1 : j2; out += w('t-id', src.slice(i, j2 + 1)); i = j2 + 1; continue; }
+      if (c === "'") { var j3 = src.indexOf("'", i + 1); j3 = j3 < 0 ? n - 1 : j3; out += w('t-str', src.slice(i, j3 + 1)); i = j3 + 1; continue; }
+      if (c === '?' || (c === ':' && /[a-z_]/i.test(src[i + 1] || ''))) {
+        var m = /^(\?\??|:[a-z_][a-z_0-9]*:?)/i.exec(src.slice(i)); out += w('t-ph', m[0]); i += m[0].length; continue;
+      }
+      if (/[0-9]/.test(c) && !/[A-Za-z_0-9]/.test(src[i - 1] || '')) {
+        var m3 = /^[0-9]+/.exec(src.slice(i)); out += w('t-num', m3[0]); i += m3[0].length; continue;
+      }
+      if (/[A-Za-z_]/.test(c)) {
+        var m4 = /^[A-Za-z_][A-Za-z_0-9]*/.exec(src.slice(i))[0];
+        out += kw[m4.toLowerCase()] ? w('t-kw', m4) : esc(m4); i += m4.length; continue;
+      }
+      out += esc(c); i++;
+    }
+    return out;
+  }
+
+  function json(src) {
+    var out = '', i = 0, n = src.length;
+    while (i < n) {
+      var c = src[i];
+      if (c === '/' && src[i + 1] === '/') { var k = src.indexOf('\n', i); k = k < 0 ? n : k; out += w('t-com', src.slice(i, k)); i = k; continue; }
+      if (c === '"') {
+        var j = i + 1;
+        while (j < n && !(src[j] === '"' && src[j - 1] !== '\\')) j++;
+        out += w(/^\s*:/.test(src.slice(j + 1)) ? 't-id' : 't-str', src.slice(i, j + 1)); i = j + 1; continue;
+      }
+      if (/[0-9]/.test(c) && !/[A-Za-z_0-9]/.test(src[i - 1] || '')) { var m = /^[0-9.]+/.exec(src.slice(i)); out += w('t-num', m[0]); i += m[0].length; continue; }
+      if (/[a-z]/.test(c)) { var m2 = /^[a-z]+/.exec(src.slice(i))[0]; out += /^(true|false|null)$/.test(m2) ? w('t-kw', m2) : esc(m2); i += m2.length; continue; }
+      out += esc(c); i++;
+    }
+    return out;
+  }
+
+  function sh(src) {
+    return esc(src)
+      .replace(/^(#.*)$/gm, '<span class="t-com">$1</span>')
+      .replace(/(^|\n)([a-z][a-z0-9:_-]*)/g, '$1<span class="t-kw">$2</span>')
+      .replace(/(\s--[a-z][a-z0-9-]*)/g, '<span class="t-ph">$1</span>');
+  }
+
+  var FN = { pascal: pascal, sql: sql, json: json, sh: sh };
+  document.querySelectorAll('pre[data-lang]').forEach(function (pre) {
+    var fn = FN[pre.dataset.lang];
+    if (fn) pre.innerHTML = fn(pre.textContent);
+  });
+})();
+
+/* ==================================================================
+   Cabeçalho do bloco de código: rótulo ou abas, e o botão copiar
+   ================================================================== */
+(function () {
+  var LABEL = { pascal: 'Pascal', sql: 'SQL', json: 'JSON', sh: 'Shell', out: 'Saída' };
+  var ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>';
+
+  document.querySelectorAll('.code').forEach(function (box) {
+    if (box.querySelector('.code-head')) return;
+    var first = box.querySelector('pre');
+    if (!first) return;
+    var left;
+    if (box.hasAttribute('data-tabs')) {
+      left = '<div class="tabs-inline">';
+      box.querySelectorAll(':scope > .pane').forEach(function (p) {
+        left += '<button data-tab="' + p.dataset.pane + '"' + (p.classList.contains('on') ? ' class="on"' : '') +
+          '>' + (p.dataset.label || p.dataset.pane) + '</button>';
+      });
+      left += '</div>';
+    } else {
+      left = '<span class="code-lang">' + (LABEL[first.dataset.lang] || 'Código') + '</span>';
+    }
+    var head = document.createElement('div');
+    head.className = 'code-head';
+    head.innerHTML = left + '<button class="copy" title="Copiar" aria-label="Copiar código">' + ICON + '</button>';
+    box.insertBefore(head, box.firstChild);
+  });
+
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target.closest('.copy');
+    if (!btn) return;
+    var box = btn.closest('.code');
+    var pane = box.querySelector('.pane.on') || box;
+    var pre = pane.querySelector('pre');
+    if (!pre || !navigator.clipboard) return;
+    navigator.clipboard.writeText(pre.textContent).then(function () {
+      btn.classList.add('done');
+      setTimeout(function () { btn.classList.remove('done'); }, 1200);
+    });
+  });
+})();
+
+/* ==================================================================
+   Abas de dialeto, sincronizadas na página inteira
+   ================================================================== */
+(function () {
+  function apply(d) {
+    document.querySelectorAll('[data-tabs]').forEach(function (box) {
+      if (!box.querySelector('[data-pane="' + d + '"]')) return;
+      box.querySelectorAll('.tabs-inline button').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === d); });
+      box.querySelectorAll('.pane').forEach(function (p) { p.classList.toggle('on', p.dataset.pane === d); });
+    });
+    try { localStorage.setItem('lznex-dialect', d); } catch (e) {}
+  }
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest('.tabs-inline button');
+    if (b) apply(b.dataset.tab);
+  });
+  var saved = 'mysql';
+  try { saved = localStorage.getItem('lznex-dialect') || 'mysql'; } catch (e) {}
+  apply(saved);
+})();
+
+/* ==================================================================
+   Tema
+   ================================================================== */
+(function () {
+  var root = document.documentElement;
+  // Escuro e o padrao; so o claro escolhido na mao sobrevive ao recarregar.
+  var saved = null;
+  try { saved = localStorage.getItem('lznex-theme'); } catch (e) {}
+  root.classList.toggle('dark', saved !== 'light');
+  document.getElementById('theme-btn').addEventListener('click', function () {
+    var dark = !root.classList.contains('dark');
+    root.classList.toggle('dark', dark);
+    try { localStorage.setItem('lznex-theme', dark ? 'dark' : 'light'); } catch (e) {}
+  });
+})();
+
+/* ==================================================================
+   Roteador (#pagina ou #pagina/ancora)
+   ================================================================== */
+var Router = (function () {
+  var crumb = document.getElementById('crumb');
+  var current = null;
+  var TOP = 76;
+
+  // O build prefixa o id de cada titulo com "<pagina>__"; o link curto que o
+  // usuario ve (#pagina/ancora) usa o nome sem prefixo.
+  function shortId(page, id) {
+    return id.indexOf(page + '__') === 0 ? id.slice(page.length + 2) : id;
+  }
+
+  function buildToc(page) {
+    var el = document.getElementById(page);
+    var heads = el ? el.querySelectorAll('h2[id], h3[id]') : [];
+    var html = '';
+    heads.forEach(function (h) {
+      html += '<a class="toc-link' + (h.tagName === 'H3' ? ' lvl3' : '') +
+        '" href="#' + page + '/' + shortId(page, h.id) +
+        '" data-target="' + h.id + '">' + h.textContent.trim() + '</a>';
+    });
+    document.getElementById('toc').innerHTML = html;
+    document.getElementById('toc-inline').innerHTML = html;
+    document.getElementById('toc-col').style.visibility = html ? '' : 'hidden';
+    document.getElementById('toc-inline-box').style.display = html ? '' : 'none';
+  }
+
+  function buildPager(page) {
+    var el = document.getElementById(page);
+    if (!el) return;
+    var old = el.querySelector('.pager');
+    if (old) old.remove();
+    var i = PAGES.indexOf(page), prev = PAGES[i - 1], next = PAGES[i + 1], html = '<div class="pager">';
+    html += prev ? '<a class="pager-link" href="#' + prev + '"><span class="dir">← Anterior</span><span class="ttl">' + TITLE[prev] + '</span></a>' : '<span></span>';
+    html += next ? '<a class="pager-link next" href="#' + next + '"><span class="dir">Próximo →</span><span class="ttl">' + TITLE[next] + '</span></a>' : '<span></span>';
+    document.getElementById(page).insertAdjacentHTML('beforeend', html + '</div>');
+  }
+
+  function show(page, anchor, instant) {
+    if (!TITLE[page]) page = PAGES[0];
+    if (page !== current) {
+      document.querySelectorAll('.page').forEach(function (p) { p.classList.toggle('hidden', p.id !== page); });
+      document.querySelectorAll('.nav-link').forEach(function (a) { a.classList.toggle('active', a.dataset.page === page); });
+      crumb.innerHTML = '<span>Docs</span><span class="text-brds">/</span><span>' + GROUP[page] +
+        '</span><span class="text-brds">/</span><span class="text-muted">' + TITLE[page] + '</span>';
+      document.title = TITLE[page] + ' · LzNex';
+      buildToc(page);
+      buildPager(page);
+      current = page;
+      var act = document.querySelector('.nav-link.active');
+      if (act && window.innerWidth >= 1024) {
+        var b = act.getBoundingClientRect();
+        if (b.top < 90 || b.bottom > window.innerHeight - 20) act.scrollIntoView({ block: 'center' });
+      }
+    }
+    if (anchor) {
+      var t = document.getElementById(page + '__' + anchor) || document.getElementById(anchor);
+      if (t) {
+        window.scrollTo({ top: t.getBoundingClientRect().top + window.scrollY - TOP, behavior: instant ? 'auto' : 'smooth' });
+        return;
+      }
+    }
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+
+  function fromHash(instant) {
+    var parts = location.hash.replace(/^#/, '').split('/');
+    show(parts[0] || PAGES[0], parts[1], instant);
+  }
+
+  window.addEventListener('hashchange', function () { fromHash(false); });
+  return { fromHash: fromHash, show: show };
+})();
+
+Router.fromHash(true);
+
+/* --------------------------------------------- TOC ativa durante o scroll */
+(function () {
+  var ticking = false;
+  function update() {
+    ticking = false;
+    var page = document.querySelector('.page:not(.hidden)');
+    if (!page) return;
+    var heads = page.querySelectorAll('h2[id], h3[id]'), best = null;
+    heads.forEach(function (h) { if (h.getBoundingClientRect().top <= 110) best = h; });
+    if (!best && heads.length) best = heads[0];
+    document.querySelectorAll('.toc-link').forEach(function (a) {
+      a.classList.toggle('active', !!best && a.dataset.target === best.id);
+    });
+  }
+  window.addEventListener('scroll', function () { if (!ticking) { ticking = true; requestAnimationFrame(update); } }, { passive: true });
+  window.addEventListener('hashchange', function () { setTimeout(update, 150); });
+  setTimeout(update, 200);
+})();
+
+/* ==================================================================
+   Gaveta em telas estreitas
+   ================================================================== */
+(function () {
+  var side = document.getElementById('sidebar'), scrim = document.getElementById('scrim');
+  function close() { side.classList.add('-translate-x-full'); scrim.classList.add('hidden'); }
+  function open() { side.classList.remove('-translate-x-full'); scrim.classList.remove('hidden'); }
+  document.getElementById('menu-btn').addEventListener('click', function () {
+    if (side.classList.contains('-translate-x-full')) open(); else close();
+  });
+  scrim.addEventListener('click', close);
+  side.addEventListener('click', function (ev) { if (ev.target.tagName === 'A' && window.innerWidth < 1024) close(); });
+  window.addEventListener('resize', function () { if (window.innerWidth >= 1024) { scrim.classList.add('hidden'); } });
+})();
+
+/* ==================================================================
+   Busca
+   ================================================================== */
+(function () {
+  var overlay = document.getElementById('overlay'), input = document.getElementById('q'), hits = document.getElementById('hits');
+  var index = [], shown = [], sel = -1;
+
+  function nearestHeading(el) {
+    var node = el.closest('.table-wrap') || el;
+    while (node) {
+      var prev = node.previousElementSibling;
+      while (prev) {
+        if (/^H[234]$/.test(prev.tagName)) return prev;
+        prev = prev.previousElementSibling;
+      }
+      node = node.parentElement;
+      if (!node || node.tagName === 'ARTICLE') return null;
+    }
+    return null;
+  }
+
+  function short(page, id) {
+    return id.indexOf(page + '__') === 0 ? id.slice(page.length + 2) : id;
+  }
+
+  function build() {
+    document.querySelectorAll('.page').forEach(function (page) {
+      index.push({ label: TITLE[page.id], ctx: GROUP[page.id], href: '#' + page.id, mono: false, rank: -12 });
+      page.querySelectorAll('h2[id], h3[id]').forEach(function (h) {
+        index.push({
+          label: h.textContent.trim(), ctx: TITLE[page.id],
+          href: '#' + page.id + '/' + short(page.id, h.id), mono: false, rank: -2
+        });
+      });
+      page.querySelectorAll('table.api tbody tr').forEach(function (tr) {
+        var code = tr.querySelector('td:first-child code');
+        if (!code) return;
+        var h = nearestHeading(tr);
+        index.push({
+          label: code.textContent.trim(),
+          ctx: h ? h.textContent.trim() : TITLE[page.id],
+          href: '#' + page.id + (h && h.id ? '/' + short(page.id, h.id) : ''),
+          mono: true, rank: 0, row: tr
+        });
+      });
+    });
+  }
+
+  function score(it, q) {
+    var p = it.label.toLowerCase().indexOf(q);
+    if (p < 0) return -1;
+    return (p === 0 ? 0 : 40) + p + it.rank + (it.mono ? 0 : 2);
+  }
+
+  function render() {
+    hits.innerHTML = shown.length
+      ? shown.map(function (it, i) {
+          return '<a class="hit" href="' + it.href + '" data-i="' + i + '">' +
+            '<span class="hit-label' + (it.mono ? ' mono' : '') + '">' + it.label + '</span>' +
+            '<span class="hit-ctx">' + it.ctx + '</span></a>';
+        }).join('')
+      : '<div class="px-4 py-4 text-[0.86rem] text-faint">Nada encontrado.</div>';
+  }
+
+  function search() {
+    var q = input.value.trim().toLowerCase();
+    sel = -1;
+    if (q.length < 2) { shown = []; hits.innerHTML = ''; return; }
+    shown = index.map(function (it) { return { it: it, s: score(it, q) }; })
+      .filter(function (r) { return r.s >= 0; })
+      .sort(function (a, b) { return a.s - b.s; })
+      .slice(0, 30).map(function (r) { return r.it; });
+    render();
+  }
+
+  function open() { overlay.classList.remove('hidden'); input.value = ''; hits.innerHTML = ''; shown = []; setTimeout(function () { input.focus(); }, 10); }
+  function close() { overlay.classList.add('hidden'); }
+
+  function go(it) {
+    if (!it) return;
+    close();
+    if (location.hash === it.href) Router.fromHash(false); else location.hash = it.href;
+    if (it.row) {
+      setTimeout(function () {
+        it.row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        it.row.classList.remove('flash'); void it.row.offsetWidth; it.row.classList.add('flash');
+      }, 170);
+    }
+  }
+
+  document.getElementById('search-btn').addEventListener('click', open);
+  input.addEventListener('input', search);
+  input.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape') { close(); return; }
+    if (!shown.length) return;
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      sel += ev.key === 'ArrowDown' ? 1 : -1;
+      if (sel < 0) sel = shown.length - 1;
+      if (sel >= shown.length) sel = 0;
+      hits.querySelectorAll('a').forEach(function (a, i) { a.classList.toggle('sel', i === sel); });
+      var cur = hits.querySelector('a.sel');
+      if (cur) cur.scrollIntoView({ block: 'nearest' });
+    }
+    if (ev.key === 'Enter') { ev.preventDefault(); go(shown[sel < 0 ? 0 : sel]); }
+  });
+  hits.addEventListener('click', function (ev) {
+    var a = ev.target.closest('a');
+    if (!a) return;
+    ev.preventDefault();
+    go(shown[parseInt(a.dataset.i, 10)]);
+  });
+  overlay.addEventListener('click', function (ev) { if (ev.target === overlay) close(); });
+  document.addEventListener('keydown', function (ev) {
+    if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'k') { ev.preventDefault(); open(); }
+    if (ev.key === '/' && !/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName)) { ev.preventDefault(); open(); }
+  });
+
+  build();
+})();
+</script>
+</body>
+</html>

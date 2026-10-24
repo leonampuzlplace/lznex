@@ -1,12 +1,4 @@
 #!/usr/bin/env bash
-# Compila uma unit (ou programa) do LzNex num diretorio de saida isolado por
-# TAG, para varios agentes compilarem em paralelo sem se atropelar.
-#
-#   uso: bash /work/spike/check.sh <tag> <arquivo.pas|.lpr> [flags extra do fpc]
-#
-# O exit code E o do fpc. Versao anterior saia 0 mesmo com erro de compilacao,
-# porque lia ${PIPESTATUS} depois de um pipe de greps -- por isso a saida do
-# compilador agora vai para arquivo e o filtro roda depois.
 set -u
 
 TAG=${1:?uso: check.sh <tag> <arquivo> [flags]}
@@ -35,7 +27,6 @@ fpc -B -Mdelphi -Sh \
     "$FILE" > "$LOG" 2>&1
 status=$?
 
-# Erro e fatal sempre aparecem; o resto e filtrado para a saida ficar legivel.
 grep -E 'Error:|Fatal:' "$LOG" | head -20
 grep -Ev '^Compiling |^Target OS|^Free Pascal|^Copyright|^$|Error:|Fatal:' "$LOG" \
   | grep -Ev 'Note: (Local variable|Private|Call to)' \

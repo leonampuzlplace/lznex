@@ -1,0 +1,100 @@
+<article>
+<h1>Fonte e colunas</h1>
+<p class="subtitle">De onde a query lê e o que ela projeta.</p>
+
+<h2 id="source">Tabela e fonte</h2>
+<div class="code"><pre data-lang="pascal">Db.Table('users')                       // alias de From
+Db.From('users')
+Db.Table('users').FromAs('users', 'u')  // com alias
+Db.Table('users').WithSchema('app')     // prefixa o schema</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `users`
+select * from `users`
+select * from `users` as `u`
+select * from `app`.`users`</pre>
+</div>
+</div>
+
+<p>Subquery e SQL cru como fonte:</p>
+
+<div class="code"><pre data-lang="pascal">Sub := Db.Query.Table('logs').Select(['user_id']).Where('level', 'error');
+Db.Query.FromSub(Sub, 'e').Select(['e.user_id']);
+
+Db.Query.FromRaw(Db.Raw('`users` force index (`pk`)', []));</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select `e`.`user_id` from (select `user_id` from `logs` where `level` = ?) as `e`
+select * from `users` force index (`pk`)</pre>
+</div>
+</div>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Alias obrigatório</span>
+    <p>
+      Subquery como fonte <strong>exige</strong> alias: compilar sem ele levanta
+      <code>ELzNexCompile</code> mencionando <code>alias</code>. É restrição do SQL, não do
+      LzNex.
+    </p>
+  </div>
+</div>
+
+<p>
+  <code>Db.Query</code> cria uma query sem tabela — é assim que se monta uma subquery para
+  passar a <code>FromSub</code>, <code>WhereInSub</code>, <code>JoinSub</code> ou
+  <code>Union</code>. <code>AsAlias</code> define o alias que a query usa quando é consumida
+  como subquery.
+</p>
+
+<h2 id="select">Colunas</h2>
+<div class="code"><pre data-lang="pascal">Db.Table('users')                                  // sem Select: tudo
+Db.Table('users').Select(['id', 'name'])
+Db.Table('users').Select(['users.id'])             // nome qualificado
+Db.Table('users').Select(['name as nick'])         // alias na propria string
+Db.Table('users').SelectAs('name', 'nick')         // alias explicito
+Db.Table('users').Column('email')                  // uma coluna
+Db.Table('users').Distinct.Select(['country'])</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `users`
+select `id`, `name` from `users`
+select `users`.`id` from `users`
+select `name` as `nick` from `users`
+select `name` as `nick` from `users`
+select `email` from `users`
+select distinct `country` from `users`</pre>
+</div>
+</div>
+
+<h3 id="raw-columns">Expressão crua e subquery</h3>
+<div class="code"><pre data-lang="pascal">Db.Table('users').SelectRaw('count(*) + ?', [5]);
+
+Sub := Db.Query.Table('posts').Aggregate(agMax, 'id');
+Db.Table('users').SelectSub(Sub, 'last_post');</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select count(*) + ? from `users`
+select (select max(`id`) from `posts`) as `last_post` from `users`</pre>
+  <p class="code-note">binds do primeiro: 5</p>
+</div>
+</div>
+
+<h3 id="distinct-on">DistinctOn</h3>
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="pascal">Db.Table('users').DistinctOn(['country']);
+// ELzNexCompile: 'distinct on' nao existe em MySQL</pre>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="pascal">Db.Table('users').DistinctOn(['country']).Select(['country', 'name']);
+// select distinct on ("country") "country", "name" from "users"</pre>
+  </div>
+</div>
+
+<p>
+  O builder consulta a <strong>capacidade</strong> do dialeto na hora da chamada: o erro
+  aparece onde o método foi escrito, não no fim, quando a query compila.
+</p>
+</article>

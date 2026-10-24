@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# check-zeos-leak.sh — recompila o spike com -gh e mede se o Zeos deixa bloco
-# nao liberado no encerramento (define se o gate pode ser "zero leak absoluto").
 set -u
 
 echo "=== rebuild Debug (com -gh em CustomOptions) ==="

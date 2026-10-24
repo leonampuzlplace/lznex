@@ -1,12 +1,4 @@
 #!/usr/bin/env bash
-# Roda `boss install` tolerando o ruido de Delphi.
-#
-# No Linux o Boss SEMPRE reclama de coisa de Delphi -- "Error on read
-# rsvars.bat", "no Delphi installation found", "Cannot install global packages
-# on this platform". Nenhuma e fatal e o exit code do Boss nao e confiavel.
-# O veredito e a linha "Installation completed successfully".
-#
-#   uso: boss-install.sh [diretorio-com-boss.json]
 set -eu
 
 DIR=${1:-.}
@@ -46,8 +38,6 @@ fi
 echo "boss-install: FALHOU (exit do boss: $BOSS_CODE)" >&2
 echo "boss-install: saida relevante (ruido de Delphi removido):" >&2
 
-# O Boss desenha barra de progresso: sem limpar os escapes ANSI a saida de erro
-# fica ilegivel.
 CLEAN=$(grep -Eiv "$NOISE" "$LOG" \
   | sed -e 's/\x1b\[[0-9;?]*[a-zA-Z]//g' -e 's/\r//g' -e 's/[[:cntrl:]]//g' \
   | grep -v '^[[:space:]]*$' || true)

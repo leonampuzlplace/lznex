@@ -1,0 +1,292 @@
+<article>
+<h1>Value, Fragment e Bindings</h1>
+<p class="subtitle">
+  Os três records que carregam dado, texto e parâmetro por toda a biblioteca. São records,
+  não classes: não há refcount nem <code>Free</code> envolvido.
+</p>
+
+<h2 id="tlznexvalue">TLzNexValue</h2>
+<p>
+  Um valor tagueado. O campo <code>Kind</code> diz qual dos quinze formatos está preenchido,
+  e é isso que o compilador consulta para decidir entre emitir um <code>?</code>, um
+  identificador quotado ou o texto de um SQL cru. Declarado em
+  <code>LzNex.Value</code> e reexportado por <code>LzNex</code>.
+</p>
+
+<h3 id="constructors">Construtores nomeados</h3>
+<p>
+  Todos são <code>class function ... static</code>, então a chamada é
+  <code>TLzNexValue.FromInteger(1)</code>, sem instância.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>class function Unset: TLzNexValue; static</code></td><td>O estado zero (<code>vkUnset</code>). É o que um <code>TLzNexValue</code> não inicializado contém, e é por isso que ele existe: dá um nome ao acidente.</td></tr>
+<tr><td><code>class function Null: TLzNexValue; static</code></td><td><code>NULL</code> do SQL. Diferente de <code>Unset</code>: <code>Null</code> é bindável, <code>Unset</code> não.</td></tr>
+<tr><td><code>class function FromBoolean(const AValue: Boolean): TLzNexValue; static</code></td><td><code>vkBoolean</code>.</td></tr>
+<tr><td><code>class function FromInteger(const AValue: Integer): TLzNexValue; static</code></td><td><code>vkInteger</code>.</td></tr>
+<tr><td><code>class function FromInt64(const AValue: Int64): TLzNexValue; static</code></td><td><code>vkInt64</code>. Guarda no mesmo campo interno de <code>FromInteger</code>; o <code>Kind</code> é que difere.</td></tr>
+<tr><td><code>class function FromFloat(const AValue: Double): TLzNexValue; static</code></td><td><code>vkFloat</code>.</td></tr>
+<tr><td><code>class function FromCurrency(const AValue: Currency): TLzNexValue; static</code></td><td><code>vkCurrency</code>. Mantido separado de <code>Double</code> para não perder as quatro casas fixas do tipo.</td></tr>
+<tr><td><code>class function FromString(const AValue: string): TLzNexValue; static</code></td><td><code>vkString</code>.</td></tr>
+<tr><td><code>class function FromBytes(const AValue: TBytes): TLzNexValue; static</code></td><td><code>vkBytes</code>, para colunas binárias e blob.</td></tr>
+<tr><td><code>class function FromDate(const AValue: TDateTime): TLzNexValue; static</code></td><td><code>vkDate</code>. Só a parte de data entra no texto.</td></tr>
+<tr><td><code>class function FromTime(const AValue: TDateTime): TLzNexValue; static</code></td><td><code>vkTime</code>. Só a parte de hora.</td></tr>
+<tr><td><code>class function FromDateTime(const AValue: TDateTime): TLzNexValue; static</code></td><td><code>vkDateTime</code>, data e hora.</td></tr>
+<tr><td><code>class function Identifier(const AName: string): TLzNexValue; static</code></td><td>Nome de tabela, coluna ou alias. Não gera bind: o compilador quota e escreve no texto.</td></tr>
+<tr><td><code>class function Raw(const ARaw: IInterface): TLzNexValue; static</code></td><td>Embrulha um <code>ILzNexRaw</code>. O texto cru entra inline e os binds dele entram na posição correta.</td></tr>
+<tr><td><code>class function SubQuery(const AQuery: IInterface): TLzNexValue; static</code></td><td>Embrulha um <code>ILzNexQuery</code> para virar subconsulta entre parênteses.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Unset não chega ao banco</span>
+    <p>
+      <code>TLzNexBindings.Add</code> recusa um valor <code>vkUnset</code> e levanta
+      <code>ELzNexBuilder</code>. Isso transforma a variável esquecida sem inicializar num erro
+      na hora da montagem, em vez de um parâmetro silenciosamente nulo no
+      <code>update</code>.
+    </p>
+  </div>
+</div>
+
+<h3 id="implicit">Conversão implícita</h3>
+<p>
+  Seis operadores <code>Implicit</code> permitem escrever o valor direto onde se espera um
+  <code>TLzNexValue</code>, sem chamar construtor.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>class operator Implicit(const AValue: Boolean): TLzNexValue</code></td><td>→ <code>FromBoolean</code></td></tr>
+<tr><td><code>class operator Implicit(const AValue: Integer): TLzNexValue</code></td><td>→ <code>FromInteger</code></td></tr>
+<tr><td><code>class operator Implicit(const AValue: Int64): TLzNexValue</code></td><td>→ <code>FromInt64</code></td></tr>
+<tr><td><code>class operator Implicit(const AValue: Double): TLzNexValue</code></td><td>→ <code>FromFloat</code></td></tr>
+<tr><td><code>class operator Implicit(const AValue: Currency): TLzNexValue</code></td><td>→ <code>FromCurrency</code></td></tr>
+<tr><td><code>class operator Implicit(const AValue: string): TLzNexValue</code></td><td>→ <code>FromString</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="code"><pre data-lang="pascal">var V: TLzNexValue;
+
+V := 42;          // vkInteger
+V := 'joão';      // vkString
+V := True;        // vkBoolean
+V := 3.5;         // vkFloat</pre></div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">Não há Implicit para TDateTime nem TBytes</span>
+    <p>
+      <code>TDateTime</code> é um <code>Double</code> disfarçado: um operador implícito para ele
+      seria ambíguo com o de <code>Double</code>, e a data entraria como número. Por isso
+      data, hora e binário exigem o construtor nomeado — <code>FromDate</code>,
+      <code>FromTime</code>, <code>FromDateTime</code>, <code>FromBytes</code>.
+    </p>
+  </div>
+</div>
+
+<h3 id="state">Consulta de estado</h3>
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>property Kind: TLzNexValueKind read FKind</code></td><td>Qual dos formatos está preenchido. Lista completa em <a href="#api-enums/enums">Enums</a>.</td></tr>
+<tr><td><code>function IsUnset: Boolean</code></td><td><code>Kind = vkUnset</code>.</td></tr>
+<tr><td><code>function IsNull: Boolean</code></td><td><code>Kind = vkNull</code>.</td></tr>
+<tr><td><code>function IsBindable: Boolean</code></td><td>Falso para <code>vkUnset</code>, <code>vkIdentifier</code>, <code>vkRaw</code> e <code>vkSubQuery</code> — os quatro que vão para o <strong>texto</strong> do SQL, não para a lista de parâmetros. Verdadeiro para todo o resto, <code>vkNull</code> incluído.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="typed-read">Leitura tipada</h3>
+<p>
+  Os <code>As*</code> fazem conversão quando ela é segura e levantam
+  <code>ELzNexBuilder</code> quando não é. <code>vkNull</code> e <code>vkUnset</code> sempre
+  devolvem o zero do tipo (<code>0</code>, <code>False</code>, <code>''</code>,
+  <code>nil</code>) em vez de levantar — é o que permite ler uma coluna anulável sem checar
+  antes.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function AsBoolean: Boolean</code></td><td>Aceita booleano e inteiro (<code>&lt;&gt; 0</code>).</td></tr>
+<tr><td><code>function AsInt64: Int64</code></td><td>Aceita inteiro, booleano (<code>Ord</code>) e float (arredonda com <code>Round</code>).</td></tr>
+<tr><td><code>function AsFloat: Double</code></td><td>Aceita float, currency e inteiro.</td></tr>
+<tr><td><code>function AsCurrency: Currency</code></td><td>Aceita currency, float e inteiro.</td></tr>
+<tr><td><code>function AsString: string</code></td><td>Formata tudo que tem representação textual. Data sai <code>yyyy-mm-dd</code>, hora <code>hh:nn:ss</code>, datetime <code>yyyy-mm-dd hh:nn:ss</code>. Recusa <code>vkBytes</code>, <code>vkRaw</code> e <code>vkSubQuery</code>.</td></tr>
+<tr><td><code>function AsBytes: TBytes</code></td><td>Aceita <code>vkBytes</code> e <code>vkString</code> (copia os bytes da string como estão, sem reencodar).</td></tr>
+<tr><td><code>function AsDateTime: TDateTime</code></td><td>Aceita <code>vkDate</code>, <code>vkTime</code> e <code>vkDateTime</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">AsInt64 em string não converte</span>
+    <p>
+      Não há <code>StrToInt</code> escondido: <code>AsInt64</code> sobre um
+      <code>vkString</code> levanta <code>ELzNexBuilder</code>. A conversão texto → número é
+      decisão da aplicação, não da biblioteca, porque o que fazer com
+      <code>'12abc'</code> depende do caso.
+    </p>
+  </div>
+</div>
+
+<h3 id="ref-text-describe">Ref, Text e Describe</h3>
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Ref: IInterface</code></td><td>A interface guardada por <code>Raw</code> ou <code>SubQuery</code>. <code>nil</code> nos outros kinds.</td></tr>
+<tr><td><code>function Text: string</code></td><td>O campo string interno <strong>sem</strong> formatação nem checagem de kind. Serve para pegar o nome de um <code>vkIdentifier</code> — é o que <code>Vals</code> usa para extrair o nome da coluna.</td></tr>
+<tr><td><code>function Describe: string</code></td><td>Texto de diagnóstico com kind e conteúdo: <code>integer(1)</code>, <code>string('jo')</code>, <code>bytes(16 B)</code>, <code>identifier(users.id)</code>, <code>&lt;unset&gt;</code>, <code>NULL</code>, <code>raw</code>, <code>subquery</code>. É o que aparece nas mensagens de erro e no log de query.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="collections">Coleções de valor</h2>
+<p>
+  Três apelidos de array, sem método próprio. Aparecem em toda assinatura que recebe lista de
+  valores ou pares coluna/valor.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>TLzNexValues = array of TLzNexValue</code></td><td>Lista posicional. É o que <code>WhereIn</code>, <code>PlaceholderList</code> e <code>TLzNexBindings.ToValues</code> trocam entre si.</td></tr>
+<tr><td><code>TLzNexNamedValue = record Name: string; Value: TLzNexValue; end</code></td><td>Um par coluna/valor. Campos públicos diretos, sem getter.</td></tr>
+<tr><td><code>TLzNexNamedValues = array of TLzNexNamedValue</code></td><td>Lista de pares, na ordem em que foram escritos. É o formato de <code>Insert</code>, <code>Update</code>, dos binds nomeados do SQL cru e das props de conexão.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  A ordem importa e é preservada: o SQL gerado lista as colunas na sequência do array, e um
+  <code>insert</code> em lote depende disso para alinhar as linhas.
+  Construa com <code>Vals</code>, <code>ValueList</code> e <code>StringsToValues</code> — veja
+  <a href="#api-functions/index">funções de módulo</a>.
+</p>
+
+<h2 id="tlznexfragment">TLzNexFragment</h2>
+<p>
+  Um pedaço de SQL com <strong>os binds dele dentro</strong>. Essa é a decisão central do
+  compilador: texto e parâmetros nunca viajam em variáveis separadas, então não existe o bug
+  clássico de concatenar na ordem errada e deixar os <code>?</code> desalinhados da lista de
+  valores. Todo <code>Concat</code> move o texto e a lista juntos.
+</p>
+
+<h3 id="fragment-constructors">Construção</h3>
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>class function Empty: TLzNexFragment; static</code></td><td>Texto vazio, zero binds. Ponto de partida de qualquer acumulação.</td></tr>
+<tr><td><code>class function Lit(const AText: string): TLzNexFragment; static</code></td><td>Texto literal sem bind nenhum. Para palavra-chave, identificador já quotado, operador.</td></tr>
+<tr><td><code>class function Param(const AValue: TLzNexValue): TLzNexFragment; static</code></td><td>Texto <code>?</code> e exatamente um bind. É o par indissociável.</td></tr>
+<tr><td><code>class function Make(const AText: string; const ABindings: TLzNexBindings): TLzNexFragment; static</code></td><td>Texto e binds já prontos, usado quando o chamador montou os dois lados.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="fragment-reading">Leitura</h3>
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Text: string</code></td><td>O SQL. É o que os testes comparam por igualdade exata.</td></tr>
+<tr><td><code>function Bindings: TLzNexBindings</code></td><td>Os parâmetros, na ordem dos <code>?</code> no texto.</td></tr>
+<tr><td><code>function IsEmpty: Boolean</code></td><td><code>Text = ''</code> — olha <strong>só</strong> o texto. Um <code>Make('', Binds)</code> conta como vazio e seus binds são descartados por <code>Concat</code> e <code>JoinFragments</code>; se há bind, há <code>?</code> no texto.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="fragment-composition">Composição</h3>
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Concat(const AOther: TLzNexFragment; const ASep: string = ' '): TLzNexFragment</code></td><td>Junta os dois textos com o separador e <strong>concatena os binds na mesma ordem</strong>. Se um dos lados está vazio devolve o outro inalterado — é isso que evita separador solto quando uma cláusula não existe.</td></tr>
+<tr><td><code>function Wrap(const ABefore, AAfter: string): TLzNexFragment</code></td><td>Envolve o texto, tipicamente em parênteses. Fragmento vazio passa intacto, então subconsulta ausente não vira <code>()</code>.</td></tr>
+<tr><td><code>function Prefix(const APrefix: string): TLzNexFragment</code></td><td>Só o começo — <code>'where '</code>, <code>'order by '</code>. Também é no-op em fragmento vazio, que é como a cláusula inteira desaparece do SQL.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  <code>Wrap</code> e <code>Prefix</code> preservam a lista de binds sem mexer em nada: só o
+  texto muda, as posições relativas dos <code>?</code> continuam as mesmas.
+</p>
+
+<div class="code"><pre data-lang="pascal">var A, B, F: TLzNexFragment;
+
+A := TLzNexFragment.Lit('`age` &gt;=').Concat(TLzNexFragment.Param(18));
+B := TLzNexFragment.Lit('`active` =').Concat(TLzNexFragment.Param(True));
+F := A.Concat(B, ' and ').Prefix('where ');
+
+Writeln(F.Text);                  // where `age` &gt;= ? and `active` = ?
+Writeln(F.Bindings.Describe);     // [integer(18), boolean(True)]
+Writeln(F.Bindings.Count);        // 2</pre></div>
+
+<h3 id="fragment-functions">TLzNexFragments, JoinFragments e PlaceholderList</h3>
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>TLzNexFragments = array of TLzNexFragment</code></td><td>Lista de fragmentos. É o formato dos três campos de <code>TLzNexDdlPlan</code> (<code>Pre</code>, <code>Statements</code>, <code>Post</code>).</td></tr>
+<tr><td><code>function JoinFragments(const AItems: TLzNexFragments; const ASep: string = ' '): TLzNexFragment</code></td><td>Junta a lista com o separador, <strong>pulando os vazios</strong> — sem vírgula sobrando no fim nem separador duplicado no meio. Os binds saem na ordem dos itens não vazios.</td></tr>
+<tr><td><code>function PlaceholderList(const AValues: TLzNexValues): TLzNexFragment</code></td><td>Gera <code>?, ?, ?</code> com um bind por valor. Lista vazia devolve fragmento vazio — quem chama decide o que colocar no lugar (em <code>WhereIn</code>, <code>1 = 0</code>).</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="code"><pre data-lang="pascal">F := PlaceholderList(ValueList([1, 2, 3])).Wrap('(', ')').Prefix('`id` in ');
+Writeln(F.Text);                  // `id` in (?, ?, ?)
+Writeln(F.Bindings.Count);        // 3</pre></div>
+
+<h2 id="tlznexbindings">TLzNexBindings</h2>
+<p>
+  A lista de parâmetros de um fragmento. Cresce dobrando a capacidade (começa em 8), então
+  <code>Count</code> e <code>Length</code> do array interno não coincidem — sempre use
+  <code>Count</code>.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>class function Empty: TLzNexBindings; static</code></td><td>Lista zerada.</td></tr>
+<tr><td><code>class function One(const AValue: TLzNexValue): TLzNexBindings; static</code></td><td>Atalho para o caso de um único bind.</td></tr>
+<tr><td><code>class function FromValues(const AValues: TLzNexValues): TLzNexBindings; static</code></td><td>Lista inteira de uma vez.</td></tr>
+<tr><td><code>procedure Add(const AValue: TLzNexValue)</code></td><td>Acrescenta no fim. <strong>Levanta <code>ELzNexBuilder</code> se o valor for <code>vkUnset</code></strong> — é a rede que pega variável não inicializada.</td></tr>
+<tr><td><code>procedure AddMany(const AValues: TLzNexValues)</code></td><td><code>Add</code> em cada item, com a mesma checagem.</td></tr>
+<tr><td><code>procedure Append(const AOther: TLzNexBindings)</code></td><td>Copia os binds de outra lista, preservando a ordem. É o que <code>Concat</code> chama.</td></tr>
+<tr><td><code>function Count: Integer</code></td><td>Quantos binds de fato existem.</td></tr>
+<tr><td><code>function Items(const AIndex: Integer): TLzNexValue</code></td><td>Bind na posição, base zero. Índice fora da faixa levanta <code>ELzNexBuilder</code> com índice e total na mensagem, em vez de devolver lixo.</td></tr>
+<tr><td><code>function ToValues: TLzNexValues</code></td><td>Cópia exata, com <code>Count</code> elementos — sem o excesso de capacidade.</td></tr>
+<tr><td><code>function Describe: string</code></td><td><code>[integer(1), string('jo')]</code>. Concatena o <code>Describe</code> de cada valor entre colchetes. Usado no log e nas asserções dos testes.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">Record com array: cópia é rasa</span>
+    <p>
+      <code>TLzNexBindings</code> é um record cujo campo é um array dinâmico. Atribuir
+      <code>B := A</code> compartilha o array até que um dos dois cresça. Na prática isso não
+      morde porque o compilador só compõe por <code>Concat</code> e <code>Append</code>, que
+      sempre partem de <code>Empty</code> e copiam item por item. Se você montar bindings à mão,
+      parta de <code>Empty</code> e use <code>Append</code> em vez de atribuir.
+    </p>
+  </div>
+</div>
+
+<div class="cards">
+  <a class="card" href="#api-enums"><h4>Enums e constantes →</h4><p>Todos os tipos enumerados, com os membros.</p></a>
+  <a class="card" href="#api-functions"><h4>Funções de módulo →</h4><p><code>Vals</code>, <code>ValueList</code>, <code>CreateClient</code> e companhia.</p></a>
+</div>
+</article>

@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-"""Ajusta asserções de sonda que casavam o TEXTO em portugues das mensagens.
-
-As mensagens foram traduzidas para ingles; as asserções passam a procurar o
-fragmento ingles equivalente.
-"""
 import pathlib
 
 EDITS = {
@@ -22,7 +17,6 @@ EDITS = {
         ("Pos('coluna email nao existe', Msg)", "Pos('coluna email nao existe', Msg)"),
     ],
 }
-
 
 def main():
     root = pathlib.Path('.')
@@ -43,7 +37,6 @@ def main():
         if changed:
             path.write_text(text, encoding='utf-8')
         print(f'  {rel}: {changed} asserções ajustadas')
-
 
 if __name__ == '__main__':
     main()

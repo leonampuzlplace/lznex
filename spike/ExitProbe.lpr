@@ -1,8 +1,5 @@
 program ExitProbe;
 
-{ Descobre como o FPC 3.2.2 propaga o codigo de saida: ExitCode funciona?
-  Halt funciona? Rodar com MODE=exitcode ou MODE=halt. }
-
 {$MODE DELPHI}{$H+}
 
 uses

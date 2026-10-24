@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Os paths de modules/ seguem as coordenadas do boss.json desta pasta: o Boss
-     converte ponto e barra em "_", logo github.com/CHANGEME/lznex vira
-     modules/github_com_CHANGEME_lznex. Trocar a coordenada exige trocar aqui.
+     converte ponto e barra em "_", logo github.com/leonampuzlplace/lznex vira
+     modules/github_com_leonampuzlplace_lznex. Trocar a coordenada exige trocar aqui.
 
      O zeoslib aparece sem estar no boss.json porque vem como dependencia
      transitiva do lznex. -->
@@ -32,7 +32,7 @@
           </Target>
           <SearchPaths>
             <IncludeFiles Value="$(ProjOutDir);modules/github_com_HashLoad_horse/src;modules/github_com_CHANGEME_zeoslib/src"/>
-            <OtherUnitFiles Value="src;modules/github_com_HashLoad_horse/src;modules/github_com_CHANGEME_lznex/src;modules/github_com_CHANGEME_zeoslib/src/core;modules/github_com_CHANGEME_zeoslib/src/parsesql;modules/github_com_CHANGEME_zeoslib/src/plain;modules/github_com_CHANGEME_zeoslib/src/dbc;modules"/>
+            <OtherUnitFiles Value="src;modules/github_com_HashLoad_horse/src;modules/github_com_leonampuzlplace_lznex/src;modules/github_com_CHANGEME_zeoslib/src/core;modules/github_com_CHANGEME_zeoslib/src/parsesql;modules/github_com_CHANGEME_zeoslib/src/plain;modules/github_com_CHANGEME_zeoslib/src/dbc;modules"/>
             <UnitOutputDirectory Value="lib/debug/$(TargetCPU)-$(TargetOS)"/>
           </SearchPaths>
           <CodeGeneration>
@@ -77,7 +77,7 @@
     </Target>
     <SearchPaths>
       <IncludeFiles Value="$(ProjOutDir);modules/github_com_HashLoad_horse/src;modules/github_com_CHANGEME_zeoslib/src"/>
-      <OtherUnitFiles Value="src;modules/github_com_HashLoad_horse/src;modules/github_com_CHANGEME_lznex/src;modules/github_com_CHANGEME_zeoslib/src/core;modules/github_com_CHANGEME_zeoslib/src/parsesql;modules/github_com_CHANGEME_zeoslib/src/plain;modules/github_com_CHANGEME_zeoslib/src/dbc;modules"/>
+      <OtherUnitFiles Value="src;modules/github_com_HashLoad_horse/src;modules/github_com_leonampuzlplace_lznex/src;modules/github_com_CHANGEME_zeoslib/src/core;modules/github_com_CHANGEME_zeoslib/src/parsesql;modules/github_com_CHANGEME_zeoslib/src/plain;modules/github_com_CHANGEME_zeoslib/src/dbc;modules"/>
       <UnitOutputDirectory Value="lib/release/$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>
     <CodeGeneration>

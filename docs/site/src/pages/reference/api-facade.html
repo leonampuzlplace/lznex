@@ -1,0 +1,138 @@
+<article>
+<h1>ILzNex</h1>
+<p class="subtitle">
+  A facade devolvida por <code>Connect</code>: ponto de entrada para query, schema, migrations,
+  transação e pool.
+</p>
+
+<p>
+  <code>uses LzNex</code> é o único <code>uses</code> obrigatório — a unit reexporta
+  <code>ILzNex</code>, <code>ILzNexQuery</code>, <code>TLzNexValue</code> e os demais tipos do dia
+  a dia, além de <code>Connect</code>, <code>NewConfig</code> e <code>ConnectFromFile</code>
+  (veja <a href="#api-functions">Funções</a>). A única unit extra que o programa precisa citar é a do
+  dialeto, para o linker do FPC não descartar o registro — detalhe em
+  <a href="#installation">Instalação</a>.
+</p>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">Ciclo de vida: ninguém escreve try/finally Free</span>
+    <p>
+      Toda a API é COM com contagem de referência: o objeto morre quando a última referência sai
+      de escopo. Para o contador poder chegar a zero, a referência existe <strong>só em um
+      sentido</strong> — o filho guarda o pai (a query, o schema e o migrator guardam a facade),
+      e o pai não guarda nenhum filho. Onde o filho precisa chamar o pai para fazer faxina, a
+      referência é de <strong>classe</strong>, não de interface contada: é assim que a conexão
+      emprestada chama o pool de volta para se devolver, sem que o ciclo se feche.
+    </p>
+    <p>
+      É por isso que <code>Schema</code>, <code>Migrator</code> e <code>Seeder</code> criam uma
+      instância nova a cada acesso em vez de cachear: guardar a instância no campo da facade
+      fecharia o ciclo facade → filho → facade, e nenhum dos dois seria liberado. Criar é barato
+      (nenhum deles abre conexão no construtor), e o único recurso de verdade — o pool — é da
+      facade e vive enquanto ela vive.
+    </p>
+  </div>
+</div>
+
+<h2 id="query">Montar queries</h2>
+<p>
+  Os três primeiros devolvem uma query <strong>amarrada</strong> à facade: podem executar.
+  <code>Query</code> é a forma de começar sem tabela, usada para subqueries.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Table(const AName: string): ILzNexQuery</code></td><td>Nova query com a tabela já definida.</td></tr>
+<tr><td><code>function From(const AName: string): ILzNexQuery</code></td><td>Idêntico a <code>Table</code>.</td></tr>
+<tr><td><code>function Query: ILzNexQuery</code></td><td>Query vazia, sem tabela. Para subquery e para montar a fonte depois.</td></tr>
+<tr><td><code>function Raw(const ASQL: string; const AArgs: array of const): ILzNexRaw</code></td><td>Template de SQL cru com <code>?</code>, <code>??</code> e <code>:nome</code>. Veja <a href="#raw-sql">SQL cru</a>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="schema">Schema, migrations e seeds</h2>
+<p>Cada chamada devolve uma instância nova, pelo motivo do callout acima.</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Schema: ILzNexSchema</code></td><td>O schema builder: criar, alterar e inspecionar tabelas.</td></tr>
+<tr><td><code>function Migrator: ILzNexMigrator</code></td><td>O runner de migrations. Lê o nome da tabela de controle da configuração e nasce <strong>sem fonte</strong>: registre com <code>AddSource</code>.</td></tr>
+<tr><td><code>function Seeder: ILzNexSeeder</code></td><td>O executor de seeds.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="transaction">Transação</h2>
+<p>
+  <code>ILzNexTransaction</code> <strong>herda</strong> <code>ILzNex</code>: dentro do bloco você
+  usa <code>Trx.Table(...)</code> exatamente como usaria <code>Db.Table(...)</code>, e a query já
+  nasce amarrada à conexão da transação. O que a transação acrescenta é
+  <code>Commit</code>, <code>Rollback</code>, <code>Savepoint</code>, <code>IsCompleted</code> e
+  <code>Level</code> — detalhado em <a href="#transactions">Transações</a>.
+</p>
+<p>
+  Diferente de <code>Schema</code> e <code>Migrator</code>, abrir uma transação
+  <strong>pega uma conexão do pool na hora</strong> e a segura até o <code>Commit</code> ou
+  <code>Rollback</code>: transação esquecida viva é vaga do pool parada.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Transaction: ILzNexTransaction</code></td><td>Abre transação no nível de isolamento do servidor (<code>ilDefault</code>).</td></tr>
+<tr><td><code>function Transaction(const AIsolation: TLzNexIsolation): ILzNexTransaction</code></td><td>Abre com isolamento explícito: <code>ilReadUncommitted</code>, <code>ilReadCommitted</code>, <code>ilRepeatableRead</code>, <code>ilSerializable</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="raw-sql">SQL direto</h2>
+<p>
+  Atalhos para quando não há o que construir: o texto vai como está, com os valores ainda como
+  bind. Os dois pegam uma conexão emprestada do pool.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Execute(const ASQL: string; const AArgs: array of const): Int64</code></td><td>Executa e devolve linhas afetadas.</td></tr>
+<tr><td><code>function Fetch(const ASQL: string; const AArgs: array of const): ILzNexResult</code></td><td>Executa e devolve o cursor.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="infra">Dialeto, configuração e conexão</h2>
+<p>
+  Acesso ao que está por baixo. <code>Client</code> e <code>Config</code> devolvem a mesma
+  instância a cada chamada — são do próprio objeto, criadas em <code>Connect</code>.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Client: ILzNexClient</code></td><td>O dialeto ativo: nome, quoting, capacidades. Veja <a href="#api-client">ILzNexClient</a>.</td></tr>
+<tr><td><code>function Config: ILzNexConfig</code></td><td>A configuração já validada por <code>Connect</code>.</td></tr>
+<tr><td><code>function Pool: ILzNexPool</code></td><td>O pool, para ler <code>Size</code> / <code>InUse</code> em diagnóstico.</td></tr>
+<tr><td><code>function Connection: ILzNexConnection</code></td><td>Pega uma conexão emprestada do pool. Ela volta sozinha quando a referência sai de escopo.</td></tr>
+<tr><td><code>function IsTransaction: Boolean</code></td><td><code>False</code> na facade, <code>True</code> em <code>ILzNexTransaction</code>. Para código que recebe <code>ILzNex</code> e precisa saber onde está.</td></tr>
+<tr><td><code>procedure Shutdown</code></td><td>Fecha as conexões ociosas e encerra o pool. <code>Acquire</code> depois disso levanta <code>ELzNexPool</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Segurar a conexão prende uma vaga do pool</span>
+    <p>
+      O empréstimo dura enquanto a <code>ILzNexConnection</code> (ou um
+      <code>ILzNexResult</code> aberto a partir dela) estiver vivo. Guardar uma dessas em campo
+      de objeto de vida longa é, na prática, tirar uma conexão do pool para sempre. Veja
+      <a href="#pool">Pool</a>.
+    </p>
+  </div>
+</div>
+</article>

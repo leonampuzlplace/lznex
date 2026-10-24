@@ -1,0 +1,143 @@
+<article>
+<h1>Conexão, pool e transação</h1>
+<p class="subtitle">
+  As três interfaces que ficam entre o builder e o Zeos: quem executa, quem empresta e quem
+  delimita.
+</p>
+
+<h2 id="ilznexconnection">ILzNexConnection</h2>
+<p>
+  A camada fina sobre o Zeos. Recebe <code>TLzNexFragment</code> — texto mais binds já prontos —
+  e nunca interpola valor. Statements preparados ficam num cache por conexão, e um
+  <code>prepare</code> ou execução que falha remove a entrada do cache antes de propagar o erro.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Execute(const AFragment: TLzNexFragment): Int64</code></td><td>Roda um comando que não devolve linhas e entrega as linhas afetadas. Fragmento com texto vazio levanta <code>ELzNexQuery</code>.</td></tr>
+<tr><td><code>function Query(const AFragment: TLzNexFragment): ILzNexResult</code></td><td>Roda um comando que devolve cursor. Comando que não produz resultset levanta.</td></tr>
+<tr><td><code>function ExecuteScript(const ASQL: string): Int64</code></td><td>Executa SQL sem bind nem prepare, por statement direto. É o caminho de migration em arquivo e de DDL que o driver recusa preparado.</td></tr>
+<tr><td><code>function LastInsertId: Int64</code></td><td>Último id gerado <strong>nesta</strong> conexão.</td></tr>
+<tr><td><code>function StartTransaction: Integer</code></td><td>Abre transação ou savepoint e devolve o nível resultante.</td></tr>
+<tr><td><code>procedure Commit</code></td><td>Confirma o nível atual e decrementa o contador.</td></tr>
+<tr><td><code>procedure Rollback</code></td><td>Desfaz o nível atual e decrementa o contador.</td></tr>
+<tr><td><code>function InTransaction: Boolean</code></td><td>Pergunta ao driver: conexão aberta e sem autocommit. Não depende do contador interno.</td></tr>
+<tr><td><code>function TransactionLevel: Integer</code></td><td>Nível conhecido pela conexão. É o que detecta savepoint aberto quando a transação externa vai fechar.</td></tr>
+<tr><td><code>function Ping: Boolean</code></td><td>Testa o servidor. Nunca levanta: qualquer falha vira <code>False</code>. O pool usa isso para descartar conexão morta.</td></tr>
+<tr><td><code>function IsClosed: Boolean</code></td><td>Verdadeiro se já foi fechada ou nunca abriu.</td></tr>
+<tr><td><code>procedure Close</code></td><td>Limpa o cache de statements e fecha. Idempotente e não levanta.</td></tr>
+<tr><td><code>function Native: IInterface</code></td><td>Escapatória: o <code>IZConnection</code> do Zeos por baixo.</td></tr>
+<tr><td><code>function Client: ILzNexClient</code></td><td>Dialeto desta conexão.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">Native é a porta de saída para uso avançado</span>
+    <p>
+      O tipo declarado é <code>IInterface</code> para não espalhar <code>ZDbcIntfs</code> pela
+      API pública; faça <code>Conn.Native as IZConnection</code> quando precisar de algo que o
+      LzNex não expõe (isolamento sob medida, metadados do driver). Depois de
+      <code>Close</code> devolve <code>nil</code>.
+    </p>
+  </div>
+</div>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">LastInsertId é por conexão</span>
+    <p>
+      Ele roda uma consulta — <code>select last_insert_id()</code>,
+      <code>select lastval()</code> ou <code>select last_insert_rowid()</code>, conforme o
+      <code>DialectName</code> — e o valor só existe na sessão que fez o insert. Lido de outra
+      conexão do <a href="#pool">pool</a> o resultado não é seu: pegue o id na mesma conexão, ou
+      use <code>InsertGetId</code>, que já cuida disso.
+    </p>
+  </div>
+</div>
+
+<h2 id="ilznexpool">ILzNexPool</h2>
+<p>
+  Pool fixo com mínimo e máximo. As conexões do mínimo abrem na construção; o resto abre sob
+  demanda até o máximo. <code>Acquire</code> devolve uma conexão emprestada — um invólucro que
+  delega tudo para a conexão real.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Acquire: ILzNexConnection</code></td><td>Pega uma conexão livre, testando com <code>Ping</code> e descartando as mortas; se não houver livre e o máximo não foi atingido, abre uma. Bloqueia até o timeout de aquisição da <a href="#api-config">config</a> e então levanta <code>ELzNexPool</code>.</td></tr>
+<tr><td><code>function Size: Integer</code></td><td>Total de conexões vivas: as livres mais as em uso.</td></tr>
+<tr><td><code>function InUse: Integer</code></td><td>Quantas estão emprestadas agora.</td></tr>
+<tr><td><code>procedure Shutdown</code></td><td>Marca o pool como encerrado e fecha as livres. <code>Acquire</code> depois disso levanta; as emprestadas continuam funcionando e são fechadas, não guardadas, ao voltar.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">A devolução é automática — e é por isso que o pool pode travar</span>
+    <p>
+      Não existe <code>Release</code> na interface: a conexão volta ao pool no destrutor do
+      invólucro, quando o refcount do <code>ILzNexConnection</code> chega a zero. Na volta, uma
+      transação ainda aberta sofre rollback e uma conexão fechada é descartada em vez de
+      guardada. O efeito prático: guardar a interface num campo de objeto, num singleton ou numa
+      closure mantém a conexão emprestada para sempre e esgota o pool — o erro de exaustão diz
+      exatamente isso. Deixe a variável sair de escopo.
+    </p>
+  </div>
+</div>
+
+<p>
+  Um <code>ILzNexResult</code> obtido de conexão emprestada também segura o empréstimo: o cursor
+  guarda uma referência à conexão, então o pool só a recupera quando o resultado é liberado. Veja
+  <a href="#pool">pool</a> para os números medidos e <a href="#results">resultados</a> para o
+  ciclo do cursor.
+</p>
+
+<h2 id="ilznextransaction">ILzNexTransaction</h2>
+<p>
+  <code>ILzNexTransaction</code> herda de <code>ILzNex</code>: dentro de uma transação você usa a
+  mesma fachada de sempre — <code>Table</code>, <code>From</code>, <code>Query</code>,
+  <code>Schema</code>, <code>Execute</code>, <code>Fetch</code> — e as queries saem já amarradas
+  nela, sem precisar de <code>Transacting</code> à mão. Os cinco métodos próprios são os de
+  controle.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>procedure Commit</code></td><td>Confirma e encerra. Com savepoint interno ainda aberto, levanta <code>ELzNexTransaction</code> em vez de confirmar pela metade.</td></tr>
+<tr><td><code>procedure Rollback</code></td><td>Desfaz e encerra, com a mesma checagem de savepoint aberto.</td></tr>
+<tr><td><code>function Savepoint: ILzNexTransaction</code></td><td>Bloco interno sobre a mesma conexão. Savepoints fecham em ordem LIFO.</td></tr>
+<tr><td><code>function IsCompleted: Boolean</code></td><td>Verdadeiro depois de <code>Commit</code> ou <code>Rollback</code>. É o que permite um <code>except</code> fazer rollback só quando ainda há o que desfazer.</td></tr>
+<tr><td><code>function Level: Integer</code></td><td>Nível desta transação na conexão, como o driver reportou ao abrir. Cada savepoint sobe um.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Commit e Rollback soltam a conexão na hora</span>
+    <p>
+      Os dois zeram a referência interna no mesmo instante, o que devolve o empréstimo ao pool.
+      Depois disso a transação está encerrada: <code>Connection</code> levanta com essa
+      explicação, e <code>Table</code>, <code>Execute</code> ou qualquer outro método de trabalho
+      levantam dizendo em que nível a transação estava. Para continuar, abra outra transação.
+    </p>
+  </div>
+</div>
+
+<p>
+  Se a transação é liberada sem <code>Commit</code> nem <code>Rollback</code>, o destrutor faz
+  rollback — e, se esse rollback falhar, registra no logger em vez de levantar de dentro do
+  destrutor. <code>Shutdown</code> numa transação levanta de propósito: encerre o bloco e chame
+  <code>Shutdown</code> na fachada. Veja <a href="#transactions">transações</a> para os exemplos.
+</p>
+</article>

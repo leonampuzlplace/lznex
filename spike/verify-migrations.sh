@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Roda o ciclo de migrations pelo CLI e confere o estado REAL do banco
-# consultando pelo container do mysql (nao pelo spike, cujo cliente mariadb
-# pode esbarrar no caching_sha2_password).
 set -u
 cd /home/ljlim/code/study/lznex
 

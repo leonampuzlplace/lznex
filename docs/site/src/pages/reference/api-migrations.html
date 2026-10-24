@@ -1,0 +1,170 @@
+<article>
+<h1>Migrations e seeds</h1>
+<p class="subtitle">
+  As interfaces do migrator e as duas classes base que você herda para escrever uma migration ou
+  um seed em código.
+</p>
+
+<h2 id="ilznexmigration">ILzNexMigration</h2>
+<p>
+  Uma migration é identificada por dois textos: o <code>Name</code> completo, que é o que fica
+  gravado na tabela de controle, e o <code>Id</code>, que define a <strong>ordem de
+  aplicação</strong>. Id duplicado é erro de registro, não de execução.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Id: string</code></td><td>Chave de ordenação. Comparada como texto, então o formato de data fixa a ordem.</td></tr>
+<tr><td><code>function Name: string</code></td><td>Nome completo. É por ele que o migrator decide se já foi aplicada.</td></tr>
+<tr><td><code>function UseTransaction: Boolean</code></td><td><code>False</code> faz o migrator rodar <code>Up</code>/<code>Down</code> sem transação, direto na fachada. Serve para DDL que o banco recusa dentro de transação.</td></tr>
+<tr><td><code>procedure Up(const ADb: ILzNex)</code></td><td>Aplica. O <code>ADb</code> recebido é a transação quando <code>UseTransaction</code> é verdadeiro — use só ele, não a fachada global.</td></tr>
+<tr><td><code>procedure Down(const ADb: ILzNex)</code></td><td>Desfaz, com a mesma regra.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="tlznexmigration">TLzNexMigration</h3>
+<p>
+  Classe base de <code>LzNex.Migration</code>, para migrations escritas em Pascal. Ela implementa
+  <code>ILzNexMigration</code> redirecionando <code>Id</code> e <code>Name</code> para os métodos
+  de classe — assim o registro consegue ler o id sem instanciar a migration.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>class function Id: string; virtual</code></td><td>Por padrão, o pedaço de <code>MigrationName</code> antes do primeiro <code>_</code>. Sobrescreva só se o nome não seguir o formato.</td></tr>
+<tr><td><code>class function MigrationName: string; virtual</code></td><td><strong>Obrigatório</strong> sobrescrever: a versão da base levanta <code>ELzNexMigration</code> dizendo para devolver <code>'&lt;YYYYMMDDHHMMSS&gt;_&lt;description&gt;'</code>.</td></tr>
+<tr><td><code>function UseTransaction: Boolean; virtual</code></td><td><code>True</code> na base. Sobrescreva para sair da transação.</td></tr>
+<tr><td><code>procedure Up(const ADb: ILzNex); virtual; abstract</code></td><td><strong>Obrigatório</strong>: é abstrato.</td></tr>
+<tr><td><code>procedure Down(const ADb: ILzNex); virtual; abstract</code></td><td><strong>Obrigatório</strong>: é abstrato. Migration irreversível deve levantar aqui, não ficar vazia.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  Uma subclasse só entra na fila depois de <code>RegisterMigration(TMinhaMigration)</code>, que
+  insere já ordenado por <code>Id</code> e recusa id repetido. O registro acontece no
+  <code>initialization</code> da unit da migration — e é aí que mora a armadilha do linker:
+  <a href="#migrations">migrations</a> explica por que a unit precisa aparecer num
+  <code>uses</code> agregador.
+</p>
+
+<h2 id="ilznexmigrationsource">ILzNexMigrationSource</h2>
+<p>
+  Fonte de migrations. O migrator aceita várias e mistura tudo numa fila só, ordenada por
+  <code>Id</code>; id repetido entre fontes levanta apontando as duas.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function All: TLzNexMigrationArray</code></td><td>Todas as migrations da fonte, instanciadas.</td></tr>
+<tr><td><code>function SourceName: string</code></td><td>Rótulo que aparece no <code>Status</code> e nas mensagens de erro.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  Duas implementações vêm prontas: <code>TLzNexCodeMigrationSource</code> (nome
+  <code>'code'</code>), que devolve as classes registradas, e
+  <code>TLzNexSqlMigrationSource</code> (nome <code>'sql'</code>), que lê pares
+  <code>.up.sql</code> / <code>.down.sql</code> de um diretório. A variante
+  <code>NewOptional</code> aceita diretório inexistente sem reclamar.
+</p>
+
+<h2 id="ilznexmigrator">ILzNexMigrator</h2>
+<p>
+  Obtido em <code>Db.Migrator</code>, já com a fonte de código e — se a config apontar um
+  diretório — a fonte de arquivos. Os métodos que mudam o banco pegam um lock na tabela
+  <code>&lt;migrations&gt;_lock</code> e o soltam no fim, inclusive quando a migration falha.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function AddSource(const ASource: ILzNexMigrationSource): ILzNexMigrator</code></td><td>Acrescenta uma fonte e devolve o próprio migrator. <code>nil</code> levanta.</td></tr>
+<tr><td><code>function Latest: Integer</code></td><td>Aplica todas as pendentes num mesmo lote e devolve quantas rodaram.</td></tr>
+<tr><td><code>function Rollback: Integer</code></td><td>Desfaz o último lote inteiro, na ordem inversa da aplicação.</td></tr>
+<tr><td><code>function RollbackAll: Integer</code></td><td>Desfaz tudo que está aplicado, do fim para o começo.</td></tr>
+<tr><td><code>function Up(const AName: string = ''): Integer</code></td><td>Sem nome, aplica apenas a próxima pendente. Com nome, aplica aquela — já aplicada ou inexistente levanta.</td></tr>
+<tr><td><code>function Down(const AName: string = ''): Integer</code></td><td>Sem nome, desfaz a última aplicada. Com nome, desfaz aquela — não aplicada levanta.</td></tr>
+<tr><td><code>function MigrateTo(const AName: string): Integer</code></td><td>Aplica as pendentes até a migration indicada, inclusive, e para ali.</td></tr>
+<tr><td><code>function Status: TLzNexMigrationStatusList</code></td><td>Uma linha por migration conhecida, aplicada ou não. Não pega o lock.</td></tr>
+<tr><td><code>function Pending: TLzNexMigrationArray</code></td><td>Só as que faltam, em ordem de aplicação. Não pega o lock.</td></tr>
+<tr><td><code>function CurrentVersion: string</code></td><td>Maior <code>Id</code> aplicado, ou <code>'none'</code> quando a tabela está vazia.</td></tr>
+<tr><td><code>procedure Unlock</code></td><td>Solta o lock à mão, para o caso de um processo ter morrido segurando ele.</td></tr>
+<tr><td><code>procedure EnsureTables</code></td><td>Cria a tabela de controle e a de lock se faltarem. Os outros métodos chamam isto antes; a checagem é feita uma vez por migrator.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Migration aplicada que desapareceu da fonte trava tudo</span>
+    <p>
+      Antes de qualquer operação o migrator compara a tabela de controle com as fontes,
+      <strong>por nome</strong>. Linha gravada sem migration correspondente levanta
+      <code>ELzNexMigration</code> listando as órfãs — o que acontece ao renomear ou apagar um
+      arquivo já aplicado, ou ao tirar a unit do agregador e deixá-la de fora do link. Restaure a
+      migration ou apague a linha à mão.
+    </p>
+  </div>
+</div>
+
+<h2 id="ilznexseeder">ILzNexSeeder</h2>
+<p>
+  Seeds não têm tabela de controle nem lote: rodam sempre que você pede. A ordem é a alfabética
+  do <code>SeedName</code>, comparada sem caixa.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Run: Integer</code></td><td>Roda todos os seeds registrados, em ordem de nome, e devolve a quantidade.</td></tr>
+<tr><td><code>function RunOne(const AName: string): Integer</code></td><td>Roda um seed pelo nome. Nome desconhecido levanta listando os registrados — e, quando não há nenhum, lembra que a unit pode não estar no <code>uses</code> agregador.</td></tr>
+<tr><td><code>function Names: TLzNexStringArray</code></td><td>Nomes registrados, na ordem de execução.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="tlznexseed">TLzNexSeed</h3>
+<p>
+  A classe base do seed é um <code>TObject</code> comum, não uma interface: o seeder instancia,
+  executa e libera. Falha dentro do <code>Run</code> é reembalada com o nome do seed e da classe.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>class function SeedName: string; virtual</code></td><td><strong>Obrigatório</strong> sobrescrever: a base levanta. O nome define a ordem e é a chave do <code>RunOne</code>.</td></tr>
+<tr><td><code>procedure Run(const ADb: ILzNex); virtual; abstract</code></td><td><strong>Obrigatório</strong>. Recebe a fachada; se quiser atomicidade, abra a transação aqui dentro.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  Registre com <code>RegisterSeed(TMeuSeed)</code>, que recusa nome vazio ou repetido. Veja
+  <a href="#seeds">seeds</a>.
+</p>
+
+<h2 id="tlznexmigrationstatus">TLzNexMigrationStatus</h2>
+<p>
+  O record devolvido por <code>Status</code>, um por migration conhecida. Para as não aplicadas,
+  os três últimos campos vêm zerados.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>Name: string</code></td><td>Nome completo da migration.</td></tr>
+<tr><td><code>Source: string</code></td><td><code>SourceName</code> da fonte de onde ela veio — <code>'code'</code> ou <code>'sql'</code>.</td></tr>
+<tr><td><code>Applied: Boolean</code></td><td>Se há linha correspondente na tabela de controle.</td></tr>
+<tr><td><code>Batch: Integer</code></td><td>Lote em que foi aplicada; <code>0</code> se não foi. É o lote que o <code>Rollback</code> desfaz.</td></tr>
+<tr><td><code>AppliedAt: TDateTime</code></td><td>Momento da aplicação; <code>0</code> se não foi.</td></tr>
+</tbody>
+</table>
+</div>
+</article>

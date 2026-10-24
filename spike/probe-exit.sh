@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Mede o exit code real de cada sonda, sem pipe no meio (pipe faz $? virar o
-# status do ultimo comando do pipe, nao o do programa).
 set -u
 cd /work
 

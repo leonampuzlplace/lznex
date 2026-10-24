@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Roda a suite FPCUnit dentro do container e imprime o exit code como TEXTO.
-# `docker compose exec` nao propaga exit code neste ambiente, entao ler $? de
-# fora da resultado invalido -- o codigo tem que ser lido aqui dentro.
 set -u
 cd /home/ljlim/code/study/lznex
 

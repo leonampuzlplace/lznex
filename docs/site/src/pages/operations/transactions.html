@@ -1,0 +1,285 @@
+<article>
+<h1>Transações</h1>
+<p class="subtitle">
+  Uma transação fixa uma conexão do pool e devolve o empréstimo no <code>Commit</code> ou no
+  <code>Rollback</code> — não no destrutor.
+</p>
+
+<h2 id="basics">Abrir, usar, concluir</h2>
+<p>
+  <code>Db.Transaction</code> tira uma conexão do <a href="#pool">pool</a> e a mantém
+  <strong>fixada</strong> até a transação terminar. Tudo que sai dessa transação — query,
+  <code>Execute</code>, <code>Fetch</code> — vai para aquela conexão, e só para ela.
+</p>
+
+<p>
+  <code>ILzNexTransaction</code> herda <code>ILzNex</code>: o objeto da transação responde à
+  <strong>API inteira</strong> da facade. Não existe objeto "transação" separado com métodos
+  próprios de escrita; é a mesma facade, amarrada a uma conexão.
+</p>
+
+<div class="code"><pre data-lang="pascal">Trx := Db.Transaction;
+try
+  Trx.Table('accounts').Where('id', 1).Decrement('balance', 100);
+  Trx.Table('accounts').Where('id', 2).Increment('balance', 100);
+  Trx.Commit;
+except
+  on E: Exception do
+  begin
+    if not Trx.IsCompleted then
+      Trx.Rollback;
+    raise;
+  end;
+end;</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">update `accounts` set `balance` = `balance` + ? where `id` = ?
+update `accounts` set `balance` = `balance` + ? where `id` = ?</pre>
+  <p class="code-note">binds: -100 | 1 · 100 | 2 — <code>Decrement</code> é um counter com delta negativo</p>
+</div>
+</div>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>procedure Commit</code></td><td>Confirma e <strong>conclui</strong>. Solta a conexão na hora.</td></tr>
+<tr><td><code>procedure Rollback</code></td><td>Desfaz e <strong>conclui</strong>. Solta a conexão na hora.</td></tr>
+<tr><td><code>function Savepoint: ILzNexTransaction</code></td><td>Abre um bloco interno na mesma conexão. Em transação concluída, levanta.</td></tr>
+<tr><td><code>function IsCompleted: Boolean</code></td><td><code>True</code> depois de <code>Commit</code> ou <code>Rollback</code>. É o que o <code>except</code> consulta antes de desfazer.</td></tr>
+<tr><td><code>function Level: Integer</code></td><td>1 na raiz, 2 no primeiro savepoint, e assim por diante.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">O destrutor desfaz, e nunca levanta</span>
+    <p>
+      Se a interface morrer sem <code>Commit</code>, o destrutor faz <code>rollback</code> —
+      inclusive quando a saída foi por exceção, e inclusive para savepoint abandonado. Se esse
+      rollback de emergência falhar (conexão já caiu, por exemplo), o erro vai para o
+      <a href="#logging">logger</a> e <strong>não</strong> é propagado: destrutor que levanta
+      perderia a exceção original e vazaria o objeto. O resultado prático é que não fica
+      transação aberta nem conexão vazada, mesmo com <code>raise</code> no meio do bloco.
+    </p>
+  </div>
+</div>
+
+<h2 id="releasing-the-connection">Por que Commit solta a conexão na hora</h2>
+<p>
+  <code>Commit</code> e <code>Rollback</code> não só terminam a transação no banco: eles soltam
+  a referência da conexão <strong>imediatamente</strong>, devolvendo o empréstimo ao pool ali
+  mesmo. O caminho natural em Pascal seria deixar isso para o destrutor — e seria errado aqui.
+</p>
+
+<p>
+  No FPC 3.2.2, o temporário de interface que uma função devolve só é liberado no
+  <strong>fim do procedimento</strong>. Ou seja: <code>Trx := nil</code> não destrói o objeto,
+  porque o compilador ainda segura uma referência escondida ao resultado de
+  <code>Db.Transaction</code> até o <code>end</code> do seu procedimento. Com o empréstimo preso
+  ao destrutor, um laço de trabalho com N threads e pool de tamanho N prenderia uma conexão por
+  thread pelo resto do procedimento — e a próxima thread a pedir conexão esperaria até o
+  <code>acquireTimeout</code> para então levantar <code>ELzNexPool</code>.
+</p>
+
+<div class="code"><pre data-lang="pascal">procedure ProcessaLote(const ADb: ILzNex);
+var
+  Trx: ILzNexTransaction;
+  I: Integer;
+begin
+  for I := 1 to 100 do
+  begin
+    Trx := ADb.Transaction;
+    Trx.Table('jobs').Where('id', I).Update(Vals(['done', True]));
+    Trx.Commit;        // conexao volta ao pool AQUI
+    Trx := nil;        // nao destroi o objeto: o temporario do FPC ainda o segura
+  end;
+end;                   // so aqui os temporarios morrem</pre>
+  <p class="code-note">com a liberação no destrutor, este laço esgotaria o pool na segunda volta</p>
+</div>
+
+<h3 id="after-completion">Depois de concluída não tem mais conexão</h3>
+<p>
+  A consequência direta: a transação concluída fica sem conexão, e qualquer operação que precise
+  de uma <strong>levanta</strong> <code>ELzNexTransaction</code>. Isso é deliberado. A
+  alternativa seria pegar calada outra conexão do pool e executar <strong>fora</strong> da
+  transação — o comando funcionaria, o dado seria gravado e o bug só apareceria quando alguém
+  notasse que aquele <code>update</code> não participou do <code>commit</code> de ninguém.
+</p>
+
+<div class="code"><pre data-lang="pascal">Trx := Db.Transaction;
+Trx.Table('users').Insert(Vals(['name', 'ana']));
+Trx.Commit;
+
+Trx.Table('users').Insert(Vals(['name', 'bia']));
+// ELzNexTransaction: Table on an already completed transaction (level 1).
+// Commit and Rollback end the transaction; for another block open a new
+// transaction or a Savepoint.
+
+Trx.Connection;
+// ELzNexTransaction: Connection on a transaction already completed:
+// Commit/Rollback returned the connection to the pool. Open a new
+// transaction to keep working.
+
+Trx.Commit;
+// ELzNexTransaction: Commit on an already completed transaction (level 1). ...</pre>
+  <p class="code-note">para outro bloco, abra outra transação — reaproveitar a concluída não é um atalho, é um erro</p>
+</div>
+
+<h2 id="savepoint">Savepoints</h2>
+<p>
+  <code>Savepoint</code> abre um bloco interno na <strong>mesma</strong> conexão e no mesmo
+  <code>begin</code> do banco. Desfazer o interno não derruba o externo.
+</p>
+
+<div class="code"><pre data-lang="pascal">Trx := Db.Transaction;
+try
+  Trx.Table('orders').Insert(Vals(['customer_id', 7]));
+
+  Sp := Trx.Savepoint;              // Sp.Level = 2
+  try
+    Sp.Table('order_items').Insert(Vals(['order_id', 1, 'sku', 'X']));
+    Sp.Commit;
+  except
+    if not Sp.IsCompleted then
+      Sp.Rollback;                  // so os itens voltam; a ordem continua
+  end;
+  Sp := nil;
+
+  Trx.Commit;
+except
+  if not Trx.IsCompleted then
+    Trx.Rollback;
+  raise;
+end;</pre></div>
+
+<p>
+  <code>Trx.Transaction</code> dentro de uma transação é apelido de <code>Savepoint</code>.
+  A sobrecarga com isolamento, porém, levanta: isolamento é propriedade da transação raiz,
+  um savepoint não tem o seu.
+</p>
+
+<h3 id="lifo">Destruição LIFO é garantida</h3>
+<p>
+  O savepoint guarda o pai <strong>por interface</strong>, então o refcount do pai não chega a
+  zero enquanto o filho existir: o pai nunca é destruído antes do filho, mesmo que a variável
+  dele saia de escopo primeiro. E quem solta a conexão de volta ao pool é a transação
+  <strong>raiz</strong> — o savepoint compartilha a conexão emprestada, não pede outra, e o
+  <code>Commit</code> dele apenas fecha o nível interno.
+</p>
+
+<p>
+  Concluir a raiz com savepoint aberto levanta, com os dois níveis na mensagem:
+</p>
+
+<div class="code"><pre data-lang="pascal">Trx := Db.Transaction;
+Sp := Trx.Savepoint;
+Trx.Commit;
+// ELzNexTransaction: Commit with a savepoint still open: this transaction is
+// at level 1 but the connection is at level 2. Complete the inner Savepoint
+// (Commit/Rollback) before completing the outer transaction -- savepoints
+// must be closed in LIFO order.</pre></div>
+
+<p>
+  Isso é checado contra o nível real da <strong>conexão</strong>, não contra um contador
+  interno, então vale também para savepoint aberto por outro caminho. Se o dialeto não tiver
+  savepoint, <code>Db.Client.SupportsSavepoints</code> devolve <code>False</code> — MySQL e
+  PostgreSQL devolvem <code>True</code>.
+</p>
+
+<h2 id="isolation">Isolamento</h2>
+<p>
+  O nível é pedido na abertura e aplicado <strong>só na raiz</strong>. Banco que recusa o nível
+  faz <code>Db.Transaction</code> levantar <code>ELzNexTransaction</code> com a mensagem do
+  servidor anexada — melhor que seguir num isolamento diferente do pedido.
+</p>
+
+<div class="code"><pre data-lang="pascal">Trx := Db.Transaction(ilSerializable);
+try
+  Saldo := Trx.Table('accounts').Where('id', 1).Value('balance').AsInt64;
+  Trx.Table('accounts').Where('id', 1).Update(Vals(['balance', Saldo - 10]));
+  Trx.Commit;
+except
+  if not Trx.IsCompleted then
+    Trx.Rollback;
+  raise;
+end;</pre></div>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>TLzNexIsolation</th><th>Efeito</th></tr></thead>
+<tbody>
+<tr><td><code>ilDefault</code></td><td>Não envia nada: vale o default do servidor (<code>repeatable read</code> no MySQL, <code>read committed</code> no PostgreSQL).</td></tr>
+<tr><td><code>ilReadUncommitted</code></td><td>Lê o que outra transação ainda não confirmou. Leitura suja.</td></tr>
+<tr><td><code>ilReadCommitted</code></td><td>Só dados confirmados. Duas leituras iguais podem dar resultados diferentes.</td></tr>
+<tr><td><code>ilRepeatableRead</code></td><td>A mesma leitura repetida dá o mesmo resultado dentro da transação.</td></tr>
+<tr><td><code>ilSerializable</code></td><td>Como se as transações rodassem em fila. O mais caro, e o que mais gera erro de conflito para tratar.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="lock">Lock pessimista</h2>
+<p>
+  <code>ForUpdate</code> e <code>ForShare</code> só fazem sentido <strong>dentro</strong> de uma
+  transação: o lock vive até o <code>commit</code> ou o <code>rollback</code>. Fora de
+  transação, cada comando faz seu próprio commit e o lock morre antes de você usá-lo.
+</p>
+
+<div class="code"><pre data-lang="pascal">Trx := Db.Transaction;
+try
+  Job := Trx.Table('jobs')
+    .Where('status', 'pending')
+    .OrderBy('id')
+    .ForUpdate
+    .SkipLocked
+    .First;
+
+  if Job &lt;&gt; nil then
+    Trx.Table('jobs').Where('id', Job.Field('id')).Update(Vals(['status', 'running']));
+  Trx.Commit;
+except
+  if not Trx.IsCompleted then
+    Trx.Rollback;
+  raise;
+end;</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `jobs` where `status` = ? order by `id` asc limit ? for update skip locked</pre>
+  <p class="code-note">binds: pending | 1 — a cláusula de lock é sempre a última</p>
+</div>
+</div>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function ForUpdate: ILzNexQuery</code></td><td><code>for update</code>: lock exclusivo nas linhas lidas.</td></tr>
+<tr><td><code>function ForShare: ILzNexQuery</code></td><td><code>for share</code>: outros podem ler, ninguém pode escrever.</td></tr>
+<tr><td><code>function SkipLocked: ILzNexQuery</code></td><td><code>skip locked</code>: pula as linhas travadas em vez de esperar. É o que faz N workers pegarem jobs diferentes sem combinar nada.</td></tr>
+<tr><td><code>function NoWait: ILzNexQuery</code></td><td><code>nowait</code>: erro imediato em vez de esperar o lock. Para quando esperar é pior que falhar.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Sem <code>SkipLocked</code> nem <code>NoWait</code>, o comportamento é esperar o lock.</p>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Transação não atravessa thread</span>
+    <p>
+      A conexão fixada é de <strong>uma</strong> thread. Passar o <code>ILzNexTransaction</code>
+      (ou a conexão dele) para outra thread intercala comandos de duas threads na mesma conexão,
+      e nem o protocolo do banco nem o cache de statements aguentam isso — o resultado vai de
+      bind embaralhado a erro de protocolo. Cada thread abre a sua transação, com a sua conexão
+      do pool. Veja <a href="#pool">pool</a>.
+    </p>
+  </div>
+</div>
+
+<p>
+  O <a href="#migrations">migrator</a> usa exatamente isso: cada migration com
+  <code>UseTransaction</code> roda numa transação, e a linha da tabela de controle é gravada
+  dentro dela.
+</p>
+</article>

@@ -1,0 +1,339 @@
+<article>
+<h1>Valores e binds</h1>
+<p class="subtitle">
+  Todo dado do usuário entra na query como <code>TLzNexValue</code> e sai como bind. Nunca como texto.
+</p>
+
+<h2 id="tagged-record">Um record com tag</h2>
+<p>
+  <code>TLzNexValue</code> é um <strong>record</strong> com um discriminante explícito
+  (<code>Kind: TLzNexValueKind</code>) e um campo por representação. Não há <code>Variant</code>
+  no meio: a conversão é decidida em tempo de compilação, o record cabe na pilha e cada leitura
+  sabe exatamente o que tem na mão.
+</p>
+
+<div class="code"><pre data-lang="pascal">V: TLzNexValue;
+
+V := 42;                       // Kind = vkInteger
+V := 'ana';                    // Kind = vkString
+V := TLzNexValue.Null;         // Kind = vkNull
+Writeln(V.Describe);           // NULL</pre></div>
+
+<p>
+  Os quinze valores de <code>TLzNexValueKind</code> são
+  <code>vkUnset</code>, <code>vkNull</code>, <code>vkBoolean</code>, <code>vkInteger</code>,
+  <code>vkInt64</code>, <code>vkFloat</code>, <code>vkCurrency</code>, <code>vkString</code>,
+  <code>vkBytes</code>, <code>vkDate</code>, <code>vkTime</code>, <code>vkDateTime</code>,
+  <code>vkIdentifier</code>, <code>vkRaw</code> e <code>vkSubQuery</code>.
+</p>
+
+<h2 id="implicit">Conversão implícita</h2>
+<p>
+  Seis operadores <code>Implicit</code> cobrem os tipos do dia a dia. É por isso que
+  <code>Where('id', 1)</code> compila sem nenhuma chamada de construtor.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Atribuindo</th><th>Vira</th></tr></thead>
+<tbody>
+<tr><td><code>Boolean</code></td><td><code>vkBoolean</code></td></tr>
+<tr><td><code>Integer</code></td><td><code>vkInteger</code></td></tr>
+<tr><td><code>Int64</code></td><td><code>vkInt64</code></td></tr>
+<tr><td><code>Double</code></td><td><code>vkFloat</code></td></tr>
+<tr><td><code>Currency</code></td><td><code>vkCurrency</code></td></tr>
+<tr><td><code>string</code></td><td><code>vkString</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  Data, hora, bytes, identificador, raw e subquery <strong>não</strong> têm implícito — não há
+  tipo Pascal que os identifique sem ambiguidade (<code>TDateTime</code> <em>é</em>
+  <code>Double</code>). Para esses, use o construtor nomeado.
+</p>
+
+<h2 id="constructors">Construtores nomeados</h2>
+<div class="table-wrap">
+<table class="api">
+<thead><tr><th>Construtor</th><th>Kind</th><th>Observação</th></tr></thead>
+<tbody>
+<tr><td><code>class function Unset: TLzNexValue</code></td><td><code>vkUnset</code></td><td>O estado zero do record. Não é bindável — veja <a href="#values/unset-vs-null">Unset contra Null</a>.</td></tr>
+<tr><td><code>class function Null: TLzNexValue</code></td><td><code>vkNull</code></td><td><code>NULL</code> de verdade, e <strong>é</strong> bindável.</td></tr>
+<tr><td><code>class function FromBoolean(const AValue: Boolean): TLzNexValue</code></td><td><code>vkBoolean</code></td><td>Mesmo efeito do implícito.</td></tr>
+<tr><td><code>class function FromInteger(const AValue: Integer): TLzNexValue</code></td><td><code>vkInteger</code></td><td>32 bits.</td></tr>
+<tr><td><code>class function FromInt64(const AValue: Int64): TLzNexValue</code></td><td><code>vkInt64</code></td><td>Preserva precisão acima de 2<sup>53</sup>, onde <code>Double</code> já perde.</td></tr>
+<tr><td><code>class function FromFloat(const AValue: Double): TLzNexValue</code></td><td><code>vkFloat</code></td><td>Ponto flutuante binário: não use para dinheiro.</td></tr>
+<tr><td><code>class function FromCurrency(const AValue: Currency): TLzNexValue</code></td><td><code>vkCurrency</code></td><td>Escalado em 4 decimais; é o tipo para dinheiro.</td></tr>
+<tr><td><code>class function FromString(const AValue: string): TLzNexValue</code></td><td><code>vkString</code></td><td>UTF-8 atravessa o record intacto.</td></tr>
+<tr><td><code>class function FromBytes(const AValue: TBytes): TLzNexValue</code></td><td><code>vkBytes</code></td><td>Binário puro, para <code>blob</code>/<code>bytea</code>.</td></tr>
+<tr><td><code>class function FromDate(const AValue: TDateTime): TLzNexValue</code></td><td><code>vkDate</code></td><td>Só a parte de data.</td></tr>
+<tr><td><code>class function FromTime(const AValue: TDateTime): TLzNexValue</code></td><td><code>vkTime</code></td><td>Só a parte de hora.</td></tr>
+<tr><td><code>class function FromDateTime(const AValue: TDateTime): TLzNexValue</code></td><td><code>vkDateTime</code></td><td>Data e hora.</td></tr>
+<tr><td><code>class function Identifier(const AName: string): TLzNexValue</code></td><td><code>vkIdentifier</code></td><td>Nome de coluna ou tabela. Sai <strong>quotado no SQL</strong>, sem bind. Aceita qualificação (<code>u.name</code>).</td></tr>
+<tr><td><code>class function Raw(const ARaw: IInterface): TLzNexValue</code></td><td><code>vkRaw</code></td><td>Guarda um <code>ILzNexRaw</code>. O texto entra inline; os binds <em>dele</em> entram na posição certa.</td></tr>
+<tr><td><code>class function SubQuery(const AQuery: IInterface): TLzNexValue</code></td><td><code>vkSubQuery</code></td><td>Guarda um <code>ILzNexQuery</code>. Sai entre parênteses, com os binds da subquery.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">Raw e SubQuery recebem IInterface, não a interface final</span>
+    <p>
+      Os dois guardam um <code>IInterface</code> e fazem <code>QueryInterface</code> na hora de
+      compilar. É o que quebra o ciclo de <code>uses</code> entre
+      <code>LzNex.Value</code> e <code>LzNex.Intf</code>. Passar uma interface que não implementa
+      <code>ILzNexRaw</code> / <code>ILzNexQuery</code> levanta <code>ELzNexBuilder</code> na
+      compilação da query, não na atribuição.
+    </p>
+  </div>
+</div>
+
+<h2 id="typed-read">Leitura tipada</h2>
+<p>
+  Cada leitor aceita um conjunto fechado de kinds, converte o que é convertível sem perda
+  surpreendente, devolve o zero do tipo para <code>Null</code> e <code>Unset</code>, e levanta
+  <code>ELzNexBuilder</code> no resto.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<thead><tr><th>Leitor</th><th>Aceita</th><th>Levanta em</th></tr></thead>
+<tbody>
+<tr><td><code>function AsBoolean: Boolean</code></td><td><code>vkBoolean</code>; inteiro (<code>&lt;&gt; 0</code>)</td><td>resto</td></tr>
+<tr><td><code>function AsInt64: Int64</code></td><td>inteiro; <code>vkBoolean</code>; <code>vkFloat</code> (arredonda)</td><td>resto</td></tr>
+<tr><td><code>function AsFloat: Double</code></td><td><code>vkFloat</code>, <code>vkCurrency</code>, inteiro</td><td>resto</td></tr>
+<tr><td><code>function AsCurrency: Currency</code></td><td><code>vkCurrency</code>, <code>vkFloat</code>, inteiro</td><td>resto</td></tr>
+<tr><td><code>function AsString: string</code></td><td><code>vkString</code>, <code>vkIdentifier</code>, booleano, numérico, data/hora</td><td><code>vkBytes</code>, <code>vkRaw</code>, <code>vkSubQuery</code></td></tr>
+<tr><td><code>function AsBytes: TBytes</code></td><td><code>vkBytes</code>; <code>vkString</code> (bytes da string, sem recodificar)</td><td>resto</td></tr>
+<tr><td><code>function AsDateTime: TDateTime</code></td><td><code>vkDate</code>, <code>vkTime</code>, <code>vkDateTime</code></td><td>resto</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  <code>Null</code> e <code>Unset</code> nunca levantam na leitura: devolvem <code>False</code>,
+  <code>0</code>, <code>''</code> ou <code>nil</code>. Se a diferença entre "zero" e "ausente"
+  importa no seu código, pergunte com <code>IsNull</code> antes de ler.
+</p>
+
+<div class="code"><pre data-lang="pascal">TLzNexValue.FromString('x').AsDateTime;
+// ELzNexBuilder: TLzNexValue: string('x') is not a date/time
+
+TLzNexValue.Null.AsInt64;     // 0, sem exceção
+TLzNexValue.FromFloat(2.6).AsInt64;   // 3 — arredonda</pre></div>
+
+<p>
+  <code>AsString</code> formata data e hora de forma fixa, independente da locale:
+  <code>yyyy-mm-dd</code>, <code>hh:nn:ss</code> e <code>yyyy-mm-dd hh:nn:ss</code>.
+</p>
+
+<h3 id="inspect">Inspecionar sem converter</h3>
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>property Kind: TLzNexValueKind</code></td><td>A tag, crua.</td></tr>
+<tr><td><code>function IsUnset: Boolean</code></td><td><code>Kind = vkUnset</code>.</td></tr>
+<tr><td><code>function IsNull: Boolean</code></td><td><code>Kind = vkNull</code>.</td></tr>
+<tr><td><code>function IsBindable: Boolean</code></td><td>Falso para <code>vkUnset</code>, <code>vkIdentifier</code>, <code>vkRaw</code> e <code>vkSubQuery</code> — os quatro que viram <strong>texto</strong> no SQL em vez de <code>?</code>.</td></tr>
+<tr><td><code>function Text: string</code></td><td>O campo string interno, sem conversão: o conteúdo de <code>vkString</code> ou o nome de <code>vkIdentifier</code>. Vazio nos outros kinds.</td></tr>
+<tr><td><code>function Ref: IInterface</code></td><td>A interface guardada por <code>Raw</code> ou <code>SubQuery</code>.</td></tr>
+<tr><td><code>function Describe: string</code></td><td>Descrição para log e mensagem de erro — tag e conteúdo, nunca interpolável em SQL.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="code"><pre data-lang="pascal">Writeln(TLzNexValue.FromInteger(42).Describe);          // integer(42)
+Writeln(TLzNexValue.FromString('ana').Describe);        // string('ana')
+Writeln(TLzNexValue.Identifier('users.id').Describe);   // identifier(users.id)
+Writeln(TLzNexValue.FromBytes(Buf).Describe);           // bytes(12 B)
+Writeln(TLzNexValue.Unset.Describe);                    // &lt;unset&gt;
+Writeln(TLzNexValue.Null.Describe);                     // NULL</pre></div>
+
+<p>
+  <code>TLzNexBindings.Describe</code> usa isso para imprimir a lista inteira de binds:
+  <code>[integer(7)]</code>. Veja <a href="#utilities/inspecionar">inspecionar sem executar</a>.
+</p>
+
+<h2 id="unset-vs-null">Unset contra Null</h2>
+<p>
+  São estados diferentes de propósito. <code>Unset</code> é "nenhum valor informado" — o estado
+  zero do record, que você obtém de graça ao declarar uma variável e não atribuir nada.
+  <code>Null</code> é "o valor é NULL", uma escolha deliberada.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Situação</th><th><code>Unset</code></th><th><code>Null</code></th></tr></thead>
+<tbody>
+<tr><td><code>IsBindable</code></td><td><span class="no">não</span></td><td><span class="yes">sim</span></td></tr>
+<tr><td>em <code>where</code> / <code>having</code> / <code>on</code></td><td>levanta <code>ELzNexBuilder</code></td><td><code>= ?</code> com bind <code>NULL</code></td></tr>
+<tr><td>em <code>insert</code></td><td>vira <code>default</code></td><td><code>?</code> com bind <code>NULL</code></td></tr>
+<tr><td>no <code>set</code> do <code>update</code></td><td>levanta <code>ELzNexBuilder</code></td><td><code>?</code> com bind <code>NULL</code></td></tr>
+<tr><td>no <code>merge</code> do on conflict</td><td><code>col = excluded.col</code></td><td><code>col = ?</code> com bind <code>NULL</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="code"><pre data-lang="pascal">Db.Table('t').Where('a', TLzNexValue.Unset).ToSQL;
+// ELzNexBuilder: No value given for column "a": a vkUnset arrived where a
+// parameter is expected. In WHERE this is an error (in INSERT it would
+// become DEFAULT).</pre></div>
+
+<p>
+  A mensagem é longa porque o <code>Unset</code> em <code>where</code> quase sempre é variável
+  não inicializada — e a diferença de tratamento entre <code>where</code> e <code>insert</code>
+  é exatamente o que confunde quando o erro aparece.
+</p>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Null em comparação não casa com nada</span>
+    <p>
+      <code>Where('a', TLzNexValue.Null)</code> gera <code>`a` = ?</code> com bind
+      <code>NULL</code>, e em SQL <code>x = NULL</code> é sempre desconhecido: a linha nunca
+      entra no resultado. Não é bug do LzNex, é o SQL — e é por isso que existem
+      <code>WhereNull</code> e <code>WhereNotNull</code>, que emitem
+      <code>is null</code> / <code>is not null</code>. Veja
+      <a href="#where/null-range-pattern">nulidade</a>.
+    </p>
+  </div>
+</div>
+
+<h2 id="lists">Listas e pares</h2>
+<p>
+  Quatro funções livres em <code>LzNex.Value</code> montam coleções de valor. Acrescente
+  <code>LzNex.Value</code> ao <code>uses</code> se o compilador não as encontrar.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function ValueList(const AArgs: array of const): TLzNexValues</code></td><td>Lista posicional. É o que alimenta <code>WhereIn</code>, <code>OnIn</code> e afins.</td></tr>
+<tr><td><code>function Vals(const AArgs: array of const): TLzNexNamedValues</code></td><td>Pares coluna/valor para <code>insert</code> e <code>update</code>, na ordem informada. Quantidade ímpar ou nome vazio levanta <code>ELzNexBuilder</code>.</td></tr>
+<tr><td><code>function StringsToValues(const AItems: array of string): TLzNexValues</code></td><td>Lista de <code>vkString</code> a partir de um <code>array of string</code> — sem passar por <code>TVarRec</code>.</td></tr>
+<tr><td><code>function ValueOf(const AArg: TVarRec): TLzNexValue</code></td><td>Converte um elemento de <code>array of const</code>. É o motor dos outros três.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="code"><pre data-lang="pascal">L := ValueList([1, 'dois', True, 4.5]);
+// L[0] vkInteger | L[1] vkString | L[2] vkBoolean | L[3] vkFloat
+
+P := Vals(['name', 'Leonam', 'age', 38]);
+// P[0].Name = 'name' | P[1].Name = 'age' — a ordem e a do SQL
+
+Vals(['only-the-key']);
+// ELzNexBuilder: Vals: expected column/value pairs, got 1 items</pre></div>
+
+<p>
+  <code>ValueOf</code> mapeia <code>nil</code> para <code>TLzNexValue.Null</code> e uma interface
+  para <code>TLzNexValue.Raw</code>. Ponteiro não nulo levanta — é quase sempre um
+  <code>@</code> esquecido virando argumento de query.
+</p>
+
+<h3 id="array-of-const">A restrição do array of const</h3>
+<p>
+  <code>array of const</code> transporta <code>TVarRec</code>, e <code>TVarRec</code> não tem
+  caso para <strong>record</strong>. Ou seja: você <strong>não</strong> consegue passar um
+  <code>TLzNexValue</code> dentro de <code>Vals([...])</code> ou <code>ValueList([...])</code>.
+  A tentativa não compila, ou levanta com o <code>VType</code> no texto.
+</p>
+
+<div class="code"><pre data-lang="pascal">// ELzNexBuilder: TLzNexValue: unsupported type in array of const (VType=..).
+// Remember: a record cannot be passed in an array of const.</pre></div>
+
+<p>
+  O contorno é montar a lista com os tipos simples e <strong>sobrescrever a posição</strong>
+  depois. Os dois arrays são arrays de verdade, então indexar e atribuir funciona:
+</p>
+
+<div class="code"><pre data-lang="pascal">V := Vals(['name', 'ana']);
+V[0].Value := TLzNexValue.Raw(Db.Raw('upper(?)', ['ana']));
+Db.Table('users').Insert(V);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">insert into `users` (`name`) values (upper(?))</pre>
+  <p class="code-note">binds: ana — o do raw, na posição da coluna</p>
+</div>
+</div>
+
+<p>Para acrescentar um par que não cabe no <code>array of const</code>, estenda o array:</p>
+
+<div class="code"><pre data-lang="pascal">V := Vals(['name', AName, 'batch', ABatch]);
+SetLength(V, 3);
+V[2].Name  := 'migration_time';
+V[2].Value := TLzNexValue.FromDateTime(Now);
+Db.Table('migrations').Insert(V);</pre></div>
+
+<p>
+  Para listas de string, <code>StringsToValues</code> evita o assunto por completo:
+  <code>WhereIn('status', StringsToValues(['a', 'b']))</code>.
+</p>
+
+<h2 id="security">Segurança</h2>
+<p>
+  O valor <strong>nunca</strong> é interpolado no SQL. Independente do que vier dentro da string,
+  o compilador emite <code>?</code> e guarda o conteúdo na lista de binds — quem monta a instrução
+  no banco é o driver, com parâmetro ligado.
+</p>
+
+<div class="code"><pre data-lang="pascal">Db.Table('users').Where('name', '''; drop table users; --').ToSQL;</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `users` where `name` = ?</pre>
+  <p class="code-note">binds: 1 — o bind é a string inteira, ponto e vírgula incluso</p>
+</div>
+</div>
+
+<p>
+  O que <em>não</em> é bind é identificador, e identificador é escapado dobrando o caractere de
+  quote do dialeto:
+</p>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="pascal">Db.Client.WrapIdentifier('we`ird')</pre>
+    <div class="code-out">
+      <div class="code-label">Saída</div>
+      <pre data-lang="out">`we``ird`</pre>
+      <p class="code-note">a crase dentro do nome vira crase dobrada</p>
+    </div>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="pascal">Db.Client.WrapIdentifier('we"ird')</pre>
+    <div class="code-out">
+      <div class="code-label">Saída</div>
+      <pre data-lang="out">"we""ird"</pre>
+      <p class="code-note">a aspa dentro do nome vira aspa dobrada</p>
+    </div>
+  </div>
+</div>
+
+<p>
+  <code>WrapQualified</code> aplica o mesmo tratamento parte por parte em nomes com ponto, então
+  <code>u.name</code> sai com cada segmento quotado individualmente. <code>*</code> e nome vazio
+  passam sem quote.
+</p>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">O que sobra fora do bind</span>
+    <p>
+      Valor e identificador estão cobertos. O que ainda depende de você é o <strong>texto</strong>
+      que você mesmo escreve: o template de <a href="#raw-sql">SQL cru</a> e o nome de coluna que você
+      repassa de uma entrada externa. Operador está protegido por lista fechada — veja
+      <a href="#where/operators">operadores aceitos</a>.
+    </p>
+  </div>
+</div>
+
+<div class="cards">
+  <a class="card" href="#raw-sql"><h4>SQL cru →</h4><p>A gramática de <code>?</code>, <code>??</code> e <code>:nome</code>.</p></a>
+  <a class="card" href="#results"><h4>Resultados →</h4><p>Ler <code>TLzNexValue</code> de volta do cursor.</p></a>
+</div>
+</article>

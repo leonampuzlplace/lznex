@@ -23,13 +23,13 @@ type
     FClient: ILzNexClient;
     procedure SetUp; override;
     procedure TearDown; override;
-    // Query sem conexao: permite conferir SQL sem banco.
+
     function NewTestQuery: ILzNexQuery;
     procedure AssertSQL(const AExpected: string; const AQuery: ILzNexQuery);
     procedure AssertBindings(const AExpected: string; const AQuery: ILzNexQuery);
     procedure AssertQuery(const AExpectedSQL, AExpectedBindings: string;
       const AQuery: ILzNexQuery);
-    // Serializa os binds como "a|b|c" para a assercao ficar legivel na falha.
+
     function BindingsOf(const AFragment: TLzNexFragment): string;
   end;
 

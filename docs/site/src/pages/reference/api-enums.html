@@ -1,0 +1,246 @@
+<article>
+<h1>Enums e constantes</h1>
+<p class="subtitle">
+  Tudo que <code>LzNex.Types</code> declara, mais as constantes espalhadas pelas units de
+  pool, migrator e migração em SQL.
+</p>
+
+<h2 id="prefixes">A convenção de prefixo</h2>
+<p>
+  Em Pascal, membro de enum <strong>não</strong> tem escopo próprio: <code>vkNull</code> é um
+  identificador da unit inteira, não <code>TLzNexValueKind.vkNull</code>. Duas enums com um
+  membro de mesmo nome na mesma unit simplesmente não compilam, e o erro aparece em quem usa,
+  não em quem declarou.
+</p>
+<p>
+  Por isso cada enum do LzNex tem um prefixo de <strong>duas letras minúsculas</strong>, tirado
+  do nome do tipo, e o prefixo é único por enum: <code>sg</code> para
+  <code>StatementGroup</code>, <code>vk</code> para <code>ValueKind</code>, <code>ct</code>
+  para <code>ColumnType</code>. Ler <code>jtLeftOuter</code> já diz de qual tipo ele é.
+</p>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">md aparece duas vezes</span>
+    <p>
+      <code>TLzNexColumnModifier</code> e <code>TLzNexMigrationDirection</code> compartilham o
+      prefixo <code>md</code>. Compila porque nenhum membro se repete
+      (<code>mdUnsigned…mdAutoIncrement</code> contra <code>mdUp</code>/<code>mdDown</code>),
+      mas é a única exceção à regra — ao acrescentar membro em qualquer das duas, confira o
+      outro primeiro.
+    </p>
+  </div>
+</div>
+
+<h2 id="enums">Tipos enumerados</h2>
+<p>
+  A ordem de declaração é significativa em alguns casos:
+  <code>TLzNexComponent</code> define a sequência em que o compilador monta o
+  <code>select</code>, e <code>TLzNexColumnModifier</code> alimenta o
+  <code>ModifierOrder</code> de cada dialeto. Nos outros, a ordem é só documental.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<thead><tr><th>Tipo</th><th>Membros</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>TLzNexStatementGroup</code></td>
+  <td><code>sgColumns</code> <code>sgFrom</code> <code>sgJoin</code> <code>sgWhere</code> <code>sgGroup</code> <code>sgHaving</code> <code>sgOrder</code> <code>sgUnion</code> <code>sgWith</code> <code>sgHint</code></td>
+</tr>
+<tr>
+  <td><code>TLzNexStatementKind</code></td>
+  <td><code>skColumn</code> <code>skColumnRaw</code> <code>skColumnSub</code> <code>skAggregate</code> <code>skDistinct</code> <code>skWhereBasic</code> <code>skWhereColumn</code> <code>skWhereIn</code> <code>skWhereInSub</code> <code>skWhereNull</code> <code>skWhereBetween</code> <code>skWhereLike</code> <code>skWhereExists</code> <code>skWhereRaw</code> <code>skWhereGroup</code> <code>skWhereSub</code> <code>skJoin</code> <code>skGroupBy</code> <code>skGroupByRaw</code> <code>skHavingBasic</code> <code>skHavingIn</code> <code>skHavingNull</code> <code>skHavingBetween</code> <code>skHavingRaw</code> <code>skHavingGroup</code> <code>skOrderBy</code> <code>skOrderByRaw</code> <code>skUnion</code> <code>skWith</code> <code>skHint</code></td>
+</tr>
+<tr>
+  <td><code>TLzNexBoolOp</code></td>
+  <td><code>boAnd</code> <code>boOr</code></td>
+</tr>
+<tr>
+  <td><code>TLzNexJoinType</code></td>
+  <td><code>jtInner</code> <code>jtLeft</code> <code>jtLeftOuter</code> <code>jtRight</code> <code>jtRightOuter</code> <code>jtOuter</code> <code>jtFullOuter</code> <code>jtCross</code> <code>jtRaw</code></td>
+</tr>
+<tr>
+  <td><code>TLzNexJoinClauseKind</code></td>
+  <td><code>jcColumns</code> <code>jcValue</code> <code>jcIn</code> <code>jcNull</code> <code>jcBetween</code> <code>jcRaw</code> <code>jcUsing</code></td>
+</tr>
+<tr>
+  <td><code>TLzNexQueryMethod</code></td>
+  <td><code>qmSelect</code> <code>qmFirst</code> <code>qmInsert</code> <code>qmUpdate</code> <code>qmDelete</code> <code>qmTruncate</code></td>
+</tr>
+<tr>
+  <td><code>TLzNexComponent</code></td>
+  <td><code>cpHints</code> <code>cpColumns</code> <code>cpFrom</code> <code>cpJoin</code> <code>cpWhere</code> <code>cpGroup</code> <code>cpHaving</code> <code>cpUnion</code> <code>cpOrder</code> <code>cpLimitPrefix</code> <code>cpLimit</code> <code>cpOffset</code> <code>cpLock</code></td>
+</tr>
+<tr>
+  <td><code>TLzNexOrderDir</code></td>
+  <td><code>odAsc</code> <code>odDesc</code></td>
+</tr>
+<tr>
+  <td><code>TLzNexNullsOrder</code></td>
+  <td><code>nlDefault</code> <code>nlFirst</code> <code>nlLast</code></td>
+</tr>
+<tr>
+  <td><code>TLzNexValueKind</code></td>
+  <td><code>vkUnset</code> <code>vkNull</code> <code>vkBoolean</code> <code>vkInteger</code> <code>vkInt64</code> <code>vkFloat</code> <code>vkCurrency</code> <code>vkString</code> <code>vkBytes</code> <code>vkDate</code> <code>vkTime</code> <code>vkDateTime</code> <code>vkIdentifier</code> <code>vkRaw</code> <code>vkSubQuery</code></td>
+</tr>
+<tr>
+  <td><code>TLzNexAggregate</code></td>
+  <td><code>agCount</code> <code>agMin</code> <code>agMax</code> <code>agSum</code> <code>agAvg</code></td>
+</tr>
+<tr>
+  <td><code>TLzNexUnionKind</code></td>
+  <td><code>ukUnion</code> <code>ukUnionAll</code> <code>ukIntersect</code> <code>ukExcept</code></td>
+</tr>
+<tr>
+  <td><code>TLzNexLockMode</code></td>
+  <td><code>lkNone</code> <code>lkForUpdate</code> <code>lkForShare</code></td>
+</tr>
+<tr>
+  <td><code>TLzNexWaitMode</code></td>
+  <td><code>wtDefault</code> <code>wtNoWait</code> <code>wtSkipLocked</code></td>
+</tr>
+<tr>
+  <td><code>TLzNexIsolation</code></td>
+  <td><code>ilDefault</code> <code>ilReadUncommitted</code> <code>ilReadCommitted</code> <code>ilRepeatableRead</code> <code>ilSerializable</code></td>
+</tr>
+<tr>
+  <td><code>TLzNexColumnType</code></td>
+  <td><code>ctIncrements</code> <code>ctBigIncrements</code> <code>ctTinyInt</code> <code>ctSmallInt</code> <code>ctMediumInt</code> <code>ctInteger</code> <code>ctBigInt</code> <code>ctBoolean</code> <code>ctDecimal</code> <code>ctFloat</code> <code>ctDouble</code> <code>ctChar</code> <code>ctString</code> <code>ctTinyText</code> <code>ctText</code> <code>ctMediumText</code> <code>ctLongText</code> <code>ctBinary</code> <code>ctBlob</code> <code>ctDate</code> <code>ctTime</code> <code>ctDateTime</code> <code>ctTimestamp</code> <code>ctJson</code> <code>ctJsonb</code> <code>ctUuid</code> <code>ctEnum</code> <code>ctSpecific</code></td>
+</tr>
+<tr>
+  <td><code>TLzNexColumnModifier</code></td>
+  <td><code>mdUnsigned</code> <code>mdNullable</code> <code>mdDefault</code> <code>mdComment</code> <code>mdCollate</code> <code>mdFirst</code> <code>mdAfter</code> <code>mdPrimaryKey</code> <code>mdAutoIncrement</code></td>
+</tr>
+<tr>
+  <td><code>TLzNexTableMethod</code></td>
+  <td><code>tmCreate</code> <code>tmAlter</code></td>
+</tr>
+<tr>
+  <td><code>TLzNexIndexKind</code></td>
+  <td><code>ixIndex</code> <code>ixUnique</code> <code>ixPrimary</code> <code>ixForeign</code></td>
+</tr>
+<tr>
+  <td><code>TLzNexConflictAction</code></td>
+  <td><code>caNone</code> <code>caIgnore</code> <code>caMerge</code></td>
+</tr>
+<tr>
+  <td><code>TLzNexMigrationDirection</code></td>
+  <td><code>mdUp</code> <code>mdDown</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="enum-arrays">Arrays de enum</h3>
+<p>Dois apelidos de array acompanham as enums, usados nas assinaturas do compilador de schema.</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>TLzNexComponents = array of TLzNexComponent</code></td><td>A ordem dos componentes que o dialeto monta.</td></tr>
+<tr><td><code>TLzNexColumnModifiers = array of TLzNexColumnModifier</code></td><td>Devolvido por <code>ILzNexSchemaCompiler.ModifierOrder</code>: é o que faz <code>unsigned</code> vir antes de <code>not null</code> no MySQL.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="operators">LZNEX_OPERATORS</h2>
+<p>
+  A lista <strong>fechada</strong> de operadores aceitos em <code>Where</code>,
+  <code>Having</code>, <code>On</code> e afins. Um array de 28 strings; qualquer coisa fora
+  dela levanta <code>ELzNexBuilder</code>. É o que impede injeção pela via do operador quando
+  ele vem de entrada do usuário.
+</p>
+
+<div class="code"><pre data-lang="pascal">LZNEX_OPERATORS: array[0..27] of string = (
+  '=', '&lt;', '&gt;', '&lt;=', '&gt;=', '&lt;&gt;', '!=', '&lt;=&gt;',
+  'like', 'not like', 'ilike', 'not ilike',
+  'between', 'not between',
+  'in', 'not in',
+  'is', 'is not',
+  'exists', 'not exists',
+  'rlike', 'not rlike', 'regexp', 'not regexp',
+  '&amp;', '|', '^', '~'
+);</pre></div>
+
+<p>
+  A comparação é feita por <code>NormalizeOperator</code>, que baixa a caixa e remove espaço
+  excedente — <code>'NOT LIKE'</code> e <code>'not  like'</code> chegam como
+  <code>'not like'</code>. Veja <a href="#where/operators">Where</a> para o agrupamento por
+  significado.
+</p>
+
+<h2 id="constants">Outras constantes</h2>
+<p>
+  Nem todas vivem em <code>LzNex.Types</code>: as de pool, migrator e migração em SQL ficam na
+  unit que as usa, para não transformar <code>LzNex.Types</code> num depósito.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<thead><tr><th>Constante</th><th>Valor e uso</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>LZNEX_PLACEHOLDER</code></td>
+  <td><code>'?'</code> — o marcador de parâmetro emitido por <code>TLzNexFragment.Param</code> e <code>PlaceholderList</code>. Declarada em <code>LzNex.Types</code>.</td>
+</tr>
+<tr>
+  <td><code>LZNEX_MIGRATIONS_TABLE</code></td>
+  <td><code>'migrations'</code> — nome padrão da tabela de controle. Sobrescrevível por <code>ILzNexConfig.MigrationsTable</code>. Em <code>LzNex.Types</code>.</td>
+</tr>
+<tr>
+  <td><code>LZNEX_MIGRATIONS_LOCK_SUFFIX</code></td>
+  <td><code>'_lock'</code> — sufixo da tabela de lock, que por padrão fica <code>migrations_lock</code>. É ela que impede dois processos migrando ao mesmo tempo. Em <code>LzNex.Types</code>.</td>
+</tr>
+<tr>
+  <td><code>LZNEX_VERSION_NONE</code></td>
+  <td><code>'none'</code> — o que <code>ILzNexMigrator.CurrentVersion</code> devolve quando nada foi aplicado. String, não vazio nem <code>nil</code>, para aparecer legível na saída do CLI. Em <code>LzNex.Migrator</code>.</td>
+</tr>
+<tr>
+  <td><code>LZNEX_SOURCE_SQL</code></td>
+  <td><code>'sql'</code> — identificador da fonte de migrações em arquivo. Em <code>LzNex.Migration.Source.Sql</code>.</td>
+</tr>
+<tr>
+  <td><code>LZNEX_SQL_UP_SUFFIX</code></td>
+  <td><code>'.up.sql'</code> — o scanner só reconhece migração a partir do arquivo de subida; o nome dele define o id. Em <code>LzNex.Migration.Source.Sql</code>.</td>
+</tr>
+<tr>
+  <td><code>LZNEX_SQL_DOWN_SUFFIX</code></td>
+  <td><code>'.down.sql'</code> — derivado do <code>.up.sql</code> correspondente. Ausente, o <code>rollback</code> daquela migração falha. Em <code>LzNex.Migration.Source.Sql</code>.</td>
+</tr>
+<tr>
+  <td><code>LZNEX_SQL_NOSPLIT</code></td>
+  <td><code>'lznex:nosplit'</code> — marcador procurado em qualquer lugar do arquivo (busca insensível a caixa). Presente, o arquivo é enviado inteiro em vez de quebrado por <code>;</code>. É a saída para <code>create trigger</code>, <code>create function</code> e qualquer corpo com ponto e vírgula interno. Em <code>LzNex.Migration.Source.Sql</code>.</td>
+</tr>
+<tr>
+  <td><code>LZNEX_POOL_WAIT_STEP_MS</code></td>
+  <td><code>5</code> — intervalo de sono entre tentativas de <code>Acquire</code> quando o pool está cheio. O pool faz espera ativa com passos curtos, não bloqueio por evento. Em <code>LzNex.Pool</code>.</td>
+</tr>
+<tr>
+  <td><code>LZNEX_POOL_DEFAULT_TIMEOUT_MS</code></td>
+  <td><code>10000</code> — timeout usado por <code>NewPool(AConfig, AClient)</code> quando a configuração não trouxe <code>AcquireTimeout</code>. Em <code>LzNex.Pool</code>.</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">Os defaults de configuração ficam em outra unit</span>
+    <p>
+      <code>LZNEX_DEFAULT_PORT</code>, <code>LZNEX_DEFAULT_CHARSET</code>,
+      <code>LZNEX_DEFAULT_POOL_MIN</code>/<code>MAX</code>,
+      <code>LZNEX_DEFAULT_ACQUIRE_TIMEOUT</code>, os diretórios padrão,
+      <code>LZNEX_DEFAULT_ENV</code> e <code>LZNEX_ENV_PREFIX</code> são de
+      <code>LzNex.Config</code> e estão em <a href="#api-config">Referência: configuração</a>.
+    </p>
+  </div>
+</div>
+
+<div class="cards">
+  <a class="card" href="#api-types"><h4>Value, Fragment e Bindings →</h4><p>Os records que carregam valor e parâmetro.</p></a>
+  <a class="card" href="#api-functions"><h4>Funções de módulo →</h4><p>Toda função pública, por unit.</p></a>
+</div>
+</article>

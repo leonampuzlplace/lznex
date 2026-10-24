@@ -1,11 +1,5 @@
 program ProbeEndToEnd;
 
-{ Integracao builder + compiler + dialeto MySQL.
-
-  Lacuna que nenhuma sonda cobria: o builder foi testado conferindo a AST, e o
-  compiler foi testado com AST montada na mao. Aqui os dois rodam juntos, do
-  jeito que o usuario final escreve, e o SQL exato e conferido. Sem banco. }
-
 {$MODE DELPHI}{$H+}
 
 uses
@@ -40,7 +34,6 @@ begin
   end;
 end;
 
-// Confere o SQL gerado e, opcionalmente, a lista de binds serializada.
 procedure CheckSQL(const AWhat: string; const AQuery: ILzNexQuery;
   const AExpectedSQL: string; const AExpectedBinds: string = '<ignorar>');
 var
@@ -181,7 +174,7 @@ end;
 procedure TestGroups;
 begin
   Writeln;
-  Writeln('--- grupos de predicado (substituem o callback do knex)');
+  Writeln('--- grupos de predicado');
 
   CheckSQL('grupo com or dentro e and fora',
     Q.Table('users')
@@ -248,8 +241,8 @@ begin
   Writeln('--- insert / update / delete');
 
   Ins := Q.Table('users');
-  CheckSQL('insert preserva a ORDEM das colunas (nao alfabetica como o knex)',
-    Ins, 'select * from `users`');   // antes do verbo, ainda e select
+  CheckSQL('insert preserva a ORDEM das colunas, nao a alfabetica',
+    Ins, 'select * from `users`');
 
   Ok('insert: ordem de Vals preservada',
     (Vals(['name', 'Leonam', 'email', 'l@x.com'])[0].Name = 'name') and
@@ -319,7 +312,6 @@ begin
   end;
   Ok('valor nao informado (vkUnset) levanta', Levantou);
 
-  // Clone profundo: mutar o clone nao pode afetar o original.
   Query := Q.Table('users').Where('a', 1);
   Query.Clone.Where('b', 2);
   CheckSQL('clone e independente do original',
@@ -367,8 +359,7 @@ begin
   else
     Writeln('=== INTEGRACAO COM FALHA ===');
   Flush(Output);
-  // Reafirma no fim: depender so da atribuicao feita dentro das rotinas ja
-  // deixou um teste vermelho sair com exit 0.
+
   if GFail > 0 then
     ExitCode := 1
   else

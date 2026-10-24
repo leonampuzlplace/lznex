@@ -1,16 +1,5 @@
 program ProbeZeos;
 
-{ Sonda da camada de acesso a dados: ILzNexConnection, ILzNexResult, ILzNexRow,
-  ILzNexPool e ILzNexTransaction contra o MySQL 8 real do projeto.
-
-  A facade ILzNex ainda nao existe (outra parte do projeto), entao a sonda traz
-  dois stubs minimos: um dialeto (TProbeClient) e uma facade (TProbeDb) que so
-  sabe o que a transacao precisa dela.
-
-  Os literais com acento e emoji sao montados byte a byte (#$XX) de proposito:
-  assim o .pas fica ASCII puro e o teste de UTF-8 nao depende de como o editor
-  salvou o arquivo. }
-
 {$MODE DELPHI}{$H+}
 
 uses
@@ -20,7 +9,7 @@ uses
   SysUtils,
   Classes,
   ZDbcIntfs,
-  ZDbcMySql,          // registra o driver 'mysql' no initialization
+  ZDbcMySql,
   LzNex.Types,
   LzNex.Value,
   LzNex.Bindings,
@@ -34,7 +23,7 @@ uses
   LzNex.Exceptions;
 
 type
-  // Dialeto minimo: so o que a conexao e a transacao consultam.
+
   TProbeClient = class(TLzNexClientBase)
   protected
     function QuoteChar: string; override;
@@ -46,9 +35,6 @@ type
     function NewSchemaCompiler: ILzNexSchemaCompiler; override;
   end;
 
-  // Facade minima. Atende apenas o que TLzNexTransaction delega de fato nesta
-  // sonda: Client, Pool, Connection e Config. O resto levanta, para um uso
-  // acidental aparecer como erro claro em vez de access violation.
   TProbeDb = class(TInterfacedObject, ILzNex)
   private
     FClient: ILzNexClient;
@@ -75,7 +61,6 @@ type
     procedure Shutdown;
   end;
 
-  // Thread que martela o pool com queries reais.
   TProbeWorker = class(TThread)
   private
     FPool: ILzNexPool;
@@ -90,8 +75,6 @@ type
     property OkCount: Integer read FOkCount;
     property Error: string read FError;
   end;
-
-{ ------------------------------------------------------------------ helpers }
 
 var
   GFailures: Integer = 0;
@@ -129,14 +112,11 @@ begin
     Result := ADefault;
 end;
 
-// Fragmento sem bind.
 function FL(const ASQL: string): TLzNexFragment;
 begin
   Result := TLzNexFragment.Lit(ASQL);
 end;
 
-// Fragmento com binds montados a mao (TLzNexValue preserva a tag,
-// o que `array of const` nao conseguiria para data, hora e bytes).
 function FB(const ASQL: string; const AValues: array of TLzNexValue): TLzNexFragment;
 var
   B: TLzNexBindings;
@@ -148,10 +128,9 @@ begin
   Result := TLzNexFragment.Make(ASQL, B);
 end;
 
-// Texto com emoji e acento em UTF-8, montado por byte.
 function Utf8Sample: string;
 begin
-  //      'Leonam '  U+2705        ' acentua' c-cedilha  a-tilde  'o '  U+1F680
+
   Result := 'Leonam ' + #$E2#$9C#$85 + ' acentua' + #$C3#$A7 + #$C3#$A3 +
             'o ' + #$F0#$9F#$9A#$80;
 end;
@@ -198,7 +177,6 @@ begin
   end;
 end;
 
-// Conta linhas de uma tabela pela propria camada.
 function CountRows(const AConn: ILzNexConnection; const ATable: string): Int64;
 var
   R: ILzNexResult;
@@ -209,8 +187,6 @@ begin
     Result := R.Field('n').AsInt64;
   R.Close;
 end;
-
-{ ------------------------------------------------------------- TProbeClient }
 
 function TProbeClient.QuoteChar: string;
 begin
@@ -241,8 +217,6 @@ function TProbeClient.NewSchemaCompiler: ILzNexSchemaCompiler;
 begin
   Result := nil;
 end;
-
-{ ----------------------------------------------------------------- TProbeDb }
 
 constructor TProbeDb.Create(const AClient: ILzNexClient; const APool: ILzNexPool);
 begin
@@ -342,11 +316,9 @@ begin
     FPool.Shutdown;
 end;
 
-{ -------------------------------------------------------------- TProbeWorker }
-
 constructor TProbeWorker.Create(const APool: ILzNexPool; const AIters, ASeed: Integer);
 begin
-  inherited Create(True);          // suspensa; quem chama decide quando comeca
+  inherited Create(True);
   FreeOnTerminate := False;
   FPool := APool;
   FIters := AIters;
@@ -383,7 +355,7 @@ begin
         end;
         Inc(FOkCount);
       finally
-        Conn := nil;           // devolve ao pool
+        Conn := nil;
       end;
     end;
   except
@@ -391,8 +363,6 @@ begin
       FError := E.ClassName + ': ' + E.Message;
   end;
 end;
-
-{ ------------------------------------------------------------------- testes }
 
 const
   DDL_TYPES =
@@ -426,8 +396,6 @@ var
   GClient: ILzNexClient;
   GParams: TLzNexConnectionParams;
 
-// Conexao direta (fora do pool), com acesso ao objeto concreto para
-// inspecionar o cache de prepared statements.
 function OpenDirect(out AObj: TLzNexConnection): ILzNexConnection;
 var
   Z: IZConnection;
@@ -462,7 +430,7 @@ begin
   SetLength(Vals_, 12);
   Vals_[0] := TLzNexValue.Null;
   Vals_[1] := TLzNexValue.FromInteger(42);
-  Vals_[2] := TLzNexValue.FromInt64(9007199254740993);   // > 2^53: nao cabe em double
+  Vals_[2] := TLzNexValue.FromInt64(9007199254740993);
   Vals_[3] := TLzNexValue.FromFloat(1234.5);
   Vals_[4] := TLzNexValue.FromCurrency(1234.5678);
   Vals_[5] := TLzNexValue.FromBoolean(True);
@@ -508,8 +476,6 @@ begin
     Check('currency: valor exato', R.Field('c_money').AsCurrency = 1234.5678);
     Check('currency: tag vkCurrency', R.Field('c_money').Kind = vkCurrency);
 
-    // tinyint(1) volta como inteiro e bit(1) volta como booleano: AsBoolean
-    // resolve os dois, mas quem escolhe o tipo fisico no DDL precisa saber.
     Check('boolean em tinyint(1): True de volta', R.Field('c_bool').AsBoolean);
     Check('boolean em bit(1): True de volta', R.Field('c_bit').AsBoolean);
     Check('bit(1) chega com tag vkBoolean', R.Field('c_bit').Kind = vkBoolean);
@@ -534,7 +500,6 @@ begin
     Check('bytes: tag vkBytes', R.Field('c_bytes').Kind = vkBytes);
     Check('bytes: round-trip exato', SameBytes(R.Field('c_bytes').AsBytes, SrcBytes));
 
-    // acesso por indice tem que coincidir com o acesso por nome
     Check('FieldAt(1) = Field(c_int)', R.FieldAt(1).AsInt64 = 42);
     Check('FieldName(1) = c_int', R.FieldName(1) = 'c_int');
 
@@ -554,7 +519,6 @@ begin
     R := nil;
   end;
 
-  // coluna inexistente tem que levantar com mensagem util
   R := AConn.Query(FB(SEL_TYPES, [TLzNexValue.FromInt64(NewId)]));
   try
     R.Next;
@@ -593,7 +557,6 @@ begin
     Check('FieldName(0)', R.FieldName(0) = 'id');
     Check('FieldName(1)', R.FieldName(1) = 'tag');
 
-    // ler coluna sem Next tem que levantar, nao devolver lixo
     try
       R.Field('id');
       Check('ler sem Next levanta', False);
@@ -610,7 +573,6 @@ begin
     Row2 := R.CurrentRow;
     Check('linha 2 por nome', R.Field('tag').AsString = 'dois');
 
-    // o ponto central: a linha materializada nao acompanha o cursor
     Check('CurrentRow sobreviveu ao avanco do cursor',
       (Row1.Field('tag').AsString = 'um') and (Row1.FieldAt(0).AsInt64 = 1));
     Check('as duas linhas materializadas sao independentes',
@@ -623,7 +585,6 @@ begin
     R := nil;
   end;
 
-  // ToRows a partir do inicio
   R := AConn.Query(FL('select id, tag from probe_cursor order by id'));
   Rows := R.ToRows;
   Check('ToRows trouxe 3 linhas', Length(Rows) = 3);
@@ -632,7 +593,6 @@ begin
   Rows := nil;
   R := nil;
 
-  // ToRows depois de um Next: a linha em maos nao se perde
   R := AConn.Query(FL('select id, tag from probe_cursor order by id'));
   Check('Next antes de ToRows', R.Next);
   Rows := R.ToRows;
@@ -640,7 +600,6 @@ begin
   Rows := nil;
   R := nil;
 
-  // ToJSON do resultado inteiro
   R := AConn.Query(FL('select id, tag from probe_cursor order by id'));
   JSON := R.ToJSON;
   R := nil;
@@ -650,7 +609,6 @@ begin
     (Pos('"tag":"um"', JSON) > 0) and (Pos('"tag":"dois"', JSON) > 0) and
     (Pos('"tag":"tres"', JSON) > 0));
 
-  // escape de JSON: aspas, barra e quebra de linha nao podem quebrar o array
   AConn.Execute(FB('insert into probe_cursor (id, tag) values (?, ?)',
     [TLzNexValue.FromInteger(9),
      TLzNexValue.FromString('a"b\c' + #10 + #9 + 'd')]));
@@ -661,7 +619,6 @@ begin
     Pos('a\"b\\c\n\td', JSON) > 0);
   Note('json com escape: ' + JSON);
 
-  // cursor fecha sozinho e recusa uso depois de fechado
   R := AConn.Query(FL('select 1 as n'));
   R.Close;
   Check('Next depois de Close devolve False', not R.Next);
@@ -678,7 +635,6 @@ begin
     'create table probe_trx (tag varchar(40) not null) engine=InnoDB' +
     ' default charset=utf8mb4');
 
-  // commit persiste
   Trx := NewTransaction(ADb, AConn, ilDefault);
   Check('transacao raiz no nivel 1', Trx.Level = 1);
   Check('nao completada ao abrir', not Trx.IsCompleted);
@@ -693,7 +649,6 @@ begin
   Check('commit persistiu', CountRows(AConn, 'probe_trx') = 1);
   Check('fora de transacao depois do commit', not AConn.InTransaction);
 
-  // commit duas vezes tem que levantar, nao fazer nada estranho
   Trx := NewTransaction(ADb, AConn, ilDefault);
   Trx.Commit;
   try
@@ -704,7 +659,6 @@ begin
   end;
   Trx := nil;
 
-  // rollback desfaz
   Before := CountRows(AConn, 'probe_trx');
   Trx := NewTransaction(ADb, AConn, ilDefault);
   AConn.Execute(FB('insert into probe_trx (tag) values (?)',
@@ -715,7 +669,6 @@ begin
   Trx := nil;
   Check('rollback desfez', CountRows(AConn, 'probe_trx') = Before);
 
-  // savepoint: rollback interno nao leva o externo
   Trx := NewTransaction(ADb, AConn, ilDefault);
   AConn.Execute(FB('insert into probe_trx (tag) values (?)',
     [TLzNexValue.FromString('externo')]));
@@ -734,7 +687,6 @@ begin
   Check('o externo foi commitado',
     CountRows(AConn, 'probe_trx') = Before + 1);
 
-  // savepoint com commit: solta o savepoint e o externo persiste tudo
   Before := CountRows(AConn, 'probe_trx');
   Trx := NewTransaction(ADb, AConn, ilDefault);
   Sp := Trx.Savepoint;
@@ -747,7 +699,6 @@ begin
   Check('commit do savepoint + commit da raiz persiste',
     CountRows(AConn, 'probe_trx') = Before + 1);
 
-  // Savepoint depois de concluida tem que levantar
   Trx := NewTransaction(ADb, AConn, ilDefault);
   Trx.Rollback;
   try
@@ -761,8 +712,6 @@ begin
   Trx := nil;
 end;
 
-// Abre transacao, insere e sai de escopo SEM commit. O destrutor tem que
-// desfazer; o teste prova conferindo que o dado nao ficou.
 procedure TrxWithoutCommit(const ADb: ILzNex; const AConn: ILzNexConnection);
 var
   Trx: ILzNexTransaction;
@@ -772,8 +721,6 @@ begin
     [TLzNexValue.FromString('fantasma')]));
 end;
 
-// Savepoint aninhado tambem abandonado: os dois destrutores precisam
-// desfazer, na ordem certa.
 procedure NestedTrxWithoutCommit(const ADb: ILzNex; const AConn: ILzNexConnection);
 var
   Trx, Sp: ILzNexTransaction;
@@ -815,8 +762,6 @@ begin
   try
     Check('cache comeca vazio', Obj.CachedStatementCount = 0);
 
-    // SQL invalido nao pode ocupar entrada: o teste vem antes de encher o
-    // cache porque, no teto, a entrada descartada esconderia a entrada nova.
     try
       Conn.Execute(FL('isto nao e sql'));
       Check('SQL invalido levanta', False);
@@ -827,7 +772,6 @@ begin
     end;
     Check('SQL invalido nao entrou no cache', Obj.CachedStatementCount = 0);
 
-    // mesmo SQL N vezes: uma entrada so, e o resultado continua certo
     Total := 0;
     for I := 1 to 300 do
     begin
@@ -840,7 +784,6 @@ begin
       Total = 300 * 301 div 2);
     Check('mesmo SQL ocupa UMA entrada no cache', Obj.CachedStatementCount = 1);
 
-    // SQL distinto acima do teto: o cache nao pode crescer indefinidamente
     for I := 1 to 200 do
     begin
       R := Conn.Query(FL('select ' + IntToStr(I) + ' as n'));
@@ -850,7 +793,6 @@ begin
     Check('cache parou no teto de ' + IntToStr(LZNEX_STMT_CACHE_MAX),
       Obj.CachedStatementCount = LZNEX_STMT_CACHE_MAX);
 
-    // e continua funcionando depois de muita rotacao
     R := Conn.Query(FB('select ? as n', [TLzNexValue.FromInteger(7)]));
     Check('query funciona depois da rotacao do cache',
       R.Next and (R.Field('n').AsInt64 = 7));
@@ -883,7 +825,6 @@ begin
     Check('liberar a interface devolveu ao pool (RAII)', Pool.InUse = 0);
     Check('a conexao devolvida continua no pool', Pool.Size = 1);
 
-    // acquire/release repetido nao pode abrir conexao nova toda vez
     for I := 1 to 60 do
     begin
       C1 := Pool.Acquire;
@@ -895,7 +836,6 @@ begin
     Check('60 ciclos de acquire/release: nada em uso no fim', Pool.InUse = 0);
     Check('60 ciclos de acquire/release: pool nao cresceu', Pool.Size = 1);
 
-    // estourar o max com timeout curto
     C1 := Pool.Acquire;
     C2 := Pool.Acquire;
     Check('duas emprestadas = max', (Pool.InUse = 2) and (Pool.Size = 2));
@@ -919,17 +859,14 @@ begin
     C2 := nil;
     Check('devolvidas as duas', Pool.InUse = 0);
 
-    // usar a conexao depois de devolvida tem que levantar, nao corromper
     C1 := Pool.Acquire;
     C2 := C1;
     C1 := nil;
-    // C2 ainda segura o wrapper: nao foi devolvida
+
     Check('wrapper com duas referencias ainda nao devolveu', Pool.InUse = 1);
     C2 := nil;
     Check('devolveu quando a ultima referencia morreu', Pool.InUse = 0);
 
-    // transacao aberta e abandonada numa conexao do pool tem que ser
-    // desfeita na devolucao, senao a proxima requisicao herda o lock
     C1 := Pool.Acquire;
     C1.ExecuteScript('drop table if exists probe_pool');
     C1.ExecuteScript(
@@ -937,7 +874,7 @@ begin
     C1.StartTransaction;
     C1.Execute(FB('insert into probe_pool (tag) values (?)',
       [TLzNexValue.FromString('vazado')]));
-    C1 := nil;   // devolve com transacao aberta
+    C1 := nil;
     C1 := Pool.Acquire;
     Check('pool desfez a transacao abandonada na devolucao',
       (CountRows(C1, 'probe_pool') = 0) and (not C1.InTransaction));
@@ -948,7 +885,6 @@ begin
     Pool := nil;
   end;
 
-  // Acquire depois do Shutdown
   Pool := NewPool(GClient, GParams, 1, 2, 50);
   Pool.Shutdown;
   Check('pool apos Shutdown tem tamanho zero', Pool.Size = 0);
@@ -973,8 +909,7 @@ var
   AllOk: Boolean;
   Errors: string;
 begin
-  // min = max = THREADS: as conexoes abrem aqui, em serie, e o teste mede o
-  // uso concorrente do pool e nao a abertura concorrente do driver.
+
   for I := 0 to THREADS - 1 do
     Workers[I] := nil;
 
@@ -1011,8 +946,7 @@ begin
     Check('nada ficou emprestado no fim', Pool.InUse = 0);
     Check('pool nao passou do max', Pool.Size <= THREADS);
   finally
-    // Libera no finally: uma falha no meio nao pode deixar TThread orfao,
-    // senao o heaptrc acusa e a culpa parece ser da biblioteca.
+
     for I := 0 to THREADS - 1 do
     begin
       Workers[I].Free;
@@ -1023,16 +957,12 @@ begin
   end;
 end;
 
-// Usa uma conexao do pool SEM guardar em variavel. Serve para medir quando o
-// FPC solta o temporario de uma funcao que devolve interface.
 procedure UseInExpression(const APool: ILzNexPool; out AInUseInside: Integer);
 begin
   APool.Acquire.Query(FL('select 1 as n'));
   AInUseInside := APool.InUse;
 end;
 
-// Solta a conexao e devolve so o cursor: o emprestimo tem que sobreviver
-// amarrado ao resultado, senao o cursor leria de uma conexao reciclada.
 procedure QueryAndDropConnection(const APool: ILzNexPool; out AResult: ILzNexResult);
 var
   C: ILzNexConnection;
@@ -1061,9 +991,6 @@ begin
       'create table probe_trxpool (tag varchar(20) not null) engine=InnoDB');
     Conn := nil;
 
-    // a transacao pega a conexao do pool e tem que devolver sozinha.
-    // TConn em variavel de proposito: o temporario de Trx.Connection so morreria
-    // no fim DESTE procedimento (ver o teste de escopo logo abaixo).
     Check('pool livre antes da transacao', Pool.InUse = 0);
     Trx := Db.Transaction;
     Check('a transacao retem uma conexao do pool', Pool.InUse = 1);
@@ -1080,7 +1007,6 @@ begin
     Check('transacao sobre o pool commitou', Before = 1);
     Conn := nil;
 
-    // sem commit: a conexao volta ao pool e o dado nao fica
     Trx := Db.Transaction;
     TConn := Trx.Connection;
     TConn.Execute(FB('insert into probe_trxpool (tag) values (?)',
@@ -1095,11 +1021,6 @@ begin
     Conn.ExecuteScript('drop table if exists probe_trxpool');
     Conn := nil;
 
-    // No FPC 3.2.2 o temporario de uma funcao que devolve interface vive ate o
-    // FIM DO PROCEDIMENTO, nao do comando. Entao Pool.Acquire usado solto numa
-    // expressao SO devolve a conexao quando o escopo termina. O RAII continua
-    // valendo -- muda o momento. Quem chama Acquire em laco precisa de variavel
-    // explicita, ou o pool esgota.
     Inside := -1;
     UseInExpression(Pool, Inside);
     Check('Acquire solto em expressao ainda esta em uso dentro do escopo',
@@ -1107,8 +1028,6 @@ begin
     Check('Acquire solto em expressao e devolvido na saida do escopo',
       Pool.InUse = 0);
 
-    // o cursor segura o emprestimo: a conexao nao pode voltar ao pool com um
-    // resultset aberto, senao outra thread a receberia nesse estado
     QueryAndDropConnection(Pool, Res);
     Check('cursor segura o emprestimo depois de a conexao ser soltada',
       Pool.InUse = 1);
@@ -1122,8 +1041,6 @@ begin
   end;
 end;
 
-// Caminhos de erro. Existem para o heaptrc enxergar orfao: o caminho
-// feliz nao aloca nada que possa ficar sem dono.
 procedure TestErrorPaths;
 var
   Conn: ILzNexConnection;
@@ -1136,7 +1053,7 @@ var
 begin
   Conn := OpenDirect(Obj);
   try
-    // valor nao bindavel: identificador vai quotado no texto, nunca em bind
+
     NotBindable := nil;
     SetLength(NotBindable, 1);
     NotBindable[0] := TLzNexValue.Identifier('id');
@@ -1149,7 +1066,6 @@ begin
           Pos('identifier', E.Message) > 0);
     end;
 
-    // SQL vazio nos tres caminhos
     Raised := False;
     try Conn.Execute(FL('')); except on E: ELzNexQuery do Raised := True; end;
     Check('Execute com SQL vazio levanta', Raised);
@@ -1160,7 +1076,6 @@ begin
     try Conn.ExecuteScript('   '); except on E: ELzNexQuery do Raised := True; end;
     Check('ExecuteScript com SQL vazio levanta', Raised);
 
-    // SQL invalido em Query e em ExecuteScript
     Raised := False;
     try
       Conn.Query(FL('select * from tabela_que_nao_existe_mesmo'));
@@ -1176,7 +1091,6 @@ begin
     end;
     Check('ExecuteScript invalido levanta ELzNexQuery', Raised);
 
-    // commit/rollback fora de transacao
     Raised := False;
     try Conn.Commit; except on E: ELzNexTransaction do Raised := True; end;
     Check('Commit fora de transacao levanta ELzNexTransaction', Raised);
@@ -1184,7 +1098,6 @@ begin
     try Conn.Rollback; except on E: ELzNexTransaction do Raised := True; end;
     Check('Rollback fora de transacao levanta ELzNexTransaction', Raised);
 
-    // excecao DENTRO de transacao: o destrutor ainda tem que desfazer
     Conn.ExecuteScript('drop table if exists probe_err');
     Conn.ExecuteScript(
       'create table probe_err (tag varchar(10) not null) engine=InnoDB');
@@ -1206,8 +1119,6 @@ begin
     Conn := nil;
   end;
 
-  // transacao sobre conexao fechada: o construtor levanta e nao pode
-  // deixar o objeto meio construido para tras
   Conn := OpenDirect(Obj);
   Conn.Close;
   Raised := False;
@@ -1220,7 +1131,6 @@ begin
   Check('transacao sobre conexao fechada levanta', Raised);
   Conn := nil;
 
-  // config de pool invalida: levanta antes de abrir nada
   Raised := False;
   try Pool := NewPool(GClient, GParams, 1, 0, 100);
   except on E: ELzNexConfig do Raised := True; end;
@@ -1233,7 +1143,6 @@ begin
   Pool := nil;
   Check('pool com min > max levanta ELzNexConfig', Raised);
 
-  // credencial invalida: o aquecimento falha no construtor
   Bad := GParams;
   Bad.Password := 'senha-errada-de-proposito';
   Raised := False;
@@ -1243,7 +1152,6 @@ begin
   Check('pool com credencial invalida levanta ELzNexConnection no aquecimento',
     Raised);
 
-  // sem aquecimento, a falha aparece no Acquire -- e nao pode consumir a vaga
   Pool := NewPool(GClient, Bad, 0, 1, 100);
   try
     Raised := False;
@@ -1251,13 +1159,13 @@ begin
     Check('Acquire com credencial invalida levanta ELzNexConnection', Raised);
     Check('a vaga reservada foi devolvida depois da falha',
       (Pool.InUse = 0) and (Pool.Size = 0));
-    // segunda tentativa tem que falhar pelo MESMO motivo, nao por pool cheio
+
     Raised := False;
     try Pool.Acquire; except on E: ELzNexConnection do Raised := True; end;
     Check('segunda tentativa falha pela conexao, nao por pool esgotado', Raised);
   finally
     Pool.Shutdown;
-    Pool.Shutdown;      // idempotente
+    Pool.Shutdown;
     Pool := nil;
   end;
   Check('Shutdown duas vezes nao levanta', True);
@@ -1292,7 +1200,7 @@ begin
   GParams.Database := Env('DB_NAME', 'lznex');
   GParams.User := Env('DB_USER', 'root');
   GParams.Password := Env('DB_PASS', 'secret');
-  // O auto-load do Zeos nao acha a lib no Ubuntu 26.04: informar e obrigatorio.
+
   GParams.LibLocation := Env('DB_LIB', '/usr/lib/x86_64-linux-gnu/libmariadb.so.3');
   GParams.Charset := Env('DB_CHARSET', 'utf8mb4');
 

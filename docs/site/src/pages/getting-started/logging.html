@@ -1,0 +1,48 @@
+<article>
+<h1>Log de queries</h1>
+<p class="subtitle">
+  <code>ILzNexLogger</code> recebe cada query executada, com os binds e o tempo. O logger de
+  console pronto escreve em stdout com flush.
+</p>
+
+<div class="code"><pre data-lang="pascal">uses LzNex, LzNex.Config;
+
+Db := Connect(NewConfig
+  .Client('mysql').Host('mysql').Database('app').User('root')
+  .Logger(TLzNexConsoleLogger.New(True)));   // False silencia so LogQuery</pre></div>
+
+<div class="code"><pre data-lang="out">2026-10-24 18:31:07 [lznex] query (3ms) select * from `users` where `id` = ?  binds=[integer(7)]
+2026-10-24 18:31:07 [lznex] warn  MySQL commits DDL implicitly: rollback will not undo it
+2026-10-24 18:31:08 [lznex] error Duplicate entry 'l@x.com' for key 'users_email_unique'
+  sql: insert into `users` (`email`) values (?)</pre></div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">Por que o flush importa</span>
+    <p>
+      stdout redirecionado — container, pipe, CI — é bufferizado. Sem flush, o log de um
+      processo que morre no meio simplesmente desaparece. O logger de console e o CLI já dão
+      flush a cada linha.
+    </p>
+  </div>
+</div>
+
+<h2 id="custom-logger">Logger próprio</h2>
+<div class="code"><pre data-lang="pascal">type
+  TMyLogger = class(TInterfacedObject, ILzNexLogger)
+  public
+    procedure LogQuery(const ASQL: string; const ABindings: TLzNexBindings;
+      const AElapsedMs: Int64);
+    procedure LogError(const ASQL: string; const AError: string);
+    procedure LogWarning(const AMessage: string);
+    procedure LogInfo(const AMessage: string);
+  end;</pre></div>
+
+<p>
+  <code>ABindings.Describe</code> devolve os valores com a tag de cada um
+  (<code>integer(7)</code>, <code>string('ana')</code>) — é descrição para humano, nunca SQL
+  executável. O mesmo vale para <code>Query.ToSQLString</code> e
+  <code>Client.EscapeForLog</code>: existem para log, e não devem ser enviados ao banco.
+</p>
+</article>

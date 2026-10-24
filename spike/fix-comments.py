@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""Remove o prefixo "// Nome —" dos comentarios, deixando so a descricao.
-
-O nome ja aparece na linha de declaracao logo abaixo; repetir e ruido.
-Converte:   // WhereOpen — abre um grupo "(".
-para:       // Abre um grupo "(".
-"""
 import re
 import sys
 import pathlib

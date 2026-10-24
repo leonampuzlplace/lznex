@@ -6,7 +6,7 @@ Consome o LzNex pelo Boss, sem caminho relativo para o repositorio da lib.
 
 `boss.json` aponta para placeholders que precisam virar os forks reais:
 
-- `github.com/CHANGEME/lznex` -> onde o LzNex foi publicado
+- `github.com/leonampuzlplace/lznex` -> onde o LzNex foi publicado
 - `github.com/CHANGEME/zeoslib` -> o fork do Zeos **com `boss.json`** (o Boss
   aborta se uma dependencia nao tiver o manifesto). Vem transitivo pelo lznex,
   por isso nao aparece no `boss.json` daqui.

@@ -1,20 +1,5 @@
 program ProbeMigration;
 
-{ Sonda de configuracao, migrations e seeds.
-
-  Roda SEM banco: a facade ILzNex e a camada de conexao sao de outro agente.
-  O que depende de conexao (Latest, Rollback, Status com linhas) fica de fora;
-  o que e logica pura (config, registry, fonte .sql, splitter, ordem das seeds)
-  e todo exercitado aqui.
-
-  Para a parte que precisa de uma ILzNex so para existir, ha o TStubDb no fim
-  deste arquivo: devolve a config e levanta em tudo que exigiria conexao.
-
-  A sobrescrita por variavel de ambiente nao da para testar no proprio
-  processo: no Unix o FPC le o envp capturado no exec, e setenv() da libc nao
-  mexe nele. Entao o teste reexecuta ESTE binario com as LZNEX_* no ambiente
-  (modo 'envchild') e confere o exit code do filho. }
-
 {$MODE DELPHI}{$H+}
 
 uses
@@ -48,10 +33,6 @@ begin
   end;
 end;
 
-// ============================================================
-//  Migrations de teste
-// ============================================================
-
 type
   TMigB = class(TLzNexMigration)
   public
@@ -75,7 +56,6 @@ type
     procedure Down(const ADb: ILzNex); override;
   end;
 
-  // Mesmo Id de TMigA: o registry tem que recusar.
   TMigDup = class(TLzNexMigration)
   public
     class function MigrationName: string; override;
@@ -140,10 +120,6 @@ procedure TMigDup.Down(const ADb: ILzNex);
 begin
 end;
 
-// ============================================================
-//  Seeds de teste
-// ============================================================
-
 type
   TSeedPosts = class(TLzNexSeed)
   public
@@ -193,13 +169,8 @@ begin
   raise Exception.Create('coluna email nao existe');
 end;
 
-// ============================================================
-//  Stub da facade
-// ============================================================
-
 type
-  { So Config responde de verdade. Serve para construir o Migrator e o Seeder
-    e exercitar o que nao toca no banco. }
+
   TStubDb = class(TInterfacedObject, ILzNex)
   private
     FConfig: ILzNexConfig;
@@ -304,7 +275,7 @@ end;
 
 function TStubDb.Client: ILzNexClient;
 begin
-  { nil de proposito: nenhum dialeto concreto esta registrado nesta sonda. }
+
   Result := nil;
 end;
 
@@ -333,10 +304,6 @@ end;
 procedure TStubDb.Shutdown;
 begin
 end;
-
-// ============================================================
-//  Helpers
-// ============================================================
 
 procedure WriteTextFile(const APath, AContent: string);
 var
@@ -384,10 +351,6 @@ const
     'update a set nota = ''c'' where id = 1;' + sLineBreak +
     ';' + sLineBreak;
 
-// ============================================================
-//  Modo filho: so a sobrescrita por variavel de ambiente
-// ============================================================
-
 procedure RunEnvChild;
 var
   Cfg: ILzNexConfig;
@@ -415,15 +378,6 @@ begin
   Writeln('  (filho: ', GChecks, ' assercoes)');
   Flush(Output);
 end;
-
-// ============================================================
-//  Principal
-//
-//  Corpo numa procedure, nao no bloco do programa: a saida pelo caminho do
-//  filho usava Halt, e Halt pula a finalizacao dos temporarios do bloco
-//  principal -- o temporario de ParamStr vazava 33 bytes, visto pelo heaptrc.
-//  Saindo normalmente de uma procedure, tudo e finalizado.
-// ============================================================
 
 procedure RunProbe;
 var
@@ -614,12 +568,10 @@ begin
   end;
   Check('json invalido levanta ELzNexConfig (parser registrado)', Raised);
 
-  { Arquivo sem ambientes: a raiz e a propria config. }
   Cfg := LoadConfigJSON('{"client":"mysql","connection":{"host":"h","database":"d"}}', '');
   Check('json sem ambientes usa a raiz',
     (Cfg.GetHost = 'h') and (Cfg.GetDatabase = 'd'));
 
-  { A chave "default" escolhe o ambiente quando o chamador nao informa. }
   Cfg := LoadConfigJSON(
     '{"default":"test",' +
     '"development":{"client":"mysql","host":"dev","database":"d"},' +
@@ -631,7 +583,6 @@ begin
     '"test":{"client":"mysql","host":"tst","database":"t"}}', 'development');
   Check('o ambiente pedido vence a chave "default"', Cfg.GetHost = 'dev');
 
-  { O knexfile real do projeto: campos de conexao achatados no ambiente. }
   Check('database/lznex.json existe', FileExists('/work/database/lznex.json'));
   if FileExists('/work/database/lznex.json') then
   begin
@@ -655,7 +606,6 @@ begin
     Check('lznex.json passa no Validate', True);
   end;
 
-  { As migrations .sql de exemplo do projeto. }
   Check('as migrations .sql de exemplo sao descobertas',
     Length(TLzNexSqlMigrationSource.NewOptional(
       '/work/database/migrations').All) >= 1);
@@ -717,7 +667,6 @@ begin
   ClearMigrations;
   Check('registry comeca vazio', RegisteredMigrationCount = 0);
 
-  { Registro fora de ordem de proposito: a ordem final e por Id. }
   RegisterMigration(TMigC);
   RegisterMigration(TMigA);
   RegisterMigration(TMigB);
@@ -783,7 +732,7 @@ begin
   Check('literal do insert inteiro', Pos('a;b', Parts[1]) > 0);
   Check('comentario de cerquilha nao vira comando',
     Pos('update a set', Parts[2]) > 0);
-  { O ';' solitario na ultima linha nao pode gerar um quarto comando. }
+
   Check('o separador nao fica no fim do comando',
     Parts[2][Length(Parts[2])] <> ';');
   Check('script vazio da lista vazia', Length(SplitSqlStatements('   ')) = 0);
@@ -816,10 +765,10 @@ begin
     'create table users (id int);');
   WriteTextFile(Dir + '/migrations/20240101090000_create_users.down.sql',
     'drop table users;');
-  { Sem .down.sql: irreversivel. }
+
   WriteTextFile(Dir + '/migrations/20240303150000_drop_legacy.up.sql',
     'drop table legacy;');
-  { Arquivo que nao e migration: a fonte tem que ignorar. }
+
   WriteTextFile(Dir + '/migrations/leiame.txt', 'nao sou migration');
 
   Src := TLzNexSqlMigrationSource.New(Dir + '/migrations');
@@ -846,7 +795,7 @@ begin
   Raised := False;
   Msg := '';
   try
-    { ADb nil de proposito: o Down tem que recusar ANTES de tocar na conexao. }
+
     Items[2].Down(nil);
   except
     on E: ELzNexMigration do
@@ -906,7 +855,6 @@ begin
   end;
   Check('migrator sem facade levanta', Raised);
 
-  { Default da tabela quando a config nao informa. }
   Stub2 := TStubDb.Create(TLzNexConfig.New);
   Check('tabela de controle default',
     (TLzNexMigrator.New(Stub2) as TLzNexMigrator).TableName =
@@ -914,7 +862,6 @@ begin
   Check('CurrentVersion sem linhas devolveria "none"',
     LZNEX_VERSION_NONE = 'none');
 
-  { NewMigrator e o que a facade chama: ja vem com as duas fontes. }
   Mig := NewMigrator(Stub);
   Check('NewMigrator registra codigo + sql',
     (Mig as TLzNexMigrator).SourceCount = 2);
@@ -924,7 +871,7 @@ begin
   Mig := NewMigrator(Stub2);
   Check('sem diretorio de migrations fica so a fonte de codigo',
     (Mig as TLzNexMigrator).SourceCount = 1);
-  { Diretorio inexistente registrado pela facade nao pode quebrar. }
+
   Check('a fonte sql opcional tolera diretorio ausente',
     Length(TLzNexSqlMigrationSource.NewOptional(Dir + '/nao-existe').All) = 0);
 
@@ -993,8 +940,6 @@ begin
   Writeln;
   Writeln('-- caminhos de erro em laco (caca a objeto orfao) --');
 
-  { Cada iteracao percorre todos os caminhos que levantam. Objeto alocado e
-    abandonado por excecao antes de ter dono aparece no heaptrc. }
   Fails := 0;
   for Loop := 1 to 25 do
   begin
@@ -1014,7 +959,7 @@ begin
       on E: ELzNexConfig do Inc(Fails);
     end;
     try
-      { Pool invalido levanta no meio da montagem a partir do JSON. }
+
       LoadConfigJSON('{"client":"mysql","pool":{"min":9,"max":2}}', '');
     except
       on E: ELzNexConfig do Inc(Fails);
@@ -1080,14 +1025,12 @@ begin
   Writeln;
   Writeln('-- sobrescrita por ambiente (processo filho) --');
 
-  { Log de heaptrc proprio para o filho: pai e filho escrevendo no mesmo
-    arquivo se sobrepoem e o dump de um esconde o do outro. }
   ChildExit := ExecuteProcess('/bin/sh', ['-c',
     'HEAPTRC="haltonnotreleased log=/tmp/lznex-ht-child.log" ' +
     'LZNEX_HOST=envhost LZNEX_PORT=3310 LZNEX_DATABASE=envdb ' +
     'LZNEX_USER=envuser LZNEX_PASSWORD=envpass ' +
     'LZNEX_MIGRATIONS_TABLE=envmig ' + ParamStr(0) + ' envchild']);
-  { Com -gh o filho tambem sai != 0 se vazar, entao isto cobre os dois. }
+
   Check('o filho com LZNEX_* no ambiente passou', ChildExit = 0);
 
   Writeln;

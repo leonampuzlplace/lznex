@@ -105,8 +105,6 @@ type
 
 implementation
 
-{ TSelectTest }
-
 procedure TSelectTest.SelectWithoutColumns;
 begin
   AssertSQL('select * from `users`', NewTestQuery.Table('users'));
@@ -126,7 +124,7 @@ end;
 
 procedure TSelectTest.InlineAliasInString;
 begin
-  // Regressao: FindAliasSeparator ja comeu o primeiro caractere do alias.
+
   AssertSQL('select `name` as `nick` from `users`',
     NewTestQuery.Table('users').Select(['name as nick']));
 end;
@@ -142,8 +140,6 @@ begin
   AssertSQL('select distinct `country` from `users`',
     NewTestQuery.Table('users').Distinct.Select(['country']));
 end;
-
-{ TWhereTest }
 
 procedure TWhereTest.Equality;
 begin
@@ -165,7 +161,7 @@ end;
 
 procedure TWhereTest.OrDoesNotLeakIntoNextPredicate;
 begin
-  // No knex o flag de OR era destrutivo; aqui e parametro explicito.
+
   AssertSQL('select * from `t` where `a` = ? or `b` = ? and `c` = ?',
     NewTestQuery.Table('t').Where('a', 1).OrWhere('b', 2).Where('c', 3));
 end;
@@ -192,7 +188,7 @@ end;
 
 procedure TWhereTest.EmptyInListBecomesFalse;
 begin
-  // Mesma semantica do knex: IN de lista vazia nao casa com nada.
+
   AssertSQL('select * from `t` where 1 = 0',
     NewTestQuery.Table('t').WhereIn('id', nil));
 end;
@@ -220,8 +216,6 @@ begin
   AssertQuery('select * from `t` where `name` like ?', '%jo%',
     NewTestQuery.Table('t').WhereLike('name', '%jo%'));
 end;
-
-{ TPredicateGroupTest }
 
 procedure TPredicateGroupTest.SimpleGroup;
 begin
@@ -271,8 +265,6 @@ begin
   end;
 end;
 
-{ TJoinTest }
-
 procedure TJoinTest.InnerJoinComparesColumns;
 begin
   AssertQuery(
@@ -283,8 +275,7 @@ end;
 
 procedure TJoinTest.LeftJoinWithValueCreatesBinding;
 begin
-  // OnValue e OnColumns sao separados de proposito: no knex, on('a', true)
-  // comparava com o IDENTIFICADOR "true".
+
   AssertQuery('select * from `posts` left join `tags` on `tags`.`active` = ?', 'True',
     NewTestQuery.Table('posts').LeftJoin('tags').OnValue('tags.active', '=', True));
 end;
@@ -309,8 +300,6 @@ begin
       .Where('posts.published', True));
 end;
 
-{ TOrderAndPagingTest }
-
 procedure TOrderAndPagingTest.OrderAscending;
 begin
   AssertSQL('select * from `t` order by `name` asc',
@@ -331,7 +320,7 @@ end;
 
 procedure TOrderAndPagingTest.OffsetWithoutLimitUsesMySQLWorkaround;
 begin
-  // O MySQL exige LIMIT quando ha OFFSET; o valor e o maximo de 64 bits.
+
   AssertSQL('select * from `t` limit 18446744073709551615 offset ?',
     NewTestQuery.Table('t').Offset(20));
 end;
@@ -343,8 +332,6 @@ begin
     NewTestQuery.Table('orders').Select(['user_id']).GroupBy(['user_id'])
       .Having('total', '>', 100));
 end;
-
-{ TRawTest }
 
 procedure TRawTest.ValuePlaceholder;
 var
@@ -359,7 +346,7 @@ procedure TRawTest.IdentifierPlaceholder;
 var
   Fragment: TLzNexFragment;
 begin
-  // '??' vira identificador quotado e NAO gera bind.
+
   Fragment := LzNexRaw('select ?? from ??', ['name', 'users']).Build(FClient);
   AssertEquals('select `name` from `users`', Fragment.Text);
   AssertEquals(0, Fragment.Bindings.Count);
@@ -381,12 +368,9 @@ begin
   end;
 end;
 
-{ TSecurityTest }
-
 procedure TSecurityTest.OperatorOutsideWhitelistRaises;
 begin
-  // A whitelist e fechada para operador vindo de entrada do usuario nao virar
-  // injecao.
+
   try
     NewTestQuery.Table('t').Where('a', '; drop table users; --', 1);
     Fail('expected ELzNexBuilder for invalid operator');
@@ -421,8 +405,6 @@ begin
   AssertEquals('''; drop table users; --', Fragment.Bindings.Items(0).AsString);
 end;
 
-{ TCloneTest }
-
 procedure TCloneTest.CloneDoesNotAffectOriginal;
 var
   Original: ILzNexQuery;
@@ -441,8 +423,6 @@ begin
   Original.Where('b', 2);
   AssertSQL('select * from `users` where `a` = ?', Copy);
 end;
-
-{ TDialectTest }
 
 procedure TDialectTest.MySQLIsRegistered;
 begin
@@ -466,7 +446,7 @@ end;
 
 procedure TDialectTest.MySQLReportsNonTransactionalDdl;
 begin
-  // MySQL faz COMMIT IMPLICITO em DDL: o migrator usa isso para avisar.
+
   AssertFalse(FClient.DdlIsTransactional);
 end;
 

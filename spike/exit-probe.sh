@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Descobre se o ExitCode do FPC chega ao shell, e se Halt chega.
 set -u
 cd /work
 mkdir -p /tmp/ep

@@ -1,12 +1,5 @@
 unit LzNex.Result;
 
-{ Cursor forward-only e linha materializada sobre IZResultSet (camada DBC do Zeos).
-
-  Nao ha TDataset aqui: o IZResultSet e lido direto e cada coluna e convertida
-  para TLzNexValue com a tag decidida pelo TZSQLType que o metadata do resultset
-  informa. O schema (nomes + tags) e lido UMA vez, na abertura, porque ele nao
-  muda durante o cursor -- ler a cada linha seria o custo que o TDataset cobra. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -20,12 +13,9 @@ uses
   LzNex.Exceptions;
 
 type
-  // Tags de coluna na ordem do resultset. Vive junto do cursor e das linhas.
+
   TLzNexKindArray = array of TLzNexValueKind;
 
-  // Linha independente do cursor: guarda copia dos nomes e dos valores.
-  // Os nomes vem por referencia compartilhada (o array e imutavel apos a
-  // abertura do cursor), entao materializar linha nao copia string de nome.
   TLzNexRow = class(TInterfacedObject, ILzNexRow)
   private
     FNames: TLzNexStringArray;
@@ -43,12 +33,10 @@ type
     function ToJSON: string;
   end;
 
-  // Cursor forward-only. Fecha o IZResultSet na liberacao da interface.
   TLzNexResult = class(TInterfacedObject, ILzNexResult)
   private
     FRS: IZResultSet;
-    // Mantem vivo o IZStatement que produziu o resultset: no Zeos o resultset
-    // nao segura o statement, e statement liberado invalida o cursor.
+
     FOwner: IInterface;
     FNames: TLzNexStringArray;
     FKinds: TLzNexKindArray;
@@ -59,7 +47,7 @@ type
     procedure NeedOpen;
     procedure NeedRow;
     function IndexOfName(const AName: string): Integer;
-    // Le a coluna 0-based da linha atual e converte pela tag do schema.
+
     function ReadColumn(const AIndex: Integer): TLzNexValue;
     function SnapshotValues: TLzNexValues;
   public
@@ -77,21 +65,14 @@ type
     procedure Close;
   end;
 
-// Envolve um resultset do Zeos. AOwner e o statement que o produziu
-// (ou nil): ele fica vivo enquanto o cursor existir.
 function NewResult(const ARS: IZResultSet; const AOwner: IInterface): ILzNexResult;
 
-// Tag do LzNex para um tipo de coluna do Zeos.
 function LzNexKindOfSQLType(const AType: TZSQLType): TLzNexValueKind;
 
-// Texto entre aspas duplas, com escape de JSON. UTF-8 passa cru:
-// byte alto nao precisa de \u e escapar quebraria o emoji.
 function LzNexJSONQuote(const AText: string): string;
 
-// O valor como literal JSON (sem nome). Bytes saem em base64.
 function LzNexJSONValue(const AValue: TLzNexValue): string;
 
-// Objeto JSON a partir de nomes e valores pareados.
 function LzNexJSONObject(const ANames: TLzNexStringArray;
   const AValues: TLzNexValues): string;
 
@@ -100,8 +81,6 @@ implementation
 const
   B64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
-// Lista de nomes separada por virgula, para a mensagem de erro dizer
-// quais colunas existem de fato.
 function NameList(const ANames: TLzNexStringArray): string;
 var
   I: Integer;
@@ -117,7 +96,6 @@ begin
     Result := '<none>';
 end;
 
-// Base64 escrito a mao para a unit nao depender de fcl-base.
 function Base64Of(const ABytes: TBytes): string;
 var
   I, N, Rem: Integer;
@@ -197,7 +175,6 @@ begin
   end;
 end;
 
-// Numero com ponto decimal, independente do locale.
 function JSONNumber(const AValue: Double): string;
 begin
   Result := FloatToStr(AValue);
@@ -280,13 +257,10 @@ begin
     stString, stUnicodeString, stAsciiStream, stUnicodeStream, stGUID:
       Result := vkString;
   else
-    // stUnknown, stArray, stResultSet: texto e a representacao que nunca perde
-    // o conteudo, ainda que perca o tipo.
+
     Result := vkString;
   end;
 end;
-
-{ TLzNexRow }
 
 constructor TLzNexRow.Create(const ANames: TLzNexStringArray;
   const AValues: TLzNexValues);
@@ -303,8 +277,7 @@ begin
   for I := 0 to High(FNames) do
     if FNames[I] = AName then
       Exit(I);
-  // Segunda passada sem case: o servidor pode devolver o label com outro caso
-  // do que o escrito no SQL.
+
   for I := 0 to High(FNames) do
     if SameText(FNames[I], AName) then
       Exit(I);
@@ -367,8 +340,6 @@ begin
   Result := LzNexJSONObject(FNames, FValues);
 end;
 
-{ TLzNexResult }
-
 constructor TLzNexResult.Create(const ARS: IZResultSet; const AOwner: IInterface);
 begin
   inherited Create;
@@ -401,7 +372,7 @@ begin
   SetLength(FKinds, FColCount);
   for I := 0 to FColCount - 1 do
   begin
-    // Label primeiro: e ele que carrega o alias do SELECT.
+
     Name_ := Meta.GetColumnLabel(I + FirstDbcIndex);
     if Name_ = '' then
       Name_ := Meta.GetColumnName(I + FirstDbcIndex);
@@ -530,8 +501,7 @@ end;
 function TLzNexResult.CurrentRow: ILzNexRow;
 begin
   NeedRow;
-  // FNames vai por referencia: o array nao muda depois da abertura, entao
-  // compartilhar nao permite que uma linha veja nome alterado por outra.
+
   Result := TLzNexRow.Create(FNames, SnapshotValues) as ILzNexRow;
 end;
 
@@ -542,8 +512,7 @@ begin
   Result := nil;
   NeedOpen;
   Count_ := 0;
-  // Inclui a linha atual, se o cursor ja estiver sobre uma: "restantes" conta
-  // a que esta na mao, senao um Next solto perderia a primeira linha.
+
   while FOnRow or Next do
   begin
     if Count_ >= Length(Result) then
@@ -596,8 +565,7 @@ begin
     try
       FRS.Close;
     except
-      // Fechar cursor nunca pode derrubar o chamador: a conexao pode ja ter
-      // caido, e nesse caso nao ha nada a recuperar aqui.
+
     end;
     FRS := nil;
   end;

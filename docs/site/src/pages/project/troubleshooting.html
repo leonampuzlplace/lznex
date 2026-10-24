@@ -1,0 +1,274 @@
+<article>
+<h1>Troubleshooting</h1>
+<p class="subtitle">
+  Sintoma à esquerda, causa e correção à direita. A maioria dos erros em tempo de execução
+  aqui tem uma causa só, e quase sempre é linker do FPC ou conexão presa no pool.
+</p>
+
+<h2 id="symptoms">Sintomas e correções</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Sintoma</th><th>Causa e correção</th></tr></thead>
+<tbody>
+
+<tr>
+<td><code>Requested database driver was not found</code> ao conectar</td>
+<td>
+  Falta o <code>uses</code> da unit do dialeto. O FPC <strong>não linka unit que ninguém
+  referencia</strong>, e é a seção <code>initialization</code> dessa unit que registra o
+  driver — sem referência, o registro nunca acontece. Acrescente
+  <code>LzNex.Client.MySQL</code> (ou <code>LzNex.Client.Postgres</code>) ao
+  <code>uses</code> do programa, não só da unit que monta a query.
+</td>
+</tr>
+
+<tr>
+<td>Migration em Pascal não aparece no <code>migrate:status</code></td>
+<td>
+  Mesma causa, outro disfarce: a classe se registra no <code>initialization</code> da sua
+  unit. Acrescente a unit ao <code>uses</code> de
+  <code>database/Migrations.All.pas</code> — o <code>migrate:make</code> faz isso
+  automaticamente, então o caso aparece em migration criada à mão ou renomeada. Migration
+  em <code>.sql</code> não sofre disso: é lida do disco.
+</td>
+</tr>
+
+<tr>
+<td><code>seed:run</code> diz <code>0 seed(s) executed</code></td>
+<td>
+  Nenhuma classe foi passada a <code>RegisterSeed</code> — pela mesma razão de linker, ou
+  porque a seed só existe como arquivo <code>.sql</code>. <code>seed:make</code> cria
+  <code>.sql</code>, mas <code>seed:run</code> roda <strong>só classes registradas</strong>
+  (veja <a href="#limitations/seed-sql">Limitações</a>). Converta para classe Pascal ou mova
+  o conteúdo para uma migration <code>.sql</code>.
+</td>
+</tr>
+
+<tr>
+<td><code>Seed "x" is not registered. Registered: ...</code></td>
+<td>
+  O <code>--only</code> compara com <code>SeedName</code>, não com o nome do arquivo nem
+  com o da classe. A própria mensagem lista os nomes válidos: use um deles.
+</td>
+</tr>
+
+<tr>
+<td>Erro de biblioteca ao conectar, sem SQL nenhum ter rodado</td>
+<td>
+  O auto-load do Zeos procura <code>libmysqlclient</code>, e no Ubuntu 26.04 só existe
+  <code>libmariadb.so.3</code>. Informe o caminho explicitamente, por
+  <code>LibraryLocation</code> na configuração ou pela variável
+  <code>LZNEX_LIBRARY=/usr/lib/x86_64-linux-gnu/libmariadb.so.3</code>. Confira com
+  <code>ls /usr/lib/x86_64-linux-gnu/libmaria*</code> — o sufixo da versão muda.
+</td>
+</tr>
+
+<tr>
+<td><code>lazbuild</code> para com <code>directory lcl not found</code></td>
+<td>
+  Falta o pacote <code>lazarus-src</code>. Vale <strong>mesmo sem usar LCL</strong>: o
+  <code>lazbuild</code> resolve os pacotes base antes de olhar o que o projeto usa.
+  <code>apt-get install lazarus-src</code> (além de <code>fpc</code> e
+  <code>lcl-utils</code>) resolve.
+</td>
+</tr>
+
+<tr>
+<td>Gate de vazamento sempre verde, até quando há vazamento</td>
+<td>
+  O binário saiu sem heaptrc. A tag <code>&lt;UseHeaptrc&gt;</code> do <code>.lpi</code> é
+  ignorada pelo <code>lazbuild</code>; o <code>-gh</code> tem que ir em
+  <code>&lt;CustomOptions&gt;</code> do build mode. Sem heaptrc o processo nunca retorna
+  203 e o gate não existe. <code>scripts/run-tests.sh</code> detecta e imprime
+  <code>SEM -gh</code> no lugar de <code>[gh]</code> — se você vê isso, o resultado daquele
+  binário não diz nada sobre memória.
+</td>
+</tr>
+
+<tr>
+<td>Migration falhou no meio e o banco ficou meio alterado (MySQL)</td>
+<td>
+  O MySQL dá commit implícito em DDL: <code>create</code>, <code>alter</code> e
+  <code>drop</code> já estão no disco quando o erro acontece, e o rollback não os desfaz. O
+  migrator avisa antes de começar. Conserte à mão, depois quebre a migration em passos
+  únicos e reentrantes (<code>if not exists</code> e checagem com
+  <code>HasColumn</code>/<code>HasTable</code>).
+</td>
+</tr>
+
+<tr>
+<td><code>ELzNexMigrationLock</code>, CLI saindo com <strong>exit 3</strong></td>
+<td>
+  A tabela de lock está tomada: ou outro processo está migrando agora, ou um processo
+  morreu segurando o lock. O exit 3 é exclusivo desse erro, justamente para o CI
+  distinguir "concorrência" de "migration quebrada" (erro comum é exit 1). Confirme que
+  nada está rodando e então <code>lznex migrate:unlock</code>. Nunca solte o lock no
+  escuro: duas migrations simultâneas na mesma base é como se corrompe o histórico.
+</td>
+</tr>
+
+<tr>
+<td><code>ELzNexPool: Pool exhausted: N connections in total (max M), N in use</code></td>
+<td>
+  Duas causas. (a) Alguma <code>ILzNexConnection</code> está viva além do escopo da
+  requisição — cursor não consumido até o fim ou transação sem <code>Commit</code>/
+  <code>Rollback</code> segura o empréstimo até ser liberada. (b) O <code>max</code> é
+  baixo para o número de threads: um servidor que atende N requisições em paralelo precisa
+  de pelo menos N conexões se cada uma mantém cursor aberto. Diagnostique com
+  <code>Db.Pool.InUse</code> e <code>Db.Pool.Size</code> (é o que o
+  <code>tests/DiagPool.lpr</code> imprime a cada passo).
+</td>
+</tr>
+
+<tr>
+<td><code>ELzNexTransaction: ... on an already completed transaction</code></td>
+<td>
+  <code>Commit</code> e <code>Rollback</code> <strong>encerram</strong> a transação e
+  devolvem a conexão ao pool; o objeto continua existindo, mas não tem mais conexão. Abra
+  outra transação para o próximo bloco, ou use <code>Savepoint</code> se o que você quer é
+  um bloco interno. A mesma mensagem com <code>Connection on a transaction already
+  completed</code> é a versão que aparece ao pedir a conexão depois do fim.
+</td>
+</tr>
+
+<tr>
+<td><code>ELzNexTransaction: ... with a savepoint still open</code></td>
+<td>
+  Savepoint aberto dentro da transação que você está fechando. Eles fecham em ordem LIFO:
+  termine o savepoint interno antes de dar <code>Commit</code>/<code>Rollback</code> no
+  externo. A mensagem traz os dois níveis, o da transação e o da conexão.
+</td>
+</tr>
+
+<tr>
+<td><code>ELzNexBuilder: ToSQL: there are N open predicate group(s)</code></td>
+<td>
+  Faltou <code>WhereClose</code> (ou <code>HavingClose</code>). Como o FPC 3.2.2 não tem
+  função anônima, o parêntese é fechado à mão e ninguém fecha por você.
+  <code>OpenGroupCount</code> diz quantos faltam, e a mensagem separa
+  <code>where</code> de <code>having</code>. <code>Clone</code> recusa pelo mesmo motivo —
+  clonar builder com grupo aberto duplicaria o erro.
+</td>
+</tr>
+
+<tr>
+<td><code>ELzNexBuilder: Group close without a matching open</code></td>
+<td>
+  O inverso: <code>WhereClose</code> a mais. Levanta na hora da chamada, não no
+  <code>ToSQL</code>, o que ajuda a achar a linha.
+</td>
+</tr>
+
+<tr>
+<td><code>RETURNING is not supported by mysql. Use LastInsertId or a SELECT afterwards.</code></td>
+<td>
+  Recurso que o dialeto não tem. Em MySQL, troque <code>Returning</code> por
+  <code>InsertGetId</code>, que pega o id na <strong>mesma</strong> conexão do insert — é o
+  que torna o resultado correto sob concorrência. O builder recusa <code>Returning</code>
+  antes de compilar (<code>Returning: dialect "mysql" does not support RETURNING</code>),
+  então o erro pode vir já na montagem.
+</td>
+</tr>
+
+<tr>
+<td><code>DISTINCT ON is not supported by mysql. Use plain Distinct or group by.</code></td>
+<td>
+  Mesma família. Use <code>Distinct</code> simples, ou <code>group by</code> com uma função
+  de agregação escolhendo a linha. Consulte <a href="#dialects">Dialetos</a> antes de usar
+  recurso específico de banco — a tabela de capacidades diz o que cada um aceita.
+</td>
+</tr>
+
+<tr>
+<td>Log não aparece no container (aparece no terminal local)</td>
+<td>
+  <code>stdout</code> redirecionado para pipe é bufferizado em bloco, não por linha: a
+  saída fica presa no buffer até o processo encher ou terminar. O logger de console do
+  LzNex já chama <code>Flush(Output)</code> depois de cada linha, e o CLI também — se o seu
+  log desaparece, é um <code>ILzNexLogger</code> próprio que faz <code>Writeln</code> sem
+  <code>Flush</code>. Acrescente o <code>Flush(Output)</code> no fim do seu
+  <code>Emit</code>.
+</td>
+</tr>
+
+<tr>
+<td>Servidor multi-thread travando sem mensagem nenhuma</td>
+<td>
+  Duas causas clássicas. (a) Falta <code>cthreads</code> como <strong>primeira</strong>
+  unit do <code>uses</code> do programa (Unix): sem ele o RTL não usa o gerenciador de
+  memória com lock, e a seção crítica do pool não protege nada — o sintoma é travamento ou
+  corrupção, não exceção. (b) Um <code>ILzNexQuery</code> ou
+  <code>ILzNexTransaction</code> está sendo compartilhado entre threads. Eles não são
+  thread-safe por projeto; cada thread monta o seu a partir da fachada, que é o único
+  objeto compartilhável.
+</td>
+</tr>
+
+</tbody>
+</table>
+</div>
+
+<h2 id="cthreads">A ordem do <code>cthreads</code></h2>
+<p>
+  Tem que ser a primeira unit, antes de <code>SysUtils</code>, e protegida pelos defines —
+  é assim em <code>tests/LzNexTests.lpr</code>:
+</p>
+
+<div class="code"><pre data-lang="pascal">uses
+  {$IFDEF UNIX}{$IFDEF UseCThreads}
+  cthreads,
+  {$ENDIF}{$ENDIF}
+  SysUtils,
+  LzNex,
+  LzNex.Client.MySQL;</pre>
+<p class="code-note">
+  o define vem do compilador: <code>-dUseCThreads</code> em
+  <code>&lt;CustomOptions&gt;</code> do <code>.lpi</code>
+</p>
+</div>
+
+<h2 id="exit-codes">Códigos de saída do CLI</h2>
+<p>Úteis para decidir o que o CI faz com a falha:</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Código</th><th>Significado</th></tr></thead>
+<tbody>
+<tr><td><code>0</code></td><td>sucesso</td></tr>
+<tr><td><code>1</code></td><td>erro de execução — qualquer <code>ELzNex</code> que não seja lock, ou exceção inesperada (a mensagem traz a classe)</td></tr>
+<tr><td><code>2</code></td><td>uso errado: comando desconhecido ou argumento obrigatório faltando. Imprime a ajuda.</td></tr>
+<tr><td><code>3</code></td><td><code>ELzNexMigrationLock</code>: outro processo migrando, ou lock órfão</td></tr>
+<tr><td><code>203</code></td><td>não é o CLI — é o heaptrc abortando um binário de teste por bloco não liberado</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="isolating">Isolando o problema</h2>
+<p>
+  Quando não está claro se o erro é seu, da biblioteca ou do ambiente, vale subir um nível
+  por vez:
+</p>
+
+<div class="code"><pre data-lang="sh"># 1. o SQL sai como esperado? (não toca no banco)
+docker compose run --rm tests
+
+# 2. o banco está de pé e aceita conexão?
+docker compose run --rm cli migrate:status
+
+# 3. a cadeia completa funciona sob concorrência?
+docker compose run --rm tests-it
+
+# 4. a aplicação de exemplo conecta?
+docker compose up -d api &amp;&amp; curl -s localhost:9000/health</pre></div>
+
+<p>
+  Falhar no passo 1 é bug de montagem de SQL. Falhar só no 2 é ambiente —
+  biblioteca, host, credencial. Falhar só no 3 é pool, thread ou transação. Veja
+  <a href="#tests">Testes e Docker</a> para o que cada serviço faz.
+</p>
+
+<div class="cards">
+  <a class="card" href="#errors"><h4>Erros →</h4><p>A hierarquia de exceções e o que cada uma significa.</p></a>
+  <a class="card" href="#limitations"><h4>Limitações →</h4><p>Quando o problema não tem correção ainda.</p></a>
+</div>
+</article>

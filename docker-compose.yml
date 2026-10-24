@@ -28,23 +28,18 @@ services:
       retries: 20
       start_period: 20s
 
-  # Imagem unica: o stage builder compila CLI e testes, o runtime leva so o CLI.
   cli:
     build:
       context: .
     image: lznex:latest
     environment: *db-env
     volumes:
-      # Migrations e config ficam no host: dao para editar sem rebuildar.
       - ./database:/home/lznex/database:ro
     depends_on:
       mysql:
         condition: service_healthy
-    # Sem argumento mostra a ajuda. Ex.:
-    #   docker compose run --rm cli migrate:latest
     command: ["--help"]
 
-  # Unitarios: nao tocam no banco. Build mode Debug, com o gate de vazamento.
   tests:
     build:
       context: .
@@ -55,8 +50,6 @@ services:
       HEAPTRC: haltonnotreleased
     command: ["./bin/lznex-tests-debug"]
 
-  # Integracao e concorrencia contra o MySQL real. LZNEX_IT liga os grupos que
-  # sao pulados no run unitario.
   tests-it:
     build:
       context: .
@@ -78,7 +71,6 @@ services:
         condition: service_healthy
     command: ["./bin/lznex-tests-debug"]
 
-  # API Horse de exemplo, provando que outro projeto consome o pacote.
   api:
     build:
       context: .
@@ -99,8 +91,6 @@ services:
       retries: 3
       start_period: 10s
 
-  # Container de desenvolvimento: toolchain completo com o repo montado.
-  # E o que o spike/check.sh usa para compilar sem rebuildar a imagem.
   spike:
     build:
       context: ./spike

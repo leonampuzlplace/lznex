@@ -1,8 +1,5 @@
 program ProbeValue;
 
-{ Sonda da fundacao: confirma que class operator Implicit, Default(record),
-  TVarRec e as coleccoes genericas compilam e funcionam no FPC 3.2.2. }
-
 {$MODE DELPHI}{$H+}
 
 uses
@@ -29,7 +26,6 @@ var
 begin
   Writeln('=== sonda da fundacao do LzNex ===');
 
-  // conversao implicita
   V := 42;
   Check('Implicit(Integer) -> vkInteger', (V.Kind = vkInteger) and (V.AsInt64 = 42));
 
@@ -45,7 +41,6 @@ begin
   V := Int64(9007199254740993);
   Check('Implicit(Int64) preserva precisao', V.AsInt64 = 9007199254740993);
 
-  // tags especiais
   Check('Unset e unset e nao bindavel',
     TLzNexValue.Unset.IsUnset and not TLzNexValue.Unset.IsBindable);
   Check('Null e null e E bindavel',
@@ -55,7 +50,6 @@ begin
   Check('Identifier guarda o texto',
     TLzNexValue.Identifier('users.id').Text = 'users.id');
 
-  // array of const
   L := ValueList([1, 'dois', True, 4.5]);
   Check('ValueList tamanho', Length(L) = 4);
   Check('ValueList[0] inteiro', L[0].AsInt64 = 1);
@@ -69,7 +63,6 @@ begin
   Check('Vals valor 0', P[0].Value.AsString = 'Leonam');
   Check('Vals valor 1', P[1].Value.AsInt64 = 38);
 
-  // numero impar de argumentos tem que levantar
   try
     Vals(['so-a-chave']);
     Check('Vals impar levanta', False);
@@ -77,7 +70,6 @@ begin
     on E: ELzNexBuilder do Check('Vals impar levanta ELzNexBuilder', True);
   end;
 
-  // tag errada tem que levantar
   try
     TLzNexValue.FromString('x').AsDateTime;
     Check('AsDateTime em string levanta', False);
@@ -85,11 +77,9 @@ begin
     on E: ELzNexBuilder do Check('AsDateTime em string levanta ELzNexBuilder', True);
   end;
 
-  // UTF-8
   V := 'acentuação ✅';
   Check('UTF-8 preservado no record', V.AsString = 'acentuação ✅');
 
-  // whitelist de operadores existe e tem o esperado
   Check('whitelist de operadores populada', Length(LZNEX_OPERATORS) = 28);
 
   Writeln;

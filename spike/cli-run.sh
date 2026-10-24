@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Roda o ciclo completo de migrations contra o MySQL e confere o resultado
-# direto no banco, nao so pela saida do CLI.
 set -u
 cd /work
 export LZNEX_CONFIG=database/lznex.json

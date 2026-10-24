@@ -1,11 +1,5 @@
 unit LzNex.Migration.Source.Code;
 
-{ Fonte de migrations escritas em Pascal: so expoe o registry global de
-  LzNex.Migration como ILzNexMigrationSource.
-
-  Instancia na hora de listar, nao na hora de registrar -- o runner costuma
-  pedir All() uma vez por comando, e assim nada fica vivo entre comandos. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -40,7 +34,7 @@ var
   Classes: TLzNexMigrationClassArray;
   I: Integer;
 begin
-  { O registry ja se mantem ordenado por Id, entao nao ha o que reordenar. }
+
   Classes := RegisteredMigrations;
   Result := nil;
   SetLength(Result, Length(Classes));

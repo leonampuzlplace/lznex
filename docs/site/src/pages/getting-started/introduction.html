@@ -1,0 +1,118 @@
+<article>
+<h1>LzNex</h1>
+<p class="subtitle">
+  Query builder, schema builder e migrations para <strong>Lazarus/FPC</strong>, com API
+  fluente e encadeável sobre a camada DBC do ZeosLib — sem <code>TDataset</code>.
+</p>
+
+<div class="badges">
+  <span class="badge"><b>MySQL</b> / MariaDB · pronto</span>
+  <span class="badge"><b>PostgreSQL</b> · SQL e DDL</span>
+  <span class="badge"><b>Firebird</b> · arquitetura aberta</span>
+  <span class="badge">FPC <b>3.2.2</b></span>
+  <span class="badge">instalável por <b>Boss</b></span>
+  <span class="badge">pronto para <b>multi-thread</b></span>
+</div>
+
+<p>
+  Toda a API é construída sobre interfaces COM com contagem de referência:
+  <strong>quem usa o LzNex nunca escreve <code>try/finally Free</code></strong>. Uma query é
+  montada como árvore (AST) e só então compilada para texto + binds pelo dialeto ativo. Isso
+  dá três coisas de graça: o mesmo código gera SQL diferente por banco, valor nenhum é
+  interpolado no SQL, e o SQL pode ser inspecionado sem conexão.
+</p>
+
+<div class="code"><pre data-lang="pascal">uses LzNex, LzNex.Client.MySQL;
+
+var
+  Db: ILzNex;
+  Rows: ILzNexResult;
+begin
+  Db := Connect(NewConfig
+    .Client('mysql').Host('mysql').Database('app')
+    .User('root').Password('secret')
+    .LibraryLocation('/usr/lib/x86_64-linux-gnu/libmariadb.so.3')
+    .Pool(2, 10));
+
+  Rows := Db.Table('users')
+            .Where('active', True)
+            .WhereOpen
+              .Where('role', 'admin')
+              .OrWhere('role', 'owner')
+            .WhereClose
+            .OrderBy('name')
+            .Limit(10)
+            .Get;
+
+  while Rows.Next do
+    Writeln(Rows.Field('name').AsString);
+end;</pre>
+<div class="code-out">
+  <div class="code-label">SQL gerado</div>
+  <pre data-lang="sql">select * from `users` where `active` = ? and (`role` = ? or `role` = ?) order by `name` asc limit ?</pre>
+  <p class="code-note">binds: True | admin | owner | 10</p>
+</div>
+</div>
+
+<h2 id="where-to-start">Por onde começar</h2>
+<div class="cards">
+  <a class="card" href="#installation"><h4>Instalação →</h4><p>Boss, o <code>uses</code> mínimo e a armadilha de link do FPC.</p></a>
+  <a class="card" href="#query-builder"><h4>Query builder →</h4><p>Where, joins, agregados, upsert — com o SQL de cada um.</p></a>
+  <a class="card" href="#schema"><h4>Schema builder →</h4><p>Criar e alterar tabelas com tipos que o dialeto traduz.</p></a>
+  <a class="card" href="#migrations"><h4>Migrations →</h4><p>Em Pascal ou em <code>.sql</code>, no mesmo histórico.</p></a>
+</div>
+
+<h2 id="how-to-read">Como ler esta documentação</h2>
+<p>
+  Todo exemplo mostra o <strong>SQL exato</strong> que o LzNex produz — o mesmo texto que está
+  nas suítes de teste do repositório, não uma aproximação. Onde o resultado muda por banco há
+  abas <code>MySQL</code> / <code>PostgreSQL</code> no bloco de código, e trocar uma troca
+  todas da página.
+</p>
+
+<h2 id="design-decisions">Decisões de projeto</h2>
+<p>
+  Algumas escolhas da API surpreendem quem vem de query builders de outras linguagens. Todas
+  têm motivo:
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Decisão</th><th>Por quê</th></tr></thead>
+<tbody>
+<tr><td>Grupos de predicado com <code>WhereOpen</code> … <code>WhereClose</code>, sem callback</td><td>O FPC 3.2.2 não tem função anônima. O grupo é mantido numa pilha e <code>ToSQL</code> levanta se sobrar grupo aberto.</td></tr>
+<tr><td><code>OnColumns</code> e <code>OnValue</code> separados no join</td><td>Comparar com uma coluna e comparar com um valor são operações distintas. Um método só para as duas transformaria <code>on('ativo', True)</code> numa comparação com o identificador <code>True</code>, sem erro visível.</td></tr>
+<tr><td>Terminais explícitos (<code>Get</code>, <code>First</code>, <code>Count</code>…)</td><td>Não existe <code>await</code> em Pascal: a execução precisa ser uma chamada visível, nunca um efeito colateral de usar o objeto.</td></tr>
+<tr><td><code>Insert</code> preserva a ordem das colunas informadas</td><td>A ordem que você escreveu é a que aparece no SQL e no log. Ordenar alfabeticamente dificultaria a conferência.</td></tr>
+<tr><td><code>Timestamps</code> gera <code>TIMESTAMP</code>, não <code>DATETIME</code></td><td>É o tipo com semântica de instante nos dois dialetos suportados.</td></tr>
+<tr><td>A ordem das seções do SQL é <strong>virtual por dialeto</strong></td><td>Banco cuja sintaxe muda a ordem (ou proíbe uma seção num verbo) sobrescreve só isso, em vez de duplicar o compilador inteiro.</td></tr>
+<tr><td><code>TLzNexFragment</code> carrega texto <strong>e</strong> binds</td><td>Fecha a janela em que o texto e a lista de binds andam separados e saem de sincronia.</td></tr>
+<tr><td><code>OnConflict</code> devolve um tipo que só tem <code>Merge</code>/<code>Ignore</code></td><td>Esquecer de completar a cláusula vira erro de compilação, não de execução.</td></tr>
+<tr><td>Grupo aninhado é compilado sem o prefixo</td><td><code>CompilePredicates</code> devolve só o corpo dos predicados. Nenhum lugar do código recorta SQL por posição de caractere.</td></tr>
+<tr><td>Lista de operadores fechada</td><td>Operador vindo de entrada do usuário não vira injeção: fora da lista, levanta.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="units-map">Mapa das units</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Unit</th><th>Papel</th></tr></thead>
+<tbody>
+<tr><td><code>LzNex</code></td><td>A facade. Único <code>uses</code> obrigatório; reexporta os tipos do dia a dia e expõe <code>Connect</code>, <code>NewConfig</code>, <code>ConnectFromFile</code>.</td></tr>
+<tr><td><code>LzNex.Intf</code></td><td><strong>Todas</strong> as interfaces públicas, numa unit só — Pascal não aceita referência circular entre seções <code>interface</code>.</td></tr>
+<tr><td><code>LzNex.Types</code></td><td>Enums e constantes. Raiz do grafo de units: não depende de nada.</td></tr>
+<tr><td><code>LzNex.Value</code></td><td><code>TLzNexValue</code> (record com tag), <code>Vals</code>, <code>ValueList</code>.</td></tr>
+<tr><td><code>LzNex.Ast</code>, <code>LzNex.Fragment</code>, <code>LzNex.Bindings</code></td><td>A árvore da query, o par texto+binds e a lista de binds.</td></tr>
+<tr><td><code>LzNex.Query</code>, <code>LzNex.Compiler</code></td><td>O builder fluente e o tradutor AST → SQL.</td></tr>
+<tr><td><code>LzNex.Schema</code>, <code>LzNex.Schema.Compiler</code></td><td>O table builder e o tradutor de DDL.</td></tr>
+<tr><td><code>LzNex.Client</code> + <code>.MySQL</code> / <code>.Postgres</code></td><td>Registry de dialetos e os dialetos concretos.</td></tr>
+<tr><td><code>LzNex.Schema.MySQL</code> / <code>.Postgres</code></td><td>Tipos físicos e particularidades de DDL por banco.</td></tr>
+<tr><td><code>LzNex.Pool</code>, <code>LzNex.Connection</code>, <code>LzNex.Transaction</code></td><td>Pool com seção crítica, conexão sobre <code>IZConnection</code>, transação com savepoint.</td></tr>
+<tr><td><code>LzNex.Migration</code>, <code>LzNex.Migrator</code>, <code>LzNex.Migration.Source.*</code></td><td>Base das migrations, o runner e as duas fontes (Pascal e <code>.sql</code>).</td></tr>
+<tr><td><code>LzNex.Seed</code>, <code>LzNex.Cli</code>, <code>LzNex.Config</code></td><td>Seeds, dispatcher do binário <code>lznex</code> e configuração.</td></tr>
+<tr><td><code>LzNex.Raw</code>, <code>LzNex.Result</code>, <code>LzNex.Exceptions</code></td><td>Templates de SQL cru, cursor/linha e hierarquia de exceções.</td></tr>
+</tbody>
+</table>
+</div>
+</article>

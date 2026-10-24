@@ -1,0 +1,71 @@
+<article>
+<h1>Instalação</h1>
+<p class="subtitle">Instalável por Boss em qualquer projeto Lazarus, inclusive os que usam Horse.</p>
+
+<h2 id="boss">Pelo Boss</h2>
+<div class="code"><pre data-lang="json">// boss.json do seu projeto
+{
+  "dependencies": {
+    "github.com/leonampuzlplace/lznex": "^1.0.0"
+  }
+}</pre></div>
+
+<div class="code"><pre data-lang="sh">boss install</pre></div>
+
+<p>
+  O ZeosLib vem junto, como dependência transitiva. O Boss cria as pastas em
+  <code>modules/&lt;host&gt;_&lt;org&gt;_&lt;repo&gt;</code> (pontos e barras viram
+  <code>_</code>), e é esse nome que entra nos <em>unit paths</em> do seu <code>.lpi</code>.
+</p>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">Coordenada</span>
+    <p>
+      O <code>boss.json</code> do repositório ainda aponta para
+      <code>github.com/CHANGEME/lznex</code> e <code>github.com/CHANGEME/zeoslib</code>.
+      Enquanto o pacote não for publicado, os Dockerfiles montam <code>modules/</code> com o
+      mesmo layout que o Boss produziria. O fork do Zeos precisa ter <code>boss.json</code>:
+      o Boss aborta se uma dependência não tiver manifesto.
+    </p>
+  </div>
+</div>
+
+<h2 id="uses">O <code>uses</code> mínimo</h2>
+<div class="code"><pre data-lang="pascal">uses
+  LzNex,                 // a facade: Connect, NewConfig, ILzNex, ILzNexQuery...
+  LzNex.Client.MySQL;    // o dialeto. Sem esta linha, Connect levanta.</pre></div>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Armadilha estrutural do Pascal</span>
+    <p>
+      O linker do FPC <strong>descarta unit que ninguém referencia</strong> em
+      <code>uses</code>. Unit descartada não executa seu <code>initialization</code> — e é
+      ali que o dialeto se registra no registry. O sintoma é
+      <code>Requested database driver was not found</code> em tempo de execução, sem erro de
+      compilação. A mesma regra vale para migrations e seeds escritas em Pascal.
+    </p>
+  </div>
+</div>
+
+<h2 id="threads">Programa com threads</h2>
+<p>
+  Em Unix, programa que usa threads precisa de <code>cthreads</code> no <strong>início</strong>
+  do <code>uses</code> do <code>.lpr</code> — antes de qualquer outra unit:
+</p>
+<div class="code"><pre data-lang="pascal">uses
+  {$IFDEF UNIX}{$IFDEF UseCThreads}
+  cthreads,
+  {$ENDIF}{$ENDIF}
+  SysUtils, Horse, LzNex, LzNex.Client.MySQL;</pre></div>
+
+<h2 id="from-the-ide">Pela IDE</h2>
+<p>
+  O <code>lznex.lpk</code> na raiz do repositório é o caminho para quem usa a IDE do Lazarus:
+  abra o pacote, compile e adicione como dependência do seu projeto. O ZeosLib precisa estar
+  instalado separadamente nesse caminho.
+</p>
+</article>

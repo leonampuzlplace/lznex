@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# prove-gate.sh — prova que o gate de leak funciona num binario que usa Zeos:
-# LEAK=1 tem que acusar e derrubar o exit code; sem LEAK tem que passar limpo.
 set -u
 
 echo "=== rebuild Debug ==="

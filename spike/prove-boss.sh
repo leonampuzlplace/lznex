@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
-# prove-boss.sh — prova empirica do fluxo de empacotamento:
-#   1. fork do Zeos com boss.json + tag semver instala limpo (4 paths, nao ~40)
-#   2. lznex depende do zeos; consumidor depende so do lznex e recebe os dois
-#      (dependencia transitiva)
-#   3. o unit path injetado realmente compila codigo que usa Zeos
 set -u
 
 HOST=gitlocal
 GITROOT=/srv/git
 
-publish() {  # publish <nome> <dir-de-origem>
+publish() {
   local name="$1" src="$2"
   rm -rf "$GITROOT/$name" /tmp/pub-$name
   cp -a "$src" /tmp/pub-$name
@@ -25,14 +20,12 @@ publish() {  # publish <nome> <dir-de-origem>
   cd /
   git clone -q --bare /tmp/pub-$name "$GITROOT/$name"
   git --git-dir="$GITROOT/$name" update-server-info
-  # O apache roda como www-data; sem isso o git recusa com "dubious ownership"
-  # e o git-http-backend devolve 500.
   chown -R www-data:www-data "$GITROOT/$name"
   chmod -R a+rX "$GITROOT/$name"
   git config --system --add safe.directory "$GITROOT/$name" 2>/dev/null || true
 }
 
-mklpi() {  # mklpi <arquivo.lpi> <main.lpr>
+mklpi() {
   cat > "$1" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <CONFIG>
@@ -58,7 +51,7 @@ mklpi() {  # mklpi <arquivo.lpi> <main.lpr>
 EOF
 }
 
-paths() {  # paths <arquivo.lpi>
+paths() {
   grep -o 'OtherUnitFiles Value="[^"]*"' "$1" | head -1 \
     | sed 's/OtherUnitFiles Value="//; s/"$//' | tr ';' '\n' | grep -c .
 }

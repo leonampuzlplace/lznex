@@ -1,7 +1,5 @@
 unit M20261024120000_create_users;
 
-{ Migration de exemplo em Pascal: usa o schema builder tipado. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -58,7 +56,7 @@ end;
 
 procedure TCreateUsers.Down(const ADb: ILzNex);
 begin
-  // Ordem inversa: posts referencia users.
+
   ADb.Schema.DropTableIfExists('posts');
   ADb.Schema.DropTableIfExists('users');
 end;

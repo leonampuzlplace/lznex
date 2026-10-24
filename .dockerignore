@@ -1,7 +1,3 @@
-# Dependencias e artefatos de build: o Boss e o lazbuild regeram tudo dentro da
-# imagem, e copiar .ppu/.o do host quebra o build (ABI diferente).
-# O boss-lock.json NAO entra aqui de proposito: ele e o que torna o install
-# reproduzivel.
 modules/
 lib/
 bin/
@@ -19,7 +15,7 @@ bin/
 **/*.compiled
 **/*.lps
 
-# Nao e codigo do pacote.
 .git/
 .gitignore
 spike/
+docs/

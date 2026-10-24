@@ -8,6 +8,6 @@
   ],
   "dependencies": {
     "github.com/HashLoad/horse": "^3.3.15",
-    "github.com/CHANGEME/lznex": "^1.0.0"
+    "github.com/leonampuzlplace/lznex": "^1.0.0"
   }
 }

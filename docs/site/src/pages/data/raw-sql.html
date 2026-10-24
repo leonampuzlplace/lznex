@@ -1,0 +1,326 @@
+<article>
+<h1>SQL cru</h1>
+<p class="subtitle">
+  Um template com marcadores. O valor continua indo como bind, o identificador sai quotado pelo
+  dialeto, e o resto do texto é seu.
+</p>
+
+<h2 id="grammar">A gramática do template</h2>
+<p>
+  São seis marcadores, e só eles. Qualquer outro caractere passa intacto para o SQL final.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Marcador</th><th>Consome</th><th>Sai como</th><th>Gera bind</th></tr></thead>
+<tbody>
+<tr><td><code>?</code></td><td>um argumento posicional</td><td><code>?</code></td><td><span class="yes">sim</span></td></tr>
+<tr><td><code>??</code></td><td>um argumento posicional</td><td>identificador quotado</td><td><span class="no">não</span></td></tr>
+<tr><td><code>\?</code></td><td>nada</td><td><code>?</code> literal</td><td><span class="no">não</span></td></tr>
+<tr><td><code>:nome</code></td><td>o valor nomeado <code>nome</code></td><td><code>?</code></td><td><span class="yes">sim</span></td></tr>
+<tr><td><code>:nome:</code></td><td>o valor nomeado <code>nome</code></td><td>identificador quotado</td><td><span class="no">não</span></td></tr>
+<tr><td><code>\:</code></td><td>nada</td><td><code>:</code> literal</td><td><span class="no">não</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  Nome de parâmetro aceita letra, dígito e <code>_</code>, e casa sem distinguir caixa. O mesmo
+  <code>:nome</code> pode aparecer várias vezes: cada ocorrência vira um bind próprio, com o
+  mesmo valor. Um <code>:</code> que <strong>não</strong> é seguido de caractere de nome passa
+  como literal, sem virar marcador.
+</p>
+
+<p>
+  Posicional e nomeado não se misturam no mesmo template: o construtor escolhido define qual
+  dos dois você está usando.
+</p>
+
+<h2 id="constructors">Os três construtores</h2>
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function LzNexRaw(const ASQL: string; const AArgs: array of const): ILzNexRaw</code></td><td>Posicional, com conversão automática dos argumentos. É o que <code>Db.Raw</code> chama.</td></tr>
+<tr><td><code>function LzNexRawValues(const ASQL: string; const AValues: TLzNexValues): ILzNexRaw</code></td><td>Posicional, com os valores já montados — o caminho para passar <code>Identifier</code>, <code>Raw</code> ou <code>SubQuery</code>, que não cabem em <code>array of const</code>.</td></tr>
+<tr><td><code>function LzNexRawNamed(const ASQL: string; const ANamed: TLzNexNamedValues): ILzNexRaw</code></td><td>Nomeado, alimentado por <code>Vals(['nome', valor, …])</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  Os três vivem em <code>LzNex.Raw</code>; acrescente a unit ao <code>uses</code> se o compilador
+  não as encontrar. Para o caso posicional comum, <code>Db.Raw(SQL, Args)</code> é o mesmo com
+  menos digitação.
+</p>
+
+<h3 id="positional">Posicional</h3>
+<div class="code"><pre data-lang="pascal">LzNexRaw('select * from t where id = ?', [7]).Build(Db.Client);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from t where id = ?</pre>
+  <p class="code-note">binds: 7</p>
+</div>
+</div>
+
+<div class="code"><pre data-lang="pascal">LzNexRaw('select ?? from ??', ['name', 'users']).Build(Db.Client);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select `name` from `users`</pre>
+  <p class="code-note">binds: nenhum — <code>??</code> consome o argumento mas não vira parâmetro</p>
+</div>
+</div>
+
+<p>Misturando os dois, e com nome qualificado:</p>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="pascal">R := LzNexRaw('?? = ? and ?? &lt;&gt; ?', ['a.b', 1, 'c', 'x']);
+R.Build(Db.Client);</pre>
+    <div class="code-out">
+      <div class="code-label">SQL</div>
+      <pre data-lang="sql">`a`.`b` = ? and `c` &lt;&gt; ?</pre>
+      <p class="code-note">binds: 1 | x — na ordem do texto</p>
+    </div>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="pascal">R := LzNexRaw('?? = ? and ?? &lt;&gt; ?', ['a.b', 1, 'c', 'x']);
+R.Build(Db.Client);</pre>
+    <div class="code-out">
+      <div class="code-label">SQL</div>
+      <pre data-lang="sql">"a"."b" = ? and "c" &lt;&gt; ?</pre>
+      <p class="code-note">binds: 1 | x — na ordem do texto</p>
+    </div>
+  </div>
+</div>
+
+<p>
+  O marcador literal existe porque <code>?</code> aparece em SQL legítimo — caminho de JSON,
+  por exemplo:
+</p>
+
+<div class="code"><pre data-lang="pascal">LzNexRaw('json_extract(data, ''$.a\?b'') = ?', ['v']).Build(Db.Client);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">json_extract(data, '$.a?b') = ?</pre>
+  <p class="code-note">binds: v — o <code>\?</code> não consumiu argumento nenhum</p>
+</div>
+</div>
+
+<p>Template sem marcador nenhum é válido e devolve zero bind:</p>
+
+<div class="code"><pre data-lang="pascal">LzNexRaw('now()', []).Build(Db.Client);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">now()</pre>
+  <p class="code-note">binds: nenhum</p>
+</div>
+</div>
+
+<h3 id="named">Nomeado</h3>
+<p>
+  Nomeado paga a si mesmo quando o template é grande ou quando o mesmo valor aparece em mais de
+  um lugar: você informa o valor uma vez e o LzNex gera um bind por ocorrência.
+</p>
+
+<div class="code"><pre data-lang="pascal">LzNexRawNamed('select * from :table: where id = :id and owner_id = :id',
+  Vals(['table', 'users', 'id', 42])).Build(Db.Client);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `users` where id = ? and owner_id = ?</pre>
+  <p class="code-note">binds: 42 | 42 — <code>:table:</code> virou identificador, sem bind</p>
+</div>
+</div>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">O cast <code>::</code> do PostgreSQL colide com <code>:nome</code></span>
+    <p>
+      Em <code>id::text</code>, o segundo <code>:</code> é seguido de letra e o parser entende
+      <code>:text</code> como parâmetro nomeado — o <code>Build</code> levanta
+      <code>Raw: parameter ":text" was not given</code>. Escreva <code>id:\:text</code> para
+      escapar, ou use <code>cast(id as text)</code>, que não tem o problema. Vale também em
+      template posicional: o parser de nomeado roda sempre.
+    </p>
+  </div>
+</div>
+
+<h2 id="fragment">Build devolve texto e binds juntos</h2>
+<p>
+  <code>ILzNexRaw</code> é um template guardado, não SQL pronto: ele só sabe o texto final depois
+  de receber um dialeto. Daí a assinatura.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Build(const AClient: ILzNexClient): TLzNexFragment</code></td><td>Resolve os marcadores contra o dialeto e devolve o fragmento. <code>nil</code> levanta <code>ELzNexBuilder</code>.</td></tr>
+<tr><td><code>function Template: string</code></td><td>O SQL original, com os marcadores. Útil em log e mensagem de erro.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  <code>TLzNexFragment</code> carrega os dois lados em um só record — é o que impede texto e
+  parâmetro de se separarem no caminho:
+</p>
+
+<div class="code"><pre data-lang="pascal">F := Db.Raw('age &gt; ? and city = ?', [18, 'Recife']).Build(Db.Client);
+Writeln(F.Text);                // age &gt; ? and city = ?
+Writeln(F.Bindings.Count);      // 2
+Writeln(F.Bindings.Describe);   // [integer(18), string('Recife')]</pre></div>
+
+<p>
+  Concatenar fragmentos (<code>Concat</code>, <code>Wrap</code>, <code>Prefix</code>) junta os
+  binds na mesma ordem do texto. O compilador do query builder é construído sobre isso, e é a
+  razão pela qual um raw no meio de uma query grande não desalinha os parâmetros.
+</p>
+
+<h2 id="count-check">Contagem validada antes de montar</h2>
+<p>
+  <code>Build</code> conta os marcadores posicionais do template e compara com a quantidade de
+  argumentos <strong>antes</strong> de emitir um caractere. Discrepância nos dois sentidos levanta
+  <code>ELzNex</code>, com os dois números e o template na mensagem.
+</p>
+
+<div class="code"><pre data-lang="pascal">LzNexRaw('? and ?', [1]).Build(Db.Client);
+// ELzNexBuilder: Raw: the template expected 2 positional argument(s) and got 1.
+// Remember that "\?" is a literal and does not consume an argument. SQL: ? and ?
+
+LzNexRaw('?', [1, 2]).Build(Db.Client);
+// ELzNexBuilder: Raw: the template expected 1 positional argument(s) and got 2. ...</pre></div>
+
+<p>No caso nomeado, a checagem é por nome, nas duas direções:</p>
+
+<div class="code"><pre data-lang="pascal">LzNexRawNamed('id = :id', Vals(['other', 1])).Build(Db.Client);
+// ELzNexBuilder: Raw: parameter ":id" was not given (1 named value(s) received).
+// SQL: id = :id
+
+LzNexRawNamed('id = :id', Vals(['id', 1, 'extra', 2])).Build(Db.Client);
+// ELzNexBuilder: Raw: named parameter ":extra" does not appear in the template.
+// SQL: id = :id</pre></div>
+
+<p>
+  Valor nomeado sobrando é erro de propósito: quase sempre significa nome digitado diferente dos
+  dois lados, e o silêncio sairia como um filtro que nunca foi aplicado.
+</p>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">Dois momentos de erro</span>
+    <p>
+      Argumento de tipo não suportado levanta já na <strong>construção</strong>, em
+      <code>LzNexRaw</code> — é a conversão de <code>array of const</code> reclamando (um
+      ponteiro, um record). Contagem e nome errados levantam no <strong>Build</strong>, que é
+      quando o template é lido. Veja
+      <a href="#values/array-of-const">a restrição do array of const</a>.
+    </p>
+  </div>
+</div>
+
+<h2 id="where-to-use">Onde entra raw</h2>
+<p>
+  Todo ponto abaixo aceita o par <code>(ASQL, AArgs)</code> e monta o <code>ILzNexRaw</code>
+  internamente — você não precisa chamar <code>LzNexRaw</code> na mão.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Execute(const ASQL: string; const AArgs: array of const): Int64</code></td><td>No <code>ILzNex</code>: executa e devolve linhas afetadas.</td></tr>
+<tr><td><code>function Fetch(const ASQL: string; const AArgs: array of const): ILzNexResult</code></td><td>No <code>ILzNex</code>: executa e devolve o cursor.</td></tr>
+<tr><td><code>function Raw(const ASQL: string; const AArgs: array of const): ILzNexRaw</code></td><td>No <code>ILzNex</code>: só monta o template, para usar como valor.</td></tr>
+<tr><td><code>function WhereRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery</code></td><td>Predicado cru. Também <code>OrWhereRaw</code>.</td></tr>
+<tr><td><code>function SelectRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery</code></td><td>Expressão na lista de colunas.</td></tr>
+<tr><td><code>function OrderByRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery</code></td><td>Ordenação por expressão.</td></tr>
+<tr><td><code>function GroupByRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery</code></td><td>Agrupamento por expressão.</td></tr>
+<tr><td><code>function HavingRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery</code></td><td>Predicado cru no <code>having</code>.</td></tr>
+<tr><td><code>function JoinRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery</code></td><td>A cláusula de join inteira, incluindo o verbo.</td></tr>
+<tr><td><code>function OnRaw(const ASQL: string; const AArgs: array of const): ILzNexJoin</code></td><td>Condição crua dentro de um join montado.</td></tr>
+<tr><td><code>function FromRaw(const ARaw: ILzNexRaw): ILzNexQuery</code></td><td>Origem crua — aqui o <code>ILzNexRaw</code> já montado é o argumento.</td></tr>
+<tr><td><code>class function TLzNexValue.Raw(const ARaw: IInterface): TLzNexValue</code></td><td>Expressão crua como valor de coluna em <code>insert</code> e <code>update</code>.</td></tr>
+<tr><td><code>procedure Raw(const ASQL: string; const AArgs: array of const)</code></td><td>No <code>ILzNexSchema</code>: DDL que o builder de schema não cobre.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="code"><pre data-lang="pascal">Db.Execute('update users set hits = hits + ? where id = ?', [1, 7]);
+Rows := Db.Fetch('select * from users where id = ?', [7]);
+Db.Table('t').SelectRaw('count(*) as n', []);
+Db.Table('t').OrderByRaw('field(id, ?)', [1]);
+Db.Table('a').JoinRaw('join b on b.id = ?', [1]);
+Db.Schema.Raw('create fulltext index ?? on ??(??)', ['ix_body', 'posts', 'body']);</pre></div>
+
+<div class="code"><pre data-lang="pascal">Db.Table('t').WhereRaw('age &gt; ? and active = ?', [18, True]);
+Db.Table('users').WhereRaw('json_extract(??, ?) = ?', ['d', '$.a', 5]);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `t` where age &gt; ? and active = ?
+select * from `users` where json_extract(`d`, ?) = ?</pre>
+  <p class="code-note">binds: 18 | True · $.a | 5</p>
+</div>
+</div>
+
+<p>
+  Note o <code>json_extract(??, ?)</code>: o nome da coluna chega quotado pelo dialeto e o caminho
+  JSON vai como bind. É o padrão a seguir — <strong>nunca</strong> concatene nome de coluna ou
+  valor no texto do template.
+</p>
+
+<h2 id="nested">Raw dentro de raw</h2>
+<p>
+  Um <code>?</code> que recebe um valor de kind <code>vkRaw</code> não gera bind: o template
+  interno é construído na hora e o <strong>texto</strong> dele entra no lugar, com os binds dele
+  acrescentados na posição certa da lista. É o que permite compor um pedaço de SQL reaproveitável.
+</p>
+
+<div class="code"><pre data-lang="pascal">Inner := LzNexRaw('coalesce(??, ?)', ['x', 0]);
+R := LzNexRawValues('select ? + ?',
+  [TLzNexValue.Raw(Inner), TLzNexValue.FromInteger(5)]);
+R.Build(Db.Client);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select coalesce(`x`, ?) + ?</pre>
+  <p class="code-note">binds: 0 | 5 — o bind do interno vem antes, porque o texto dele vem antes</p>
+</div>
+</div>
+
+<p>
+  O mesmo <code>?</code> também aceita identificador e subquery, pelo kind do valor — e nos dois
+  casos sai como texto, sem bind:
+</p>
+
+<div class="code"><pre data-lang="pascal">LzNexRawValues('order by ?', [TLzNexValue.Identifier('u.name')]).Build(Db.Client);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">order by `u`.`name`</pre>
+  <p class="code-note">binds: nenhum</p>
+</div>
+</div>
+
+<p>
+  Com <code>TLzNexValue.SubQuery</code>, a subquery sai entre parênteses e os binds dela entram na
+  mesma posição. Por isso <code>LzNexRawValues</code> existe: <code>array of const</code> não
+  transporta record, então <code>LzNexRaw</code> nunca receberia um <code>TLzNexValue</code>
+  montado.
+</p>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Raw é a porta que o LzNex não tranca</span>
+    <p>
+      Valor e identificador seguem protegidos pelos marcadores, mas o <strong>texto</strong> do
+      template é literal: o que você escrever vai para o banco. Nunca construa o template por
+      concatenação com entrada externa — é isso que transforma raw em injeção. Veja
+      <a href="#values/security">segurança</a>.
+    </p>
+  </div>
+</div>
+
+<div class="cards">
+  <a class="card" href="#values"><h4>Valores e binds →</h4><p>Os kinds que os marcadores despacham.</p></a>
+  <a class="card" href="#where"><h4>Where e grupos →</h4><p><code>WhereRaw</code> no meio dos predicados normais.</p></a>
+</div>
+</article>

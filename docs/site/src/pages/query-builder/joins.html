@@ -1,0 +1,105 @@
+<article>
+<h1>Joins</h1>
+<p class="subtitle">
+  <code>Join</code> devolve <code>ILzNexJoin</code>, que herda <code>ILzNexQuery</code>: dá
+  para encadear as cláusulas <code>On*</code> e continuar a query na mesma expressão.
+</p>
+
+<div class="code"><pre data-lang="pascal">Db.Table('posts')
+  .Join('users').OnColumns('posts.user_id', '=', 'users.id')
+  .LeftJoin('tags').OnColumns('tags.post_id', '=', 'posts.id')
+  .Where('posts.published', True)
+  .Get;</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `posts`
+  inner join `users` on `posts`.`user_id` = `users`.`id`
+  left join `tags` on `tags`.`post_id` = `posts`.`id`
+ where `posts`.`published` = ?</pre>
+</div>
+</div>
+
+<h2 id="on">OnColumns ou OnValue</h2>
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Dois métodos, não um</span>
+    <p>
+      <code>OnColumns</code> compara <strong>identificadores</strong> (sem bind) e
+      <code>OnValue</code> compara com <strong>valor</strong> (com bind). Um método único para
+      os dois casos teria que adivinhar, e <code>on('tags.active', '=', True)</code> acabaria
+      virando comparação com uma coluna chamada <code>True</code> — erro que não aparece nem na
+      compilação nem no resultado.
+    </p>
+  </div>
+</div>
+
+<div class="code"><pre data-lang="pascal">Db.Table('posts').LeftJoin('tags').OnValue('tags.active', '=', True)</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `posts` left join `tags` on `tags`.`active` = ?</pre>
+  <p class="code-note">binds: True</p>
+</div>
+</div>
+
+<h2 id="join-types">Tipos de join</h2>
+<div class="code"><pre data-lang="pascal">Db.Table('users').Join('posts')           // ou InnerJoin
+Db.Table('users').LeftJoin('posts')
+Db.Table('users').LeftOuterJoin('a')
+Db.Table('users').RightJoin('b')
+Db.Table('users').RightOuterJoin('tags')
+Db.Table('users').FullOuterJoin('logs')
+Db.Table('users').CrossJoin('logs')
+Db.Table('users').JoinAs('posts', 'p').OnColumns('p.user_id', '=', 'users.id')</pre>
+<div class="code-out">
+  <div class="code-label">SQL (trecho)</div>
+  <pre data-lang="sql">inner join `posts`
+left join `posts`
+left outer join `a`
+right join `b`
+right outer join `tags`
+full outer join `logs`
+cross join `logs`
+left join `posts` as `p` on `p`.`user_id` = `users`.`id`</pre>
+</div>
+</div>
+
+<h2 id="compound-on">Cláusulas ON compostas</h2>
+<div class="code"><pre data-lang="pascal">Db.Table('users').Join('posts')
+  .OnColumns('posts.user_id', '=', 'users.id')
+  .AndOnValue('posts.status', '=', 'live')
+  .OrOnColumns('posts.author_id', '=', 'users.id');
+
+Db.Table('users').Join('posts').OnIn('posts.status', StringsToValues(['a', 'b']));
+Db.Table('users').LeftJoin('posts').OnNotNull('posts.deleted_at');
+Db.Table('users').Join('posts').OnBetween('posts.score', 1, 10);
+Db.Table('users').Join('posts').OnRaw('1 = ?', [1]);
+Db.Table('users').Join('posts').Using(['user_id', 'tenant_id']);</pre>
+<div class="code-out">
+  <div class="code-label">SQL (trecho do ON)</div>
+  <pre data-lang="sql">on `posts`.`user_id` = `users`.`id` and `posts`.`status` = ? or `posts`.`author_id` = `users`.`id`
+on `posts`.`status` in (?, ?)
+on `posts`.`deleted_at` is not null
+on `posts`.`score` between ? and ?
+on 1 = ?
+using (`user_id`, `tenant_id`)</pre>
+</div>
+</div>
+
+<h2 id="subquery-and-raw">Subquery e SQL cru</h2>
+<div class="code"><pre data-lang="pascal">Sub := Db.Query.Table('p').Select(['id']).Where('y', 2);
+Db.Table('users').JoinSub(Sub, 'q').OnColumns('q.id', '=', 'users.id');
+
+Db.Table('users').JoinRaw('straight_join `x` on 1 = ?', [1]);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `users` left join (select `id` from `p` where `y` = ?) as `q` on `q`.`id` = `users`.`id`
+select * from `users` straight_join `x` on 1 = ?</pre>
+</div>
+</div>
+
+<p>
+  <code>JoinRaw</code> devolve <code>ILzNexQuery</code>, não <code>ILzNexJoin</code>: o texto
+  cru já traz a cláusula <code>ON</code> inteira, então não há o que encadear.
+</p>
+</article>

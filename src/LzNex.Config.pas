@@ -1,16 +1,5 @@
 unit LzNex.Config;
 
-{ Configuracao fluente do LzNex (o equivalente do knexfile) mais um logger de
-  console.
-
-  Tres caminhos de entrada, do mais explicito ao mais automatico:
-    1. TLzNexConfig.New.Client('mysql').Host(...)...   -- codigo
-    2. LoadConfigFile('lznex.json', 'development')     -- arquivo, por ambiente
-    3. ApplyEnvOverrides(Cfg)                          -- LZNEX_* do ambiente
-
-  Os tres compoem: o arquivo ja aplica as LZNEX_* por cima, que e o que faz a
-  mesma imagem de container servir para dev, CI e producao. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -18,8 +7,7 @@ interface
 uses
   SysUtils,
   Classes,
-  { GetJSON esta declarado em fpjson, mas quem registra o parser concreto e a
-    unit jsonparser. Sem ela no uses compila e falha SO EM RUNTIME. }
+
   fpjson,
   jsonparser,
   LzNex.Types,
@@ -37,10 +25,8 @@ const
   LZNEX_DEFAULT_MIGRATIONS_DIR  = 'database/migrations';
   LZNEX_DEFAULT_SEEDS_DIR       = 'database/seeds';
 
-  // Ambiente usado quando nem o chamador nem LZNEX_ENV informam qual e.
   LZNEX_DEFAULT_ENV = 'development';
 
-  // Prefixo das variaveis de ambiente reconhecidas.
   LZNEX_ENV_PREFIX = 'LZNEX_';
 
 type
@@ -65,7 +51,6 @@ type
   public
     constructor Create;
 
-    // Ponto de partida da cadeia fluente.
     class function New: ILzNexConfig;
 
     function Client(const AName: string): ILzNexConfig;
@@ -103,15 +88,12 @@ type
     procedure Validate;
   end;
 
-  { Escreve no stdout com Flush. O Flush nao e detalhe: stdout redirecionado
-    (container, pipe, CI) e bufferizado, e sem flush o log do processo que
-    morre no meio simplesmente desaparece. }
   TLzNexConsoleLogger = class(TInterfacedObject, ILzNexLogger)
   private
     FLogQueries: Boolean;
     procedure Emit(const ATag, AText: string);
   public
-    // ALogQueries False silencia so o LogQuery; aviso e erro sempre saem.
+
     constructor Create(const ALogQueries: Boolean = True);
     class function New(const ALogQueries: Boolean = True): ILzNexLogger;
 
@@ -122,28 +104,18 @@ type
     procedure LogInfo(const AMessage: string);
   end;
 
-// Le um arquivo JSON de configuracao e devolve o ambiente pedido, com as
-// LZNEX_* aplicadas por cima. AEnv vazio usa LZNEX_ENV, ou 'development'.
 function LoadConfigFile(const APath, AEnv: string): ILzNexConfig;
 
-// Igual ao LoadConfigFile mas a partir do texto JSON ja em memoria.
 function LoadConfigJSON(const AJSON, AEnv: string): ILzNexConfig;
 
-// Aplica pares nome/valor como sobrescrita. Aceita 'LZNEX_HOST' ou 'host'.
-// Existe separado do ambiente para dar para testar sem mexer no processo.
 function ApplyOverrides(const AConfig: ILzNexConfig;
   const AValues: TLzNexNamedValues): ILzNexConfig;
 
-// Le as LZNEX_* do ambiente do processo e aplica. Valor ausente nao mexe
-// no que ja estava: sobrescrita e sempre aditiva.
 function ApplyEnvOverrides(const AConfig: ILzNexConfig): ILzNexConfig;
 
-// Os nomes de variavel de ambiente reconhecidos, para mensagem de ajuda.
 function EnvOverrideNames: TLzNexStringArray;
 
 implementation
-
-{ TLzNexConfig }
 
 constructor TLzNexConfig.Create;
 begin
@@ -346,7 +318,7 @@ function TLzNexConfig.GetProps: TLzNexNamedValues;
 var
   I: Integer;
 begin
-  { Copia: o chamador nao mexe no estado interno por acidente. }
+
   Result := nil;
   SetLength(Result, Length(FProps));
   for I := 0 to High(FProps) do
@@ -389,8 +361,6 @@ begin
       [FAcquireTimeout]);
 end;
 
-{ TLzNexConsoleLogger }
-
 constructor TLzNexConsoleLogger.Create(const ALogQueries: Boolean);
 begin
   inherited Create;
@@ -405,7 +375,7 @@ end;
 procedure TLzNexConsoleLogger.Emit(const ATag, AText: string);
 begin
   Writeln(FormatDateTime('yyyy-mm-dd hh:nn:ss', Now), ' [lznex] ', ATag, ' ', AText);
-  { Sem isso o log nao aparece em stdout redirecionado. }
+
   Flush(Output);
 end;
 
@@ -443,11 +413,6 @@ begin
   Emit('info ', AMessage);
 end;
 
-{ ------------------------------------------------------------------
-  Leitura de JSON
-  ------------------------------------------------------------------ }
-
-// O objeto filho, ou nil se nao existir / nao for objeto.
 function JChildObject(const AObj: TJSONObject; const AName: string): TJSONObject;
 var
   D: TJSONData;
@@ -460,7 +425,6 @@ begin
     Result := TJSONObject(D);
 end;
 
-// Primeiro texto encontrado em ANested.AName, depois em ARoot.AName.
 function JStr(const ANested, ARoot: TJSONObject;
   const AName, ADefault: string): string;
 var
@@ -501,7 +465,6 @@ begin
   end;
 end;
 
-// Os nomes de primeiro nivel, para a mensagem de "ambiente nao existe".
 function JKeyList(const AObj: TJSONObject): string;
 var
   I: Integer;
@@ -517,7 +480,6 @@ begin
   end;
 end;
 
-// Resolve qual no do JSON descreve o ambiente pedido.
 function PickEnvNode(const ARoot: TJSONObject; const AEnv: string;
   const AWhere: string): TJSONObject;
 var
@@ -527,7 +489,6 @@ begin
   if (D <> nil) and (D.JSONType = jtObject) then
     Exit(TJSONObject(D));
 
-  { Arquivo sem ambientes: a raiz E a configuracao. }
   if (ARoot.Find('client') <> nil) or (ARoot.Find('connection') <> nil) then
     Exit(ARoot);
 
@@ -536,8 +497,6 @@ begin
     'Top-level keys: ' + JKeyList(ARoot) + '.');
 end;
 
-// Precedencia: o que o chamador pediu, depois LZNEX_ENV, depois a chave
-// "default" do proprio arquivo, e por fim 'development'.
 function ResolveEnvName(const AEnv: string; const ARoot: TJSONObject): string;
 var
   D: TJSONData;
@@ -581,7 +540,6 @@ begin
     .MigrationsDir(JStr(MigNode, nil, 'directory', LZNEX_DEFAULT_MIGRATIONS_DIR))
     .SeedsDir(JStr(SeedNode, nil, 'directory', LZNEX_DEFAULT_SEEDS_DIR));
 
-  { Pool depois dos outros: o setter valida min <= max e aborta a cadeia. }
   Result.Pool(JInt(PoolNode, nil, 'min', LZNEX_DEFAULT_POOL_MIN),
               JInt(PoolNode, nil, 'max', LZNEX_DEFAULT_POOL_MAX));
 
@@ -608,8 +566,7 @@ begin
   end;
   if Data = nil then
     raise ELzNexConfig.Create('Empty configuration JSON.');
-  { O TJSONData devolvido por GetJSON e DO CHAMADOR: sem este try/finally,
-    qualquer validacao que levante abaixo vazaria a arvore inteira. }
+
   try
     if Data.JSONType <> jtObject then
       raise ELzNexConfig.Create(
@@ -641,14 +598,10 @@ begin
     Result := LoadConfigJSON(Text, AEnv);
   except
     on E: ELzNexConfig do
-      { Reescreve so para o caminho do arquivo aparecer na mensagem. }
+
       raise ELzNexConfig.Create(E.Message + sLineBreak + 'File: ' + APath);
   end;
 end;
-
-{ ------------------------------------------------------------------
-  Sobrescrita
-  ------------------------------------------------------------------ }
 
 function EnvOverrideNames: TLzNexStringArray;
 begin
@@ -670,7 +623,6 @@ begin
   Result[13] := LZNEX_ENV_PREFIX + 'SEEDS_DIR';
 end;
 
-// 'LZNEX_POOL_MIN' e 'pool_min' chegam na mesma chave canonica.
 function CanonicalKey(const AName: string): string;
 begin
   Result := UpperCase(Trim(AName));
@@ -678,8 +630,6 @@ begin
     Delete(Result, 1, Length(LZNEX_ENV_PREFIX));
 end;
 
-// Falha alto: valor numerico torto em variavel de ambiente e erro de deploy,
-// nao algo para silenciar com default.
 function ParseIntStrict(const AText, AWhat: string): Integer;
 begin
   if not TryStrToInt(Trim(AText), Result) then
@@ -737,8 +687,7 @@ begin
     else if Key = 'SEEDS_DIR' then
       Result.SeedsDir(Val)
     else
-      { Chave desconhecida vira prop: permite passar coisa de dialeto
-        (ssl, timezone) sem a config ter que conhecer cada uma. }
+
       Result.Prop(LowerCase(Key), Val);
   end;
 

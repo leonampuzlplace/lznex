@@ -1,0 +1,301 @@
+<article>
+<h1>ILzNexQuery</h1>
+<p class="subtitle">
+  A interface do query builder, método por método. Tudo devolve <code>ILzNexQuery</code> — exceto
+  os <code>Join*</code>, <code>OnConflict</code> e os terminais.
+</p>
+
+<p>
+  Toda chamada que devolve <code>ILzNexQuery</code> devolve <strong>a mesma instância</strong>, não
+  uma cópia: o encadeamento acumula na árvore. Para ramificar, use <code>Clone</code>. Os exemplos
+  com SQL de cada família estão nas páginas de guia —
+  <a href="#columns">Fonte e colunas</a>, <a href="#where">Where</a>, <a href="#joins">Joins</a>,
+  <a href="#ordering">Agrupar e ordenar</a>, <a href="#unions-and-ctes">Union e CTE</a>,
+  <a href="#reading">Executar e ler</a>, <a href="#writing">Insert e update</a>.
+</p>
+
+<h2 id="source">Fonte</h2>
+<p>
+  A fonte é um campo único da árvore: chamar duas vezes <strong>substitui</strong>, não acumula.
+  <code>AsAlias</code> nomeia a query inteira (útil quando ela vira subquery de outra);
+  <code>FromAs</code> nomeia a tabela.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Table(const AName: string): ILzNexQuery</code></td><td>Define a tabela.</td></tr>
+<tr><td><code>function From(const AName: string): ILzNexQuery</code></td><td>Idêntico a <code>Table</code>.</td></tr>
+<tr><td><code>function FromAs(const AName, AAlias: string): ILzNexQuery</code></td><td>Tabela com alias.</td></tr>
+<tr><td><code>function FromSub(const ASub: ILzNexQuery; const AAlias: string): ILzNexQuery</code></td><td>Subquery como fonte. O alias é obrigatório: sem ele, levanta <code>ELzNexBuilder</code>.</td></tr>
+<tr><td><code>function FromRaw(const ARaw: ILzNexRaw): ILzNexQuery</code></td><td>Fonte vinda de um template cru (<code>Db.Raw</code>).</td></tr>
+<tr><td><code>function WithSchema(const ASchema: string): ILzNexQuery</code></td><td>Qualifica a tabela com um schema.</td></tr>
+<tr><td><code>function AsAlias(const AAlias: string): ILzNexQuery</code></td><td>Alias da query como um todo.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="columns">Colunas</h2>
+<p>
+  Colunas acumulam: dois <code>Select</code> somam. Sem nenhuma coluna, o compilador emite
+  <code>*</code>.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Select(const AColumns: array of string): ILzNexQuery</code></td><td>Várias colunas de uma vez.</td></tr>
+<tr><td><code>function Column(const AColumn: string): ILzNexQuery</code></td><td>Uma coluna.</td></tr>
+<tr><td><code>function SelectAs(const AColumn, AAlias: string): ILzNexQuery</code></td><td>Coluna com alias.</td></tr>
+<tr><td><code>function SelectRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery</code></td><td>Expressão crua na lista de colunas.</td></tr>
+<tr><td><code>function SelectSub(const ASub: ILzNexQuery; const AAlias: string): ILzNexQuery</code></td><td>Subquery escalar como coluna.</td></tr>
+<tr><td><code>function Distinct: ILzNexQuery</code></td><td><code>select distinct</code>.</td></tr>
+<tr><td><code>function DistinctOn(const AColumns: array of string): ILzNexQuery</code></td><td><code>distinct on (...)</code>. Levanta <code>ELzNexCompile</code> onde o dialeto não suporta.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="where">Where</h2>
+<p>
+  O conector (<code>and</code> / <code>or</code>) e a negação são parâmetros de cada predicado, não
+  estado do builder: um <code>OrWhere</code> afeta só o predicado que ele introduz. O operador passa
+  por uma lista fechada — fora dela, <code>ELzNexBuilder</code>.
+</p>
+
+<h3 id="where-comparison">Comparação</h3>
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Where(const AColumn: string; const AValue: TLzNexValue): ILzNexQuery</code></td><td>Assume <code>=</code>.</td></tr>
+<tr><td><code>function Where(const AColumn, AOp: string; const AValue: TLzNexValue): ILzNexQuery</code></td><td>Operador explícito.</td></tr>
+<tr><td><code>function WhereNot(const AColumn: string; const AValue: TLzNexValue): ILzNexQuery</code></td><td><code>and not</code>, com <code>=</code>.</td></tr>
+<tr><td><code>function WhereNot(const AColumn, AOp: string; const AValue: TLzNexValue): ILzNexQuery</code></td><td><code>and not</code>, com operador.</td></tr>
+<tr><td><code>function OrWhere(const AColumn: string; const AValue: TLzNexValue): ILzNexQuery</code></td><td><code>or</code>, com <code>=</code>.</td></tr>
+<tr><td><code>function OrWhere(const AColumn, AOp: string; const AValue: TLzNexValue): ILzNexQuery</code></td><td><code>or</code>, com operador.</td></tr>
+<tr><td><code>function OrWhereNot(const AColumn: string; const AValue: TLzNexValue): ILzNexQuery</code></td><td><code>or not</code>, com <code>=</code>.</td></tr>
+<tr><td><code>function OrWhereNot(const AColumn, AOp: string; const AValue: TLzNexValue): ILzNexQuery</code></td><td><code>or not</code>, com operador.</td></tr>
+<tr><td><code>function WhereColumn(const ALeft, AOp, ARight: string): ILzNexQuery</code></td><td>Compara duas colunas. Os dois lados são identificadores: nenhum bind.</td></tr>
+<tr><td><code>function OrWhereColumn(const ALeft, AOp, ARight: string): ILzNexQuery</code></td><td>O mesmo, com <code>or</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="where-lists">Listas e subqueries</h3>
+<p>
+  Lista vazia não gera <code>in ()</code>, que não é SQL válido: vira <code>1 = 0</code> (e
+  <code>not in</code> vazio, <code>1 = 1</code>).
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function WhereIn(const AColumn: string; const AValues: TLzNexValues): ILzNexQuery</code></td><td>Um bind por valor.</td></tr>
+<tr><td><code>function WhereNotIn(const AColumn: string; const AValues: TLzNexValues): ILzNexQuery</code></td><td><code>not in</code>.</td></tr>
+<tr><td><code>function OrWhereIn(const AColumn: string; const AValues: TLzNexValues): ILzNexQuery</code></td><td><code>or ... in</code>.</td></tr>
+<tr><td><code>function OrWhereNotIn(const AColumn: string; const AValues: TLzNexValues): ILzNexQuery</code></td><td><code>or ... not in</code>.</td></tr>
+<tr><td><code>function WhereInSub(const AColumn: string; const ASub: ILzNexQuery): ILzNexQuery</code></td><td><code>in (select ...)</code>. Os binds da subquery entram na ordem do texto.</td></tr>
+<tr><td><code>function WhereNotInSub(const AColumn: string; const ASub: ILzNexQuery): ILzNexQuery</code></td><td><code>not in (select ...)</code>.</td></tr>
+<tr><td><code>function WhereExists(const ASub: ILzNexQuery): ILzNexQuery</code></td><td><code>exists (select ...)</code>.</td></tr>
+<tr><td><code>function WhereNotExists(const ASub: ILzNexQuery): ILzNexQuery</code></td><td><code>not exists (select ...)</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="where-null">Nulidade, faixa e padrão</h3>
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function WhereNull(const AColumn: string): ILzNexQuery</code></td><td><code>is null</code>.</td></tr>
+<tr><td><code>function WhereNotNull(const AColumn: string): ILzNexQuery</code></td><td><code>is not null</code>.</td></tr>
+<tr><td><code>function OrWhereNull(const AColumn: string): ILzNexQuery</code></td><td><code>or ... is null</code>.</td></tr>
+<tr><td><code>function OrWhereNotNull(const AColumn: string): ILzNexQuery</code></td><td><code>or ... is not null</code>.</td></tr>
+<tr><td><code>function WhereBetween(const AColumn: string; const ALo, AHi: TLzNexValue): ILzNexQuery</code></td><td><code>between ? and ?</code>.</td></tr>
+<tr><td><code>function WhereNotBetween(const AColumn: string; const ALo, AHi: TLzNexValue): ILzNexQuery</code></td><td><code>not between</code>.</td></tr>
+<tr><td><code>function OrWhereBetween(const AColumn: string; const ALo, AHi: TLzNexValue): ILzNexQuery</code></td><td><code>or ... between</code>.</td></tr>
+<tr><td><code>function WhereLike(const AColumn: string; const APattern: TLzNexValue): ILzNexQuery</code></td><td><code>like ?</code> — o padrão é bind, inclusive os <code>%</code>.</td></tr>
+<tr><td><code>function WhereNotLike(const AColumn: string; const APattern: TLzNexValue): ILzNexQuery</code></td><td><code>not like ?</code>.</td></tr>
+<tr><td><code>function WhereILike(const AColumn: string; const APattern: TLzNexValue): ILzNexQuery</code></td><td><code>ilike</code> onde existe; em MySQL cai em <code>like</code>, que já é insensível a caixa por collation.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="where-raw">SQL cru e grupos</h3>
+<p>
+  Como o FPC 3.2.2 não tem função anônima, o parêntese é aberto e fechado explicitamente. Grupo
+  aberto e não fechado faz <code>ToSQL</code> levantar; <code>WhereClose</code> sem abertura
+  levanta na hora da chamada.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function WhereRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery</code></td><td>Predicado cru, com a gramática de <a href="#raw-sql">SQL cru</a>.</td></tr>
+<tr><td><code>function OrWhereRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery</code></td><td>O mesmo, com <code>or</code>.</td></tr>
+<tr><td><code>function WhereOpen: ILzNexQuery</code></td><td>Abre <code>and (</code>.</td></tr>
+<tr><td><code>function OrWhereOpen: ILzNexQuery</code></td><td>Abre <code>or (</code>.</td></tr>
+<tr><td><code>function WhereNotOpen: ILzNexQuery</code></td><td>Abre <code>and not (</code>.</td></tr>
+<tr><td><code>function WhereClose: ILzNexQuery</code></td><td>Fecha o grupo mais interno.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="join">Join</h2>
+<p>
+  Todos devolvem <code>ILzNexJoin</code>, que herda esta interface — daí poder encadear
+  <code>On*</code> e continuar a query na mesma expressão. A exceção é <code>JoinRaw</code>: o
+  texto cru já traz a cláusula <code>ON</code>, então não há o que encadear e ele devolve
+  <code>ILzNexQuery</code>. Os métodos <code>On*</code> estão em
+  <a href="#api-join">Join e upsert</a>.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Join(const ATable: string): ILzNexJoin</code></td><td><code>inner join</code>.</td></tr>
+<tr><td><code>function JoinAs(const ATable, AAlias: string): ILzNexJoin</code></td><td><code>inner join</code> com alias.</td></tr>
+<tr><td><code>function InnerJoin(const ATable: string): ILzNexJoin</code></td><td>Igual a <code>Join</code>, para quem prefere explícito.</td></tr>
+<tr><td><code>function LeftJoin(const ATable: string): ILzNexJoin</code></td><td><code>left join</code>.</td></tr>
+<tr><td><code>function LeftOuterJoin(const ATable: string): ILzNexJoin</code></td><td><code>left outer join</code>.</td></tr>
+<tr><td><code>function RightJoin(const ATable: string): ILzNexJoin</code></td><td><code>right join</code>.</td></tr>
+<tr><td><code>function RightOuterJoin(const ATable: string): ILzNexJoin</code></td><td><code>right outer join</code>.</td></tr>
+<tr><td><code>function FullOuterJoin(const ATable: string): ILzNexJoin</code></td><td><code>full outer join</code>.</td></tr>
+<tr><td><code>function CrossJoin(const ATable: string): ILzNexJoin</code></td><td><code>cross join</code>, sem <code>ON</code>.</td></tr>
+<tr><td><code>function JoinSub(const ASub: ILzNexQuery; const AAlias: string): ILzNexJoin</code></td><td>Join com subquery. Alias obrigatório.</td></tr>
+<tr><td><code>function JoinRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery</code></td><td>Join inteiro em texto cru. Zera o join corrente: um <code>On*</code> depois dele levanta.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="group-order">Group by, having e order by</h2>
+<p>
+  <code>Having</code> usa a mesma máquina de predicados do <code>where</code>, com pilha de grupos
+  própria — por isso existem <code>HavingOpen</code> e <code>HavingClose</code> separados.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function GroupBy(const AColumns: array of string): ILzNexQuery</code></td><td>Uma ou mais colunas de agrupamento.</td></tr>
+<tr><td><code>function GroupByRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery</code></td><td>Expressão crua no <code>group by</code>.</td></tr>
+<tr><td><code>function Having(const AColumn, AOp: string; const AValue: TLzNexValue): ILzNexQuery</code></td><td>Operador é obrigatório aqui: em <code>having</code> o lado esquerdo costuma ser agregado.</td></tr>
+<tr><td><code>function OrHaving(const AColumn, AOp: string; const AValue: TLzNexValue): ILzNexQuery</code></td><td><code>or</code> no <code>having</code>.</td></tr>
+<tr><td><code>function HavingIn(const AColumn: string; const AValues: TLzNexValues): ILzNexQuery</code></td><td><code>having ... in (...)</code>.</td></tr>
+<tr><td><code>function HavingNull(const AColumn: string): ILzNexQuery</code></td><td><code>having ... is null</code>.</td></tr>
+<tr><td><code>function HavingNotNull(const AColumn: string): ILzNexQuery</code></td><td><code>having ... is not null</code>.</td></tr>
+<tr><td><code>function HavingBetween(const AColumn: string; const ALo, AHi: TLzNexValue): ILzNexQuery</code></td><td><code>having ... between ? and ?</code>.</td></tr>
+<tr><td><code>function HavingRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery</code></td><td>Predicado cru no <code>having</code>.</td></tr>
+<tr><td><code>function HavingOpen: ILzNexQuery</code></td><td>Abre grupo no <code>having</code>.</td></tr>
+<tr><td><code>function HavingClose: ILzNexQuery</code></td><td>Fecha o grupo mais interno do <code>having</code>.</td></tr>
+<tr><td><code>function OrderBy(const AColumn: string): ILzNexQuery</code></td><td><code>asc</code>, posição de <code>NULL</code> no padrão do banco.</td></tr>
+<tr><td><code>function OrderBy(const AColumn: string; const ADir: TLzNexOrderDir): ILzNexQuery</code></td><td><code>odAsc</code> ou <code>odDesc</code>.</td></tr>
+<tr><td><code>function OrderBy(const AColumn: string; const ADir: TLzNexOrderDir; const ANulls: TLzNexNullsOrder): ILzNexQuery</code></td><td>Com <code>nlFirst</code> / <code>nlLast</code>. Onde o dialeto não tem <code>nulls first</code>, o compilador emula.</td></tr>
+<tr><td><code>function OrderByDesc(const AColumn: string): ILzNexQuery</code></td><td>Atalho para <code>odDesc</code>.</td></tr>
+<tr><td><code>function OrderByRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery</code></td><td>Expressão crua no <code>order by</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="paging">Paginação e travamento</h2>
+<p>
+  <code>Limit</code> e <code>Offset</code> recusam valor negativo, e <code>Page</code> é 1-based —
+  os três levantam <code>ELzNexBuilder</code> em vez de gerar SQL estranho.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Limit(const ACount: Int64): ILzNexQuery</code></td><td>Entra como bind, não interpolado.</td></tr>
+<tr><td><code>function Offset(const ACount: Int64): ILzNexQuery</code></td><td>Também bind.</td></tr>
+<tr><td><code>function Page(const APage, APerPage: Int64): ILzNexQuery</code></td><td><code>Limit(APerPage)</code> + <code>Offset((APage - 1) * APerPage)</code>. Página começa em 1.</td></tr>
+<tr><td><code>function ForUpdate: ILzNexQuery</code></td><td><code>for update</code>.</td></tr>
+<tr><td><code>function ForShare: ILzNexQuery</code></td><td><code>for share</code>.</td></tr>
+<tr><td><code>function SkipLocked: ILzNexQuery</code></td><td>Modificador de espera: pula linha travada.</td></tr>
+<tr><td><code>function NoWait: ILzNexQuery</code></td><td>Modificador de espera: falha em vez de esperar.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="sets">Conjuntos, CTE e upsert</h2>
+<p>
+  <code>Except_</code> e <code>With_</code> levam sublinhado porque <code>except</code> e
+  <code>with</code> são palavras reservadas do Pascal. <code>OnConflict</code> é o único método
+  daqui que troca de interface: devolve <code>ILzNexOnConflict</code>, que obriga a completar a
+  cláusula.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Union(const ASub: ILzNexQuery): ILzNexQuery</code></td><td><code>union</code> — remove duplicatas.</td></tr>
+<tr><td><code>function UnionAll(const ASub: ILzNexQuery): ILzNexQuery</code></td><td><code>union all</code>.</td></tr>
+<tr><td><code>function Intersect(const ASub: ILzNexQuery): ILzNexQuery</code></td><td><code>intersect</code>.</td></tr>
+<tr><td><code>function Except_(const ASub: ILzNexQuery): ILzNexQuery</code></td><td><code>except</code>.</td></tr>
+<tr><td><code>function With_(const AAlias: string; const ASub: ILzNexQuery): ILzNexQuery</code></td><td>CTE. Alias obrigatório.</td></tr>
+<tr><td><code>function WithRecursive(const AAlias: string; const ASub: ILzNexQuery): ILzNexQuery</code></td><td>CTE recursiva.</td></tr>
+<tr><td><code>function HintComment(const AHint: string): ILzNexQuery</code></td><td>Hint em comentário <code>/*+ ... */</code> depois do verbo. Hint com <code>*/</code> dentro levanta <code>ELzNexBuilder</code>.</td></tr>
+<tr><td><code>function OnConflict(const AColumns: array of string): ILzNexOnConflict</code></td><td>Colunas de conflito do upsert. Lista vazia é válida no Postgres (<code>on conflict do nothing</code>).</td></tr>
+<tr><td><code>function Returning(const AColumns: array of string): ILzNexQuery</code></td><td><code>returning</code>. Levanta <code>ELzNexCompile</code> onde o dialeto não suporta.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="terminals">Terminais</h2>
+<p>
+  Terminal grava o verbo na árvore e executa — a execução nunca é efeito colateral de usar o
+  objeto. Depois de um terminal, a instância carrega o verbo: para outro terminal, parta de um
+  <code>Clone</code>. <code>ToSQL</code> e <code>ToSQLString</code> são os únicos que não precisam
+  de conexão.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function ToSQL: TLzNexFragment</code></td><td>Texto + binds no mesmo record. Levanta se houver grupo de predicado aberto.</td></tr>
+<tr><td><code>function ToSQLString: string</code></td><td>SQL com os valores já interpolados. <strong>Só para log</strong> — nunca mande ao banco.</td></tr>
+<tr><td><code>function Get: ILzNexResult</code></td><td>Executa o select e devolve o cursor forward-only.</td></tr>
+<tr><td><code>function First: ILzNexRow</code></td><td>Primeira linha materializada, ou <code>nil</code>. Acrescenta <code>limit 1</code> se não houver limite.</td></tr>
+<tr><td><code>function Value(const AColumn: string): TLzNexValue</code></td><td>Troca a lista de colunas pela informada e devolve o escalar da primeira linha. Sem linha: <code>Null</code>.</td></tr>
+<tr><td><code>function Scalar: TLzNexValue</code></td><td>Primeira coluna da primeira linha, sem mexer no select.</td></tr>
+<tr><td><code>function Pluck(const AColumn: string): TLzNexValues</code></td><td>Uma coluna de todas as linhas, como array.</td></tr>
+<tr><td><code>function Exists: Boolean</code></td><td><code>limit 1</code> e testa se veio linha.</td></tr>
+<tr><td><code>function Count: Int64</code></td><td>Atalho para <code>Aggregate(agCount, '*').AsInt64</code>.</td></tr>
+<tr><td><code>function Aggregate(const AAgg: TLzNexAggregate; const AColumn: string): TLzNexValue</code></td><td><code>agCount</code>, <code>agMin</code>, <code>agMax</code>, <code>agSum</code>, <code>agAvg</code>.</td></tr>
+<tr><td><code>function Insert(const AValues: TLzNexNamedValues): Int64</code></td><td>Uma linha; devolve linhas afetadas. A ordem das colunas informadas é preservada no SQL.</td></tr>
+<tr><td><code>function InsertGetId(const AValues: TLzNexNamedValues): Int64</code></td><td>Insere e devolve o id gerado, lido na <strong>mesma</strong> conexão do insert.</td></tr>
+<tr><td><code>function InsertMany(const ARows: array of TLzNexNamedValues): Int64</code></td><td>Um <code>insert</code> com várias tuplas de <code>values</code>.</td></tr>
+<tr><td><code>function Update(const AValues: TLzNexNamedValues): Int64</code></td><td>Linhas afetadas. Lista vazia levanta <code>ELzNexBuilder</code>.</td></tr>
+<tr><td><code>function Increment(const AColumn: string; const ABy: Int64 = 1): Int64</code></td><td><code>coluna = coluna + ?</code> — soma no banco, sem ler-somar-gravar.</td></tr>
+<tr><td><code>function Decrement(const AColumn: string; const ABy: Int64 = 1): Int64</code></td><td>O mesmo, com o sinal invertido.</td></tr>
+<tr><td><code>function Delete: Int64</code></td><td>Linhas apagadas.</td></tr>
+<tr><td><code>procedure Truncate</code></td><td><code>procedure</code>, não <code>function</code>: <code>truncate</code> não devolve contagem de linhas.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="utilities">Utilidades</h2>
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Clear(const AGroup: TLzNexStatementGroup): ILzNexQuery</code></td><td>Remove todos os statements de um grupo: <code>sgColumns</code>, <code>sgWhere</code>, <code>sgOrder</code>, <code>sgJoin</code>…</td></tr>
+<tr><td><code>function Clone: ILzNexQuery</code></td><td>Cópia profunda e independente. Levanta se houver grupo aberto — a pilha do clone apontaria para a árvore antiga.</td></tr>
+<tr><td><code>function Transacting(const ATrx: ILzNexTransaction): ILzNexQuery</code></td><td>Amarra a query a uma transação. Query criada a partir de <code>Trx</code> já vem amarrada.</td></tr>
+<tr><td><code>function Ast: TLzNexAst</code></td><td>A árvore acumulada. O builder continua <strong>dono</strong>: não liberar, não guardar além do escopo.</td></tr>
+<tr><td><code>function Client: ILzNexClient</code></td><td>O dialeto que vai compilar esta query.</td></tr>
+<tr><td><code>function OpenGroupCount: Integer</code></td><td>Grupos de <code>where</code> + <code>having</code> ainda abertos. <code>ToSQL</code> exige zero.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Query de NewQuery não executa</span>
+    <p>
+      Uma query criada por <code>NewQuery(Client)</code> só constrói SQL: ela não conhece facade
+      nem pool. Chamar um terminal que precisa de conexão levanta <code>ELzNexBuilder</code>
+      dizendo isso. Para executar, parta de <code>Db.Table(...)</code> ou
+      <code>Db.Query</code>.
+    </p>
+  </div>
+</div>
+</article>

@@ -1,10 +1,5 @@
 program LzNexCli;
 
-{ Binario `lznex`: migrations e seeds pela linha de comando.
-
-  A config sai de database/lznex.json (ou do caminho em LZNEX_CONFIG), com
-  sobrescrita por variavel de ambiente -- que e o caminho usado em container. }
-
 {$MODE DELPHI}{$H+}
 
 uses
@@ -16,8 +11,8 @@ uses
   LzNex.Intf,
   LzNex.Exceptions,
   LzNex.Cli,
-  LzNex.Client.MySQL,      // registra 'mysql' e 'mariadb' no registry
-  Migrations.All;          // puxa as units de migration para o binario
+  LzNex.Client.MySQL,
+  Migrations.All;
 
 function ConfigPath: string;
 var
@@ -39,7 +34,7 @@ begin
     if FileExists(ConfigPath) then
       Db := ConnectFromFile(ConfigPath, GetEnvironmentVariable('LZNEX_ENV'))
     else
-      // Sem arquivo: vale so o ambiente. E o modo normal dentro do container.
+
       Db := Connect(NewConfig);
 
     Cli := TLzNexCli.Create(Db);
@@ -66,6 +61,6 @@ begin
     end;
   end;
 
-  Flush(Output);   // stdout nao-tty e bufferizado
+  Flush(Output);
   ExitCode := Code;
 end.

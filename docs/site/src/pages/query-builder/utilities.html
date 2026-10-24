@@ -1,0 +1,56 @@
+<article>
+<h1>Clone, clear e ToSQL</h1>
+<p class="subtitle">Reaproveitar uma query montada, limpar um grupo de cláusulas e inspecionar o SQL.</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Clone: ILzNexQuery</code></td><td>Copia <strong>profunda</strong> e independente: alterar a cópia não afeta o original, nem o contrário.</td></tr>
+<tr><td><code>function Clear(const AGroup: TLzNexStatementGroup): ILzNexQuery</code></td><td>Remove todos os statements de um grupo (<code>sgWhere</code>, <code>sgOrder</code>, <code>sgColumns</code>…).</td></tr>
+<tr><td><code>function ToSQL: TLzNexFragment</code></td><td>Texto + binds, sem conexão. Levanta se houver grupo aberto.</td></tr>
+<tr><td><code>function ToSQLString: string</code></td><td>SQL com os valores interpolados. <strong>Só para log.</strong></td></tr>
+<tr><td><code>function Transacting(const ATrx: ILzNexTransaction): ILzNexQuery</code></td><td>Amarra a query a uma transação (queries criadas a partir de <code>Trx</code> já vêm amarradas).</td></tr>
+<tr><td><code>function OpenGroupCount: Integer</code></td><td>Quantos grupos de predicado ainda estão abertos.</td></tr>
+<tr><td><code>function Ast: TLzNexAst</code></td><td>A árvore acumulada. O builder continua <strong>dono</strong>: não liberar, não guardar além do escopo.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="code"><pre data-lang="pascal">Base := Db.Table('users').Where('active', True);
+
+Ativos   := Base.Clone.OrderBy('name').Get;
+Contagem := Base.Clone.Count;
+Pagina   := Base.Clone.Page(2, 20).Get;
+
+// trocar a ordenacao sem remontar
+Q := Db.Table('users').OrderBy('name');
+Q.Clear(sgOrder).OrderByDesc('created_at');</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `users` where `active` = ? order by `name` asc
+select count(*) from `users` where `active` = ? limit ?
+select * from `users` where `active` = ? limit ? offset ?
+select * from `users` order by `created_at` desc</pre>
+</div>
+</div>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Terminal consome a query</span>
+    <p>
+      O terminal grava o verbo na árvore (<code>qmSelect</code>, <code>qmInsert</code>…) e
+      executa. Reaproveitar a <strong>mesma</strong> instância para outro verbo depois disso
+      mistura estado; o caminho certo é <code>Clone</code> antes de cada terminal, como no
+      exemplo acima.
+    </p>
+  </div>
+</div>
+
+<h2 id="inspecionar">Inspecionar sem executar</h2>
+<div class="code"><pre data-lang="pascal">F := Db.Table('users').Where('id', 7).ToSQL;
+Writeln(F.Text);                      // select * from `users` where `id` = ?
+Writeln(F.Bindings.Count);            // 1
+Writeln(F.Bindings.Describe);         // [integer(7)]
+Writeln(Db.Table('users').Where('id', 7).ToSQLString);  // so para log</pre></div>
+</article>

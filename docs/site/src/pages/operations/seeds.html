@@ -1,0 +1,206 @@
+<article>
+<h1>Seeds</h1>
+<p class="subtitle">
+  Popular dados. Sem histórico, sem lock e sem transação — a idempotência é responsabilidade
+  da própria seed.
+</p>
+
+<h2 id="model">O que uma seed não tem</h2>
+<p>
+  Seed não é <a href="#migrations">migration</a>. A comparação direta é o jeito mais rápido de
+  entender o que esperar:
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th></th><th>Migration</th><th>Seed</th></tr></thead>
+<tbody>
+<tr><td>tabela de controle</td><td><span class="yes">sim</span></td><td><span class="no">não</span></td></tr>
+<tr><td>batch e rollback</td><td><span class="yes">sim</span></td><td><span class="no">não</span></td></tr>
+<tr><td>lock entre processos</td><td><span class="yes">sim</span></td><td><span class="no">não</span></td></tr>
+<tr><td>transação em volta</td><td><span class="yes">sim</span> (<code>UseTransaction</code>)</td><td><span class="no">não</span></td></tr>
+<tr><td>roda duas vezes?</td><td>não: já aplicada é pulada</td><td>sim: roda sempre, toda vez</td></tr>
+<tr><td>ordem</td><td>pelo Id (timestamp)</td><td>alfabética pelo nome</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  Rodar <code>seed:run</code> duas vezes executa <code>Run</code> duas vezes. Nada guarda que
+  ela já rodou, então <strong>a seed é que precisa ser idempotente</strong>: apagar antes de
+  inserir, ou inserir com <code>OnConflict</code>. Isso não é falta de recurso, é o que permite
+  o padrão "zera e popula" no começo de cada suíte de testes — chamar o seeder sem limpar o
+  banco na mão e sem pedir permissão a uma tabela de controle.
+</p>
+
+<div class="code"><pre data-lang="pascal">// apaga e insere: estado final identico toda vez
+ADb.Table('users').Delete;
+ADb.Table('users').InsertMany([
+  Vals(['email', 'ana@x.dev',  'name', 'Ana']),
+  Vals(['email', 'bia@x.dev',  'name', 'Bia'])
+]);
+
+// ou upsert, quando nao se pode apagar o que ja existe
+ADb.Table('settings')
+  .OnConflict(['key']).Merge
+  .Insert(Vals(['key', 'theme', 'value', 'dark']));</pre></div>
+
+<p>
+  Sem transação em volta, uma seed que morre no meio deixa o que já escreveu. Para um bloco
+  tudo-ou-nada, abra a <a href="#transactions">transação</a> dentro do <code>Run</code>.
+</p>
+
+<h2 id="order">Ordem é alfabética</h2>
+<p>
+  O registry ordena por <code>SeedName</code>, <strong>não</strong> por timestamp e não pela
+  ordem em que as units foram registradas. Como a dependência entre seeds é real (não existe
+  <code>post</code> antes de existir <code>user</code>), a convenção é prefixo numérico:
+</p>
+
+<div class="code"><pre data-lang="pascal">'01_users'
+'02_posts'
+'03_comments'</pre>
+  <p class="code-note">a comparação ignora caixa; nome duplicado levanta <code>ELzNex</code> no registro</p>
+</div>
+
+<h2 id="writing-a-seed">Escrever uma seed</h2>
+
+<div class="code"><pre data-lang="pascal">unit Seeds.Users;
+
+{$MODE DELPHI}{$H+}
+
+interface
+
+uses
+  LzNex.Intf,
+  LzNex.Value,
+  LzNex.Seed;
+
+type
+  TUsersSeed = class(TLzNexSeed)
+  public
+    class function SeedName: string; override;
+    procedure Run(const ADb: ILzNex); override;
+  end;
+
+implementation
+
+class function TUsersSeed.SeedName: string;
+begin
+  Result := '01_users';
+end;
+
+procedure TUsersSeed.Run(const ADb: ILzNex);
+begin
+  // idempotente: o estado final nao depende de quantas vezes rodou
+  ADb.Table('users').Delete;
+  ADb.Table('users').InsertMany([
+    Vals(['email', 'ana@x.dev', 'name', 'Ana', 'active', True]),
+    Vals(['email', 'bia@x.dev', 'name', 'Bia', 'active', True])
+  ]);
+end;
+
+initialization
+  RegisterSeed(TUsersSeed);
+
+end.</pre></div>
+
+<p>
+  <code>SeedName</code> é <code>class function</code> pelo mesmo motivo que em migration: o
+  registry ordena e detecta nome repetido no <code>initialization</code>, sem instanciar.
+  Não sobrescrever levanta <code>ELzNex</code>.
+</p>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">TLzNexSeed é TObject, não TInterfacedObject</span>
+    <p>
+      Não existe <code>ILzNexSeed</code> no contrato — o seeder trabalha com a
+      <strong>classe</strong>, não com uma interface. Então não há refcount para gerenciar:
+      o seeder instancia, chama <code>Run</code> e libera no <code>finally</code>, inclusive
+      quando <code>Run</code> levanta. Nenhum objeto vaza e nenhuma seed sobrevive à própria
+      execução.
+    </p>
+  </div>
+</div>
+
+<h2 id="running">Rodar</h2>
+
+<div class="code"><pre data-lang="sh">lznex seed:run                 # todas, em ordem alfabetica
+lznex seed:run --only=01_users # so uma
+lznex seed:make demo_users     # cria um rascunho .sql</pre>
+<div class="code-out">
+  <div class="code-label">saída</div>
+  <pre data-lang="out">3 seed(s) executed</pre>
+</div>
+</div>
+
+<p>Pelo código, via <code>Db.Seeder</code>:</p>
+
+<div class="code"><pre data-lang="pascal">Db.Seeder.Run;                    // devolve quantas rodaram
+Db.Seeder.RunOne('02_posts');     // devolve 1
+
+Names := Db.Seeder.Names;         // ['01_users', '02_posts'] -- ja ordenado
+for I := 0 to High(Names) do
+  Writeln(Names[I]);</pre></div>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Run: Integer</code></td><td>Roda todas as registradas em ordem alfabética. Devolve quantas rodaram.</td></tr>
+<tr><td><code>function RunOne(const AName: string): Integer</code></td><td>Roda uma pelo nome. Nome não registrado levanta <code>ELzNex</code>.</td></tr>
+<tr><td><code>function Names: TLzNexStringArray</code></td><td>Os nomes registrados, na ordem em que rodariam.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="failures">Quando uma seed falha</h2>
+<p>
+  O erro é reembalado em <code>ELzNex</code> <strong>preservando a mensagem original</strong> e
+  acrescentando qual seed e qual classe falharam. Sem isso, um erro de coluna no meio de dez
+  seeds não diria de onde veio.
+</p>
+
+<div class="code"><pre data-lang="pascal">Db.Seeder.RunOne('99_boom');
+// ELzNex: Seed "99_boom" (TSeedBoom) failed: coluna email nao existe</pre>
+  <p class="code-note">a parada é imediata: <code>Run</code> não continua para as seguintes</p>
+</div>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Unit fora do uses: a seed não existe</span>
+    <p>
+      Mesma armadilha das migrations. Se nenhum <code>uses</code> alcança a unit da seed, o FPC
+      não a linka, o <code>initialization</code> não roda e o <code>RegisterSeed</code> nunca
+      acontece — <code>seed:run</code> reporta <code>0 seed(s) executed</code> e vai embora
+      feliz. Com <code>--only</code> a mensagem de erro lista as seeds registradas, o que é o
+      jeito mais rápido de confirmar o diagnóstico:
+    </p>
+  </div>
+</div>
+
+<div class="code"><pre data-lang="out">error: Seed "01_users" is not registered. Registered: (none -- is the seed unit in the aggregator uses clause?).</pre></div>
+
+<p>
+  A cura é um agregador, igual ao das migrations: uma unit <code>Seeds.All</code> cujo
+  <code>uses</code> lista todas as seeds, e o programa dá <code>uses Seeds.All</code>.
+</p>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">seed:make cria .sql, mas seed:run não lê .sql</span>
+    <p>
+      <code>seed:make</code> grava um arquivo <code>.sql</code> de rascunho no diretório de
+      seeds — é um bloco de notas para você montar o <code>insert</code>.
+      <code>seed:run</code> executa <strong>somente classes registradas</strong>: seed em
+      <code>.sql</code> <strong>não</strong> é lida do disco, ao contrário das migrations, que
+      têm fonte <code>.sql</code> de verdade. Deixar o arquivo lá e esperar que rode é o erro
+      mais fácil de cometer aqui. Passe o SQL para dentro de um <code>Run</code>
+      (<code>ADb.Execute</code> resolve, se for SQL cru mesmo) e registre a classe.
+    </p>
+  </div>
+</div>
+</article>

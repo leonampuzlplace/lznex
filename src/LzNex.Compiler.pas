@@ -1,24 +1,5 @@
 unit LzNex.Compiler;
 
-{ Compila TLzNexAst em TLzNexFragment (texto e binds juntos).
-
-  Nao conhece o builder: a entrada e a AST pronta, entao da para exercitar o
-  compiler com arvore montada na mao e o builder conferindo a arvore que produz.
-
-  Tres decisoes estruturais, cada uma corrigindo falha real do knex:
-
-  1. A ordem das secoes vem de Client.Components(Method) -- virtual por dialeto,
-     em vez de const de modulo (no knex isso obrigou Oracle/MSSQL a duplicar o
-     compiler inteiro so para mudar a ordem).
-
-  2. Cada secao devolve um fragmento com OS SEUS binds, e o resultado sai de
-     JoinFragments. A ordem dos binds e a ordem textual por construcao, nunca
-     por convencao -- nao existe array compartilhado para desalinhar.
-
-  3. CompilePredicates devolve so o CORPO, sem o prefixo 'where'/'having'.
-     Grupo aninhado chama a mesma rotina; nao ha recorte de string (o knex faz
-     um `.slice(6)` para arrancar o literal 'where '). }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -35,44 +16,38 @@ uses
   LzNex.Exceptions;
 
 type
-  // Acumulador de fragmentos com crescimento amortizado.
-  // Existe para nao chamar SetLength item a item dentro de laco.
+
   TLzNexFragBuf = record
   private
     FItems: TLzNexFragments;
     FCount: Integer;
   public
-    // Volta ao estado vazio (reuso dentro de laco externo).
+
     procedure Clear;
-    // Acrescenta no fim; fragmento vazio e descartado.
+
     procedure Add(const AFrag: TLzNexFragment);
-    // Quantos fragmentos nao vazios entraram.
+
     function Count: Integer;
-    // Junta tudo com separador, na ordem de entrada.
+
     function Join(const ASep: string = ' '): TLzNexFragment;
   end;
 
-  // Compilador de query com defaults ANSI. Cada secao e um metodo virtual
-  // proprio; um dialeto troca so o que muda.
   TLzNexCompilerBase = class(TInterfacedObject, ILzNexCompiler)
   protected
     FClient: ILzNexClient;
-    FAst: TLzNexAst;          // nao e dono: vive so durante Compile
+    FAst: TLzNexAst;
 
-    // --- nomes para mensagem de erro ---
     function ComponentName(const AComponent: TLzNexComponent): string; virtual;
     function MethodName(const AMethod: TLzNexQueryMethod): string; virtual;
 
-    // --- lexico ---
-    // Atalho de fragmento literal.
     function Txt(const AText: string): TLzNexFragment;
-    // Envolve em parenteses mantendo os binds.
+
     function Wrapped(const AFrag: TLzNexFragment): TLzNexFragment;
-    // Quota nome possivelmente qualificado.
+
     function Ident(const AName: string): string;
-    // Lista de nomes quotados separados por ', '.
+
     function IdentList(const ANames: TLzNexStringArray): string;
-    // Idem, a partir de valores (identificadores).
+
     function IdentListV(const AValues: TLzNexValues): string;
     function BoolWord(const AOp: TLzNexBoolOp): string;
     function DirWord(const ADir: TLzNexOrderDir): string;
@@ -80,45 +55,36 @@ type
     function AggWord(const AAgg: TLzNexAggregate): string;
     function JoinTypeSQL(const AType: TLzNexJoinType): string; virtual;
     function UnionWord(const AKind: TLzNexUnionKind): string; virtual;
-    // Operador de LIKE do dialeto. MySQL nao tem ILIKE.
+
     function LikeOperator(const ACaseInsensitive, ANegated: Boolean): string; virtual;
 
-    // --- resolucao de IInterface guardada na AST ---
-    // Resolve um ILzNexRaw.
     function RawFragment(const ARef: IInterface; const AWhere: string): TLzNexFragment;
-    // Resolve uma subquery. Aceita ILzNexQuery e, como alternativa,
-    // ILzNexRaw -- um raw e um texto de subquery perfeitamente valido.
+
     function SubFragment(const ARef: IInterface; const AWhere: string): TLzNexFragment;
 
-    // --- valores ---
-    // Expressao em contexto de identificador: nome, raw ou subquery.
     function CompileExpr(const AValue: TLzNexValue; const AWhere: string): TLzNexFragment; virtual;
-    // Identificador puro: nunca gera bind.
+
     function CompileIdent(const AValue: TLzNexValue; const AWhere: string): TLzNexFragment; virtual;
-    // Valor em contexto de parametro. vkUnset levanta citando a coluna.
+
     function CompileBind(const AValue: TLzNexValue; const AColumn: string): TLzNexFragment; virtual;
-    // Lista "?, ?, ?" com checagem de vkUnset por coluna.
+
     function CompileBindList(const AValues: TLzNexValues; const AColumn: string): TLzNexFragment; virtual;
 
-    // --- validacao ---
     procedure ValidateComponents(const AMethod: TLzNexQueryMethod); virtual;
-    // Se a AST tem algo naquela secao.
+
     function HasComponent(const AComponent: TLzNexComponent): Boolean; virtual;
 
-    // --- verbos ---
     function CompileSelect: TLzNexFragment; virtual;
     function CompileInsert: TLzNexFragment; virtual;
     function CompileUpdate: TLzNexFragment; virtual;
     function CompileDelete: TLzNexFragment; virtual;
     function CompileTruncate: TLzNexFragment; virtual;
 
-    // --- despacho de secao ---
     function CompileComponent(const AComponent: TLzNexComponent): TLzNexFragment; virtual;
-    // Percorre Client.Components(Method) na ordem do dialeto.
+
     function CompileComponents(const AMethod: TLzNexQueryMethod;
       const ASkip: TLzNexComponents): TLzNexFragment;
 
-    // --- secoes ---
     function CompileWith: TLzNexFragment; virtual;
     function CompileHints: TLzNexFragment; virtual;
     function CompileColumns: TLzNexFragment; virtual;
@@ -129,31 +95,26 @@ type
     function CompileHaving: TLzNexFragment; virtual;
     function CompileUnion: TLzNexFragment; virtual;
     function CompileOrder: TLzNexFragment; virtual;
-    // Hook para dialeto que pagina com prefixo ("select top n").
+
     function CompileLimitPrefix: TLzNexFragment; virtual;
     function CompileLimit: TLzNexFragment; virtual;
     function CompileOffset: TLzNexFragment; virtual;
     function CompileLock: TLzNexFragment; virtual;
     function CompileReturning: TLzNexFragment; virtual;
 
-    // --- colunas ---
     function CompileColumn(const AStmt: TLzNexColumnStmt): TLzNexFragment; virtual;
     function CompileAggregate(const AStmt: TLzNexAggregateStmt): TLzNexFragment; virtual;
     function CompileDistinct(const AStmt: TLzNexDistinctStmt): TLzNexFragment; virtual;
-    // Aplica alias a um fragmento ja montado.
+
     function Aliased(const AFrag: TLzNexFragment; const AAlias: string): TLzNexFragment;
 
-    // --- fonte ---
-    // A tabela com schema e alias, SEM a palavra 'from'.
     function CompileTarget: TLzNexFragment; virtual;
 
-    // --- join ---
     function CompileJoin(const AStmt: TLzNexJoinStmt): TLzNexFragment; virtual;
     function CompileJoinTarget(const AStmt: TLzNexJoinStmt): TLzNexFragment; virtual;
     function CompileJoinClauses(const AClauses: TLzNexJoinClauseList): TLzNexFragment; virtual;
     function CompileJoinClause(const AClause: TLzNexJoinClause): TLzNexFragment; virtual;
 
-    // --- predicados (where e having compartilham tudo; muda o prefixo) ---
     function CompilePredicate(const AStmt: TLzNexStatement): TLzNexFragment; virtual;
     function CompileWhereBasic(const AStmt: TLzNexBasicStmt): TLzNexFragment; virtual;
     function CompileWhereIn(const AStmt: TLzNexInStmt): TLzNexFragment; virtual;
@@ -163,25 +124,20 @@ type
     function CompileWhereExists(const AStmt: TLzNexExistsStmt): TLzNexFragment; virtual;
     function CompileWhereRaw(const AStmt: TLzNexRawStmt): TLzNexFragment; virtual;
     function CompileWhereGroup(const AStmt: TLzNexGroupStmt): TLzNexFragment; virtual;
-    // Lado esquerdo do IN: identificador ou tupla "(a, b)".
+
     function CompileInTarget(const AStmt: TLzNexInStmt): TLzNexFragment; virtual;
 
-    // --- order by ---
     function CompileOrderByItem(const AStmt: TLzNexOrderByStmt): TLzNexFragment; virtual;
 
-    // --- insert ---
-    // 'insert into' ou 'insert ignore into'.
     function InsertVerb: string; virtual;
-    // Ordem das colunas do insert: ORDEM DE INSERCAO, primeira aparicao
-    // vencendo. O knex ordena alfabeticamente, o que surpreende quem leu o codigo.
+
     function InsertColumnOrder: TLzNexStringArray; virtual;
     function CompileInsertCell(const AValue: TLzNexValue; const AColumn: string): TLzNexFragment; virtual;
     function CompileConflict(const AColumns: TLzNexStringArray): TLzNexFragment; virtual;
 
-    // --- update / delete ---
     function CompileSet: TLzNexFragment; virtual;
     function CompileSetValue(const AValue: TLzNexValue; const AColumn: string): TLzNexFragment; virtual;
-    // Cabeca do DELETE. MySQL precisa repetir o alvo quando ha join.
+
     function DeleteHead: string; virtual;
   public
     constructor Create(const AClient: ILzNexClient);
@@ -194,8 +150,6 @@ type
 
 implementation
 
-// Valor da coluna naquela linha de INSERT, ou vkUnset se a linha nao
-// informou a coluna (vira DEFAULT no SQL).
 function ValueForColumn(const ARow: TLzNexNamedValues;
   const AName: string): TLzNexValue;
 var
@@ -206,8 +160,6 @@ begin
       Exit(ARow[I].Value);
   Result := TLzNexValue.Unset;
 end;
-
-{ TLzNexFragBuf }
 
 procedure TLzNexFragBuf.Clear;
 begin
@@ -242,8 +194,6 @@ begin
   Result := JoinFragments(Copy(FItems, 0, FCount), ASep);
 end;
 
-{ TLzNexCompilerBase }
-
 constructor TLzNexCompilerBase.Create(const AClient: ILzNexClient);
 begin
   inherited Create;
@@ -257,8 +207,6 @@ function TLzNexCompilerBase.Client: ILzNexClient;
 begin
   Result := FClient;
 end;
-
-{ nomes }
 
 function TLzNexCompilerBase.ComponentName(const AComponent: TLzNexComponent): string;
 begin
@@ -294,8 +242,6 @@ begin
     Result := '?';
   end;
 end;
-
-{ lexico }
 
 function TLzNexCompilerBase.Txt(const AText: string): TLzNexFragment;
 begin
@@ -430,8 +376,6 @@ begin
     Result := 'not ' + Result;
 end;
 
-{ resolucao de IInterface }
-
 function TLzNexCompilerBase.RawFragment(const ARef: IInterface;
   const AWhere: string): TLzNexFragment;
 var
@@ -455,15 +399,12 @@ begin
     raise ELzNexCompile.CreateFmt('Subquery missing in %s.', [AWhere]);
   if Supports(ARef, ILzNexQuery, Q) then
     Exit(Q.ToSQL);
-  // Um raw serve de subquery: e texto de SQL com binds, que e tudo
-  // que o compiler precisa aqui.
+
   if Supports(ARef, ILzNexRaw, R) then
     Exit(R.Build(FClient));
   raise ELzNexCompile.CreateFmt(
     'Subquery in %s implements neither ILzNexQuery nor ILzNexRaw.', [AWhere]);
 end;
-
-{ valores }
 
 function TLzNexCompilerBase.CompileExpr(const AValue: TLzNexValue;
   const AWhere: string): TLzNexFragment;
@@ -480,8 +421,7 @@ begin
         'No expression given in %s: a vkUnset value arrived where a column or ' +
         'expression is expected.', [AWhere]);
   else
-    // Literal numa posicao de expressao ainda vira bind: nunca
-    // interpolamos valor no texto.
+
     Result := TLzNexFragment.Param(AValue);
   end;
 end;
@@ -531,8 +471,6 @@ begin
   Result := Buf.Join(', ');
 end;
 
-{ validacao }
-
 function TLzNexCompilerBase.HasComponent(const AComponent: TLzNexComponent): Boolean;
 begin
   case AComponent of
@@ -566,8 +504,6 @@ begin
         [ComponentName(Inv[I]), MethodName(AMethod), FClient.DialectName]);
 end;
 
-{ entrada }
-
 function TLzNexCompilerBase.Compile(const AAst: TLzNexAst): TLzNexFragment;
 begin
   if AAst = nil then
@@ -590,8 +526,6 @@ begin
     raise ELzNexCompile.Create('Query verb not supported by the compiler.');
   end;
 end;
-
-{ verbos }
 
 function TLzNexCompilerBase.CompileSelect: TLzNexFragment;
 begin
@@ -646,8 +580,6 @@ begin
   if SetFrag.IsEmpty then
     raise ELzNexCompile.Create('UPDATE without SET: no column to update.');
 
-  // cpFrom e cpJoin saem aqui, na posicao exigida pela sintaxe do UPDATE
-  // (o SET vem depois dos joins); o resto segue a ordem do dialeto.
   Result := JoinFragments([
     CompileWith, Txt('update'), Target, CompileJoins, SetFrag,
     CompileComponents(qmUpdate, TLzNexComponents.Create(cpFrom, cpJoin)),
@@ -670,8 +602,6 @@ begin
     raise ELzNexCompile.Create('TRUNCATE requires a table.');
   Result := Txt('truncate').Concat(CompileTarget);
 end;
-
-{ despacho de secao }
 
 function TLzNexCompilerBase.CompileComponent(
   const AComponent: TLzNexComponent): TLzNexFragment;
@@ -720,8 +650,6 @@ begin
   end;
   Result := Buf.Join(' ');
 end;
-
-{ secoes }
 
 function TLzNexCompilerBase.CompileWith: TLzNexFragment;
 var
@@ -778,8 +706,7 @@ begin
     S := Trim(TLzNexHintStmt(L[I]).Text);
     if S = '' then
       Continue;
-    // Fechar o comentario de dentro do hint sairia do comentario e
-    // deixaria texto arbitrario no SQL.
+
     if (Pos('*/', S) > 0) or (Pos('/*', S) > 0) then
       raise ELzNexBuilder.CreateFmt(
         'Hint "%s" contains a comment delimiter. That would allow escaping the ' +
@@ -934,7 +861,7 @@ end;
 
 function TLzNexCompilerBase.CompileLimitPrefix: TLzNexFragment;
 begin
-  // Vazio no ANSI. Existe para dialeto que pagina antes das colunas.
+
   Result := TLzNexFragment.Empty;
 end;
 
@@ -942,8 +869,7 @@ function TLzNexCompilerBase.CompileLimit: TLzNexFragment;
 begin
   if not FAst.Single.HasLimit then
   begin
-    // First() e um Select com teto de uma linha; se o builder nao
-    // informou, o compiler garante.
+
     if FAst.Single.Method = qmFirst then
       Exit(TLzNexFragment.Param(TLzNexValue.FromInt64(1)).Prefix('limit '));
     Exit(TLzNexFragment.Empty);
@@ -985,8 +911,6 @@ begin
       [FClient.DialectName]);
   Result := Txt('returning ' + IdentListV(FAst.Single.Returning));
 end;
-
-{ colunas }
 
 function TLzNexCompilerBase.Aliased(const AFrag: TLzNexFragment;
   const AAlias: string): TLzNexFragment;
@@ -1032,8 +956,6 @@ begin
   Result := Txt('distinct on (' + IdentListV(AStmt.Columns) + ')');
 end;
 
-{ fonte }
-
 function TLzNexCompilerBase.CompileTarget: TLzNexFragment;
 var
   T: TLzNexValue;
@@ -1067,8 +989,6 @@ begin
 
   Result := Aliased(F, FAst.Single.TableAlias);
 end;
-
-{ join }
 
 function TLzNexCompilerBase.CompileJoin(
   const AStmt: TLzNexJoinStmt): TLzNexFragment;
@@ -1125,7 +1045,7 @@ begin
       Continue;
     if First then
     begin
-      // USING substitui o ON inteiro, logo nao leva prefixo.
+
       if C.ClauseKind <> jcUsing then
         F := F.Prefix('on ');
     end
@@ -1211,8 +1131,6 @@ begin
     Result := Wrapped(Result).Prefix('not ');
 end;
 
-{ predicados }
-
 function TLzNexCompilerBase.CompilePredicates(const AGroup: TLzNexStatementGroup;
   const AItems: TLzNexStatementList): TLzNexFragment;
 var
@@ -1230,7 +1148,7 @@ begin
     F := CompilePredicate(AItems[I]);
     if F.IsEmpty then
       Continue;
-    // O primeiro predicado do grupo nunca leva conector.
+
     if not First then
       F := F.Prefix(BoolWord(AItems[I].BoolOp) + ' ');
     Buf.Add(F);
@@ -1260,8 +1178,7 @@ begin
     skWhereGroup, skHavingGroup:
       Result := CompileWhereGroup(TLzNexGroupStmt(AStmt));
     skWhereSub:
-      // skWhereSub nao tem classe propria: vem como basic (coluna OP
-      // subquery) ou como raw.
+
       if AStmt is TLzNexBasicStmt then
         Result := CompileWhereBasic(TLzNexBasicStmt(AStmt))
       else if AStmt is TLzNexRawStmt then
@@ -1301,7 +1218,7 @@ begin
     raise ELzNexCompile.Create('IN without a column on the left side.');
   if Length(AStmt.Columns) = 1 then
     Exit(CompileExpr(AStmt.Columns[0], 'where in'));
-  // IN de tupla: "(a, b) in (...)".
+
   Result := Txt('(' + IdentListV(AStmt.Columns) + ')');
 end;
 
@@ -1338,8 +1255,7 @@ begin
 
   if Length(AStmt.Values) = 0 then
   begin
-    // Lista vazia: nenhuma linha casa. Negada, todas casam. Sem isso
-    // sairia "in ()", que nem compila.
+
     if AStmt.Negated then
       Exit(Txt('1 = 1'));
     Exit(Txt('1 = 0'));
@@ -1410,8 +1326,7 @@ function TLzNexCompilerBase.CompileWhereGroup(
 var
   Body: TLzNexFragment;
 begin
-  // Grupo aninhado reusa a mesma rotina e recebe so o corpo: nao ha
-  // prefixo 'where' para recortar depois.
+
   Body := CompilePredicates(AStmt.Group, AStmt.Items);
   if Body.IsEmpty then
     Exit(TLzNexFragment.Empty);
@@ -1419,8 +1334,6 @@ begin
   if AStmt.Negated then
     Result := Result.Prefix('not ');
 end;
-
-{ order by }
 
 function TLzNexCompilerBase.CompileOrderByItem(
   const AStmt: TLzNexOrderByStmt): TLzNexFragment;
@@ -1437,8 +1350,6 @@ begin
   if FClient.SupportsNullsOrdering then
     Exit(E.Concat(Txt(Dir + ' ' + NullsWord(AStmt.Nulls))));
 
-  // Emulacao: "(expr is null)" vale 0 para preenchido e 1 para NULL,
-  // entao ordenar essa flag coloca o grupo dos NULL no extremo desejado.
   if AStmt.Nulls = nlFirst then
     FlagDir := 'desc'
   else
@@ -1446,8 +1357,6 @@ begin
   Flag := E.Wrap('(', ' is null)').Concat(Txt(FlagDir));
   Result := Flag.Concat(E.Concat(Txt(Dir)), ', ');
 end;
-
-{ insert }
 
 function TLzNexCompilerBase.InsertVerb: string;
 begin
@@ -1490,8 +1399,7 @@ end;
 function TLzNexCompilerBase.CompileInsertCell(const AValue: TLzNexValue;
   const AColumn: string): TLzNexFragment;
 begin
-  // Coluna ausente nesta linha vira DEFAULT, nao NULL: sao coisas
-  // diferentes quando a coluna tem default no banco.
+
   if AValue.IsUnset then
     Exit(Txt('default'));
   case AValue.Kind of
@@ -1526,7 +1434,6 @@ begin
       end;
   end;
 
-  // caMerge
   if Length(FAst.Single.ConflictTargets) = 0 then
     raise ELzNexCompile.CreateFmt(
       'ON CONFLICT DO UPDATE requires the conflict columns on dialect %s.',
@@ -1539,8 +1446,7 @@ begin
   if Length(Merge) > 0 then
   begin
     for I := 0 to High(Merge) do
-      // Valor vkUnset na lista de merge significa "use o que o proprio
-      // INSERT trouxe", nao erro de bind.
+
       if Merge[I].Value.IsUnset then
         Buf.Add(Txt(Ident(Merge[I].Name) + ' = excluded.' + Ident(Merge[I].Name)))
       else
@@ -1548,14 +1454,12 @@ begin
           CompileSetValue(Merge[I].Value, Merge[I].Name), ''));
   end
   else
-    // Lista vazia: atualiza todas as colunas do insert.
+
     for I := 0 to High(AColumns) do
       Buf.Add(Txt(Ident(AColumns[I]) + ' = excluded.' + Ident(AColumns[I])));
 
   Result := Buf.Join(', ').Prefix(Targets);
 end;
-
-{ update / delete }
 
 function TLzNexCompilerBase.CompileSetValue(const AValue: TLzNexValue;
   const AColumn: string): TLzNexFragment;
@@ -1587,8 +1491,6 @@ begin
     Buf.Add(Txt(Ident(NV[I].Name) + ' = ').Concat(
       CompileSetValue(NV[I].Value, NV[I].Name), ''));
 
-  // Increment/decrement: le e escreve no banco, sem corrida de
-  // leitura-modificacao-escrita na aplicacao.
   NV := FAst.Single.Counters;
   for I := 0 to High(NV) do
     Buf.Add(Txt(Ident(NV[I].Name) + ' = ' + Ident(NV[I].Name) + ' + ').Concat(

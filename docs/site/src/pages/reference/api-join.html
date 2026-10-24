@@ -1,0 +1,96 @@
+<article>
+<h1>Join e upsert</h1>
+<p class="subtitle">
+  <code>ILzNexJoin</code> e <code>ILzNexOnConflict</code>: as duas interfaces que
+  <code>ILzNexQuery</code> devolve quando a próxima chamada precisa ser restringida.
+</p>
+
+<h2 id="join">ILzNexJoin</h2>
+<p>
+  Herda <code>ILzNexQuery</code> inteira: depois das cláusulas <code>On*</code> você continua a
+  query na mesma expressão — <code>Where</code>, <code>OrderBy</code>, outro <code>Join</code>, o
+  terminal. As cláusulas vão sempre para o join <strong>corrente</strong>, o último aberto por
+  <code>Join</code>, <code>LeftJoin</code>, <code>JoinSub</code> e companhia; um <code>On*</code>
+  sem join antes levanta <code>ELzNexBuilder</code>.
+</p>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">OnColumns compara identificador, OnValue gera bind</span>
+    <p>
+      <code>OnColumns('posts.user_id', '=', 'users.id')</code> compara duas colunas e não produz
+      nenhum bind; <code>OnValue('tags.active', '=', True)</code> produz
+      <code>on `tags`.`active` = ?</code>. São dois métodos porque um só teria que adivinhar pelo
+      tipo — e <code>True</code> viraria comparação com uma coluna chamada <code>True</code>, erro
+      que não aparece nem na compilação nem no resultado.
+    </p>
+  </div>
+</div>
+
+<p>Os <code>And*</code> existem só para deixar o encadeamento legível: o conector padrão já é <code>and</code>.</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function OnColumns(const ALeft, AOp, ARight: string): ILzNexJoin</code></td><td>Coluna contra coluna. Os dois lados são identificadores.</td></tr>
+<tr><td><code>function OnValue(const AColumn, AOp: string; const AValue: TLzNexValue): ILzNexJoin</code></td><td>Coluna contra valor. O valor entra como bind.</td></tr>
+<tr><td><code>function AndOnColumns(const ALeft, AOp, ARight: string): ILzNexJoin</code></td><td>Igual a <code>OnColumns</code>, com o <code>and</code> explícito na leitura.</td></tr>
+<tr><td><code>function OrOnColumns(const ALeft, AOp, ARight: string): ILzNexJoin</code></td><td>Mesma comparação, conector <code>or</code>.</td></tr>
+<tr><td><code>function AndOnValue(const AColumn, AOp: string; const AValue: TLzNexValue): ILzNexJoin</code></td><td>Igual a <code>OnValue</code>.</td></tr>
+<tr><td><code>function OrOnValue(const AColumn, AOp: string; const AValue: TLzNexValue): ILzNexJoin</code></td><td>Comparação com valor, conector <code>or</code>.</td></tr>
+<tr><td><code>function OnIn(const AColumn: string; const AValues: TLzNexValues): ILzNexJoin</code></td><td><code>on ... in (?, ?)</code>, um bind por valor.</td></tr>
+<tr><td><code>function OnNull(const AColumn: string): ILzNexJoin</code></td><td><code>on ... is null</code>.</td></tr>
+<tr><td><code>function OnNotNull(const AColumn: string): ILzNexJoin</code></td><td><code>on ... is not null</code>.</td></tr>
+<tr><td><code>function OnBetween(const AColumn: string; const ALo, AHi: TLzNexValue): ILzNexJoin</code></td><td><code>on ... between ? and ?</code>.</td></tr>
+<tr><td><code>function OnRaw(const ASQL: string; const AArgs: array of const): ILzNexJoin</code></td><td>Predicado cru dentro do <code>ON</code>, com a gramática de <a href="#raw-sql">SQL cru</a>.</td></tr>
+<tr><td><code>function Using(const AColumns: array of string): ILzNexJoin</code></td><td><code>using (`a`, `b`)</code> em vez de <code>ON</code>. Lista vazia levanta <code>ELzNexBuilder</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  <code>Clone</code> não herda o join corrente: num clone, as cláusulas <code>On*</code> precisam
+  de um <code>Join</code> novo. Exemplos com o SQL de cada cláusula em
+  <a href="#joins">Joins</a>.
+</p>
+
+<h2 id="on-conflict">ILzNexOnConflict</h2>
+<p>
+  <code>OnConflict</code> não devolve <code>ILzNexQuery</code> de propósito: o tipo de retorno só
+  tem estes quatro métodos, então esquecer de completar a cláusula é <strong>erro de
+  compilação</strong>, não um <code>insert</code> silenciosamente sem o <code>on conflict</code>.
+  Cada um devolve a query de volta, e aí vem o <code>Insert</code>.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Ignore: ILzNexQuery</code></td><td>Descarta a linha conflitante: <code>insert ignore</code> no MySQL, <code>on conflict do nothing</code> no Postgres.</td></tr>
+<tr><td><code>function Merge: ILzNexQuery</code></td><td>Atualiza <strong>todas</strong> as colunas do insert com o valor que veio nele.</td></tr>
+<tr><td><code>function Merge(const AColumns: array of string): ILzNexQuery</code></td><td>Atualiza só as colunas listadas, com o valor do insert.</td></tr>
+<tr><td><code>function MergeValues(const AValues: TLzNexNamedValues): ILzNexQuery</code></td><td>Atualiza com valores próprios, independentes do insert. Lista vazia levanta <code>ELzNexBuilder</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">Unset em MergeValues reaproveita o valor do insert</span>
+    <p>
+      Em <code>MergeValues</code>, uma coluna cujo valor é <code>TLzNexValue.Unset</code> não gera
+      bind: ela sai como <code>excluded.coluna</code> (ou <code>values(coluna)</code> no MySQL),
+      isto é, com o valor que veio no <code>Insert</code>. É assim que se mistura, numa chamada só,
+      coluna com valor fixo e coluna copiada do insert.
+    </p>
+  </div>
+</div>
+
+<p>
+  No Postgres, <code>Merge</code> exige as colunas de conflito — <code>OnConflict([])</code>
+  seguido de <code>Merge</code> levanta <code>ELzNexCompile</code>, porque
+  <code>do update</code> sem alvo não é SQL válido. <code>Ignore</code> aceita a lista vazia. O SQL
+  de cada combinação, nos dois bancos, está em <a href="#writing/upsert">Upsert</a>.
+</p>
+</article>

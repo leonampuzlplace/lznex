@@ -1,0 +1,343 @@
+<article>
+<h1>Tipos de coluna</h1>
+<p class="subtitle">
+  O tipo que você declara é lógico. Quem traduz para o tipo real é o dialeto — a mesma
+  migration roda nos dois bancos.
+</p>
+
+<h2 id="logical-type">O tipo é lógico</h2>
+<p>
+  <code>T.Str('email', 191)</code> não diz <code>varchar</code> nem
+  <code>character varying</code>: diz "texto curto com limite". O compilador de schema do
+  dialeto é que escolhe o tipo nativo. É por isso que
+  <code>T.Bool('active')</code> sai como <code>tinyint(1)</code> no MySQL e como
+  <code>boolean</code> no PostgreSQL sem você mudar uma linha.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Db.Schema.CreateTable('f');
+T.Bool('active');</pre></div>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">create table `f` (`active` tinyint(1) null)</pre>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">create table "f" ("active" boolean null)</pre>
+  </div>
+</div>
+
+<p>
+  A consequência é que o DDL dos dois bancos é diferente de propósito, e o seu código não
+  precisa saber qual está do outro lado. Veja <a href="#dialects">Dialetos</a> para o que
+  mais muda entre eles.
+</p>
+
+<h2 id="equivalence-table">Tabela de equivalência</h2>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Método</th><th>MySQL / MariaDB</th><th>PostgreSQL</th></tr></thead>
+<tbody>
+<tr><td><code>Increments(AName = 'id')</code></td><td><code>int unsigned not null auto_increment primary key</code></td><td><code>serial primary key</code></td></tr>
+<tr><td><code>BigIncrements(AName = 'id')</code></td><td><code>bigint unsigned not null auto_increment primary key</code></td><td><code>bigserial primary key</code></td></tr>
+<tr><td><code>TinyInt(AName)</code></td><td><code>tinyint</code></td><td><code>smallint</code></td></tr>
+<tr><td><code>SmallInt(AName)</code></td><td><code>smallint</code></td><td><code>smallint</code></td></tr>
+<tr><td><code>Int(AName)</code></td><td><code>int</code></td><td><code>integer</code></td></tr>
+<tr><td><code>BigInt(AName)</code></td><td><code>bigint</code></td><td><code>bigint</code></td></tr>
+<tr><td><code>Bool(AName)</code></td><td><code>tinyint(1)</code></td><td><code>boolean</code></td></tr>
+<tr><td><code>Decimal(AName, APrecision = 8, AScale = 2)</code></td><td><code>decimal(8, 2)</code></td><td><code>decimal(8, 2)</code></td></tr>
+<tr><td><code>Float(AName)</code></td><td><code>float</code></td><td><code>real</code></td></tr>
+<tr><td><code>Double(AName)</code></td><td><code>double</code></td><td><code>double precision</code></td></tr>
+<tr><td><code>Char_(AName, ALength = 255)</code></td><td><code>char(n)</code></td><td><code>char(n)</code></td></tr>
+<tr><td><code>Str(AName, ALength = 255)</code></td><td><code>varchar(n)</code></td><td><code>varchar(n)</code></td></tr>
+<tr><td><code>Text(AName)</code></td><td><code>text</code></td><td><code>text</code></td></tr>
+<tr><td><code>MediumText(AName)</code></td><td><code>mediumtext</code></td><td><code>text</code></td></tr>
+<tr><td><code>LongText(AName)</code></td><td><code>longtext</code></td><td><code>text</code></td></tr>
+<tr><td><code>Binary(AName, ALength = 0)</code></td><td><code>varbinary(n)</code>, ou <code>blob</code> sem tamanho</td><td><code>bytea</code> (o tamanho é ignorado)</td></tr>
+<tr><td><code>Blob(AName)</code></td><td><code>blob</code></td><td><code>bytea</code></td></tr>
+<tr><td><code>Date(AName)</code></td><td><code>date</code></td><td><code>date</code></td></tr>
+<tr><td><code>Time(AName)</code></td><td><code>time</code></td><td><code>time</code></td></tr>
+<tr><td><code>DateTime(AName)</code></td><td><code>datetime</code></td><td><code>timestamp</code></td></tr>
+<tr><td><code>Timestamp(AName)</code></td><td><code>timestamp</code></td><td><code>timestamp</code></td></tr>
+<tr><td><code>Json(AName)</code></td><td><code>json</code></td><td><code>json</code></td></tr>
+<tr><td><code>ctJsonb</code> (sem método)</td><td><code>json</code></td><td><code>jsonb</code></td></tr>
+<tr><td><code>Uuid(AName)</code></td><td><code>char(36)</code></td><td><code>uuid</code></td></tr>
+<tr><td><code>Enum(AName, AItems)</code></td><td><code>enum('a', 'b')</code></td><td><code>text</code> + <code>check</code></td></tr>
+<tr><td><code>Specific(AName, ATypeSQL)</code></td><td>o texto que você passou</td><td>o texto que você passou</td></tr>
+<tr><td><code>Timestamps(ADefaultNow = True)</code></td><td>duas colunas <code>timestamp</code></td><td>duas colunas <code>timestamp</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">ctJsonb só pelo compilador</span>
+    <p>
+      <code>ILzNexTable</code> não tem <code>Jsonb</code>: <code>ctJsonb</code> existe em
+      <code>TLzNexColumnType</code> e é alcançável chamando
+      <code>ColumnTypeSQL(ctJsonb, 0, 0, nil)</code> no compilador de schema, que devolve
+      <code>jsonb</code> em PostgreSQL e <code>json</code> em MySQL. Para declarar a coluna
+      numa migration, use <code>Specific('meta', 'jsonb')</code>. O mesmo vale para
+      <code>ctMediumInt</code> (<code>mediumint</code> / <code>integer</code>) e
+      <code>ctTinyText</code> (<code>tinytext</code> / <code>text</code>).
+    </p>
+  </div>
+</div>
+
+<h2 id="increments">Increments e BigIncrements</h2>
+<p>
+  Os dois declaram a chave primária auto-incremento numa linha. O nome da coluna é opcional e
+  vale <code>id</code>.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Db.Schema.CreateTable('users');
+T.Increments;</pre></div>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">create table `users` (`id` int unsigned not null auto_increment primary key)</pre>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">create table "users" ("id" serial primary key)</pre>
+  </div>
+</div>
+
+<div class="code"><pre data-lang="pascal">T := Db.Schema.CreateTable('events');
+T.BigIncrements('uid');</pre></div>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">create table `events` (`uid` bigint unsigned not null auto_increment primary key)</pre>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">create table "events" ("uid" bigserial primary key)</pre>
+  </div>
+</div>
+
+<p>
+  Note que a chave primária sai <strong>no próprio tipo</strong>, não como índice: o plano
+  de DDL fica com um único comando, sem nada no <code>Post</code>.
+</p>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Modificador em coluna auto é ignorado em silêncio</span>
+    <p>
+      O texto desses dois tipos já é completo, então o compilador não anexa nenhum
+      modificador neles: <code>T.Increments.Nullable.Default_(1)</code> compila e produz o
+      mesmo DDL de <code>T.Increments</code>. Se precisar de um inteiro comum, use
+      <code>Int</code> ou <code>BigInt</code> e declare a PK à parte.
+    </p>
+  </div>
+</div>
+
+<h2 id="decimal">Decimal</h2>
+<p>
+  <code>Decimal</code> já vem com precisão <code>8</code> e escala <code>2</code> — dinheiro
+  é o caso comum. Os dois dialetos escrevem igual.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Db.Schema.CreateTable('items');
+T.Decimal('price');
+T.Decimal('rate', 10, 4);</pre>
+<div class="code-out">
+  <div class="code-label">DDL</div>
+  <pre data-lang="sql">create table `items` (`price` decimal(8, 2) null, `rate` decimal(10, 4) null)</pre>
+  <p class="code-note">precisão zero ou negativa sai como <code>decimal</code> sem parâmetro</p>
+</div>
+</div>
+
+<h2 id="timestamps">Timestamps</h2>
+<p>
+  <code>Timestamps</code> adiciona <code>created_at</code> e <code>updated_at</code> de uma
+  vez. Por padrão as duas saem <code>not null</code> com <code>CURRENT_TIMESTAMP</code>.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Db.Schema.CreateTable('posts');
+T.Timestamps;</pre>
+<div class="code-out">
+  <div class="code-label">DDL</div>
+  <pre data-lang="sql">create table `posts` (`created_at` timestamp not null default CURRENT_TIMESTAMP, `updated_at` timestamp not null default CURRENT_TIMESTAMP)</pre>
+</div>
+</div>
+
+<p>
+  Com <code>False</code>, as duas ficam <code>null</code> e sem default — é o que você quer
+  quando a aplicação grava os dois valores explicitamente.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Db.Schema.CreateTable('posts');
+T.Timestamps(False);</pre>
+<div class="code-out">
+  <div class="code-label">DDL</div>
+  <pre data-lang="sql">create table `posts` (`created_at` timestamp null, `updated_at` timestamp null)</pre>
+</div>
+</div>
+
+<p>
+  O tipo é <code>TIMESTAMP</code>, não <code>DATETIME</code>, mesmo no MySQL — e isso é
+  deliberado. <code>TIMESTAMP</code> tem semântica de <strong>instante</strong>: o MySQL
+  guarda em UTC e converte na timezone da sessão, então o mesmo registro lido de dois
+  servidores em fusos diferentes aponta para o mesmo momento. <code>DATETIME</code> é
+  data-hora literal, sem fuso: muda de significado conforme quem lê. Para auditoria, o
+  instante é o que importa. Em PostgreSQL os dois caem em <code>timestamp</code>, então lá a
+  distinção não aparece no DDL.
+</p>
+
+<h2 id="enum">Enum</h2>
+<p>
+  <code>Enum</code> exige pelo menos um item — lista vazia levanta
+  <code>ELzNexSchema</code> antes de a coluna ser criada. A implementação é bem diferente nos
+  dois bancos.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Db.Schema.CreateTable('orders');
+T.Enum('status', ['new', 'done']);</pre></div>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">create table `orders` (`status` enum('new', 'done') null)</pre>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">create table "orders" ("status" text null check ("status" in ('new', 'done')))</pre>
+  </div>
+</div>
+
+<p>
+  No MySQL o <code>enum</code> é tipo de coluna, então a declaração se resolve sozinha. O
+  PostgreSQL tem enum nativo, mas ele é um <strong>tipo do banco</strong>: exigiria um
+  <code>create type ... as enum</code> antes do <code>create table</code> e um
+  <code>drop type</code> correspondente no rollback — dois comandos que o contrato atual do
+  plano de DDL não expressa, já que <code>TLzNexDdlPlan</code> descreve comandos de uma
+  tabela, não o ciclo de vida de um tipo. Daí o caminho de <code>text</code> com
+  <code>check</code>: dá a mesma garantia de domínio, aceita rollback trivial e não deixa
+  tipo órfão no schema.
+</p>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">Trocar o conjunto de valores</span>
+    <p>
+      No MySQL é um <code>modify</code> da coluna; no PostgreSQL é derrubar e recriar o
+      <code>check</code>. Enquanto isso não tem atalho no builder, o caminho é
+      <code>Db.Schema.Raw</code> na migration. Se você já depende do enum nativo do
+      PostgreSQL, declare a coluna com <code>Specific('status', 'order_status')</code> e crie
+      o tipo por <code>Raw</code>.
+    </p>
+  </div>
+</div>
+
+<h2 id="binary">Binary e Blob</h2>
+<p>
+  <code>Binary</code> com tamanho vira <code>varbinary(n)</code> no MySQL; sem tamanho cai em
+  <code>blob</code>. O PostgreSQL tem um só tipo binário de tamanho variável, então os três
+  casos colapsam em <code>bytea</code>.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Db.Schema.CreateTable('files');
+T.Binary('hash', 16);
+T.Binary('payload');
+T.Blob('raw');</pre></div>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">create table `files` (`hash` varbinary(16) null, `payload` blob null, `raw` blob null)</pre>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">create table "files" ("hash" bytea null, "payload" bytea null, "raw" bytea null)</pre>
+  </div>
+</div>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">O MySQL não aceita default em tipo grande</span>
+    <p>
+      Em <code>text</code>, <code>mediumtext</code>, <code>longtext</code>,
+      <code>blob</code> e <code>json</code> o MySQL recusa <code>DEFAULT</code> literal. O
+      compilador <strong>omite</strong> a cláusula em vez de gerar DDL que o banco rejeita —
+      <code>T.Text('t').Default_('x')</code> sai como
+      <code>create table `txt` (`t` text null)</code>. <code>Binary</code> com tamanho é a
+      exceção: como vira <code>varbinary(n)</code>, o default sobrevive. Veja
+      <a href="#modifiers">Modificadores</a>.
+    </p>
+  </div>
+</div>
+
+<h2 id="uuid">Uuid</h2>
+<p>
+  O PostgreSQL tem tipo <code>uuid</code> de 16 bytes, com comparação e indexação próprias. O
+  MySQL não tem, e a coluna cai em <code>char(36)</code> — a forma textual com hífens.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Db.Schema.CreateTable('tokens');
+T.Uuid('id');</pre></div>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">create table `tokens` (`id` char(36) null)</pre>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">create table "tokens" ("id" uuid null)</pre>
+  </div>
+</div>
+
+<p>
+  A diferença importa na prática: no MySQL a comparação é textual e sensível ao formato
+  gravado (caixa dos dígitos hexadecimais, presença dos hífens), e o índice custa 36 bytes
+  por entrada. Normalize na aplicação, ou use
+  <code>Specific('id', 'binary(16)')</code> se o volume justificar.
+</p>
+
+<h2 id="specific">Specific</h2>
+<p>
+  <code>Specific</code> é a saída para o que o builder não cobre: o texto vai
+  <strong>cru</strong> para o lugar do tipo, e os modificadores normais continuam valendo
+  depois dele.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Db.Schema.CreateTable('places');
+T.Specific('area', 'geometry').NotNull;</pre>
+<div class="code-out">
+  <div class="code-label">DDL</div>
+  <pre data-lang="sql">create table `places` (`area` geometry not null)</pre>
+</div>
+</div>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">O texto não é validado</span>
+    <p>
+      Nada inspeciona o que você passa: é interpolado como está, então nunca monte esse
+      argumento com entrada de usuário. Texto vazio (ou só espaço) levanta
+      <code>ELzNexSchema</code> na hora da chamada — é a única verificação. E a coluna fica
+      amarrada a um banco: o mesmo <code>Specific</code> em outro dialeto quebra na execução,
+      não na compilação.
+    </p>
+  </div>
+</div>
+
+<h2 id="naming">Por que Char_ tem sublinhado</h2>
+<p>
+  <code>char</code> é um tipo predefinido do Pascal. Um método chamado <code>Char</code>
+  dentro da interface esconderia o tipo da linguagem para todo o corpo que usasse o builder,
+  e qualquer <code>Char</code> escrito ali passaria a referir-se ao método. O sublinhado no
+  fim resolve sem apelido nem prefixo: <code>Char_</code>.
+</p>
+<p>
+  O mesmo motivo vale para <code>Default_</code> (<code>Default</code> é intrínseco em
+  <code>{$MODE DELPHI}</code>, usado como <code>Default(T)</code>). Fora esses dois, nenhum
+  método do builder carrega sublinhado — e os tipos cujo nome não colide ficam com o nome
+  natural: <code>Text</code>, <code>Date</code>, <code>Time</code>,
+  <code>DateTime</code>.
+</p>
+<p>
+  <code>Str</code> é um caso diferente: não há colisão, o nome é curto de propósito porque é
+  o tipo mais usado numa migration. Ele é o <code>varchar(n)</code>, com
+  <code>255</code> de padrão.
+</p>
+</article>

@@ -1,15 +1,4 @@
 #!/usr/bin/env bash
-# Roda os binarios de teste com o gate de vazamento ligado.
-#
-# Com -gh linkado e HEAPTRC=haltonnotreleased, vazamento derruba o processo com
-# exit 203 e sem vazamento o exit e 0 e nada e impresso. Logo "exit != 0" cobre
-# tanto assert quebrado quanto memoria nao liberada.
-#
-# O gate SO funciona em binario compilado com -gh, ou seja o build mode Debug.
-# Binario sem heaptrc e rodado e reportado, mas avisado como gate inerte.
-#
-#   uso: run-tests.sh [binario...]        (sem argumento: glob em $TEST_BIN_DIR)
-#   env: TEST_BIN_DIR (default bin), HEAPTRC
 set -eu
 
 BIN_DIR=${TEST_BIN_DIR:-bin}

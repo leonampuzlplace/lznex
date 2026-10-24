@@ -1,0 +1,71 @@
+<article>
+<h1>Conexão</h1>
+<p class="subtitle">
+  <code>Connect</code> valida a configuração, resolve o dialeto e abre o pool. O que ele
+  devolve — <code>ILzNex</code> — é o ponto de entrada para tudo.
+</p>
+
+<div class="code"><pre data-lang="pascal">var
+  Db: ILzNex;
+begin
+  Db := Connect(NewConfig
+    .Client('mysql')
+    .Host('mysql')
+    .Port(3306)
+    .Database('app')
+    .User('root')
+    .Password('secret')
+    .Charset('utf8mb4')
+    .LibraryLocation('/usr/lib/x86_64-linux-gnu/libmariadb.so.3')
+    .Pool(2, 10)
+    .AcquireTimeout(30000));
+  try
+    // ... use Db ...
+  finally
+    Db.Shutdown;
+  end;
+end;</pre></div>
+
+<p>
+  Uma instância por processo é o padrão: a facade é dona do pool, e é o pool que serializa o
+  acesso concorrente. Não crie <code>ILzNex</code> por requisição HTTP.
+</p>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">LibraryLocation</span>
+    <p>
+      No Ubuntu 26.04 só existe <code>libmariadb.so.3</code>, e o auto-load do Zeos não a
+      encontra. Informar <code>LibraryLocation</code> (ou a variável
+      <code>LZNEX_LIBRARY</code>) é, na prática, obrigatório. Sem isso o sintoma é um erro de
+      biblioteca ao conectar.
+    </p>
+  </div>
+</div>
+
+<h2 id="registered-dialects">Dialetos registrados</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Unit</th><th><code>Client(…)</code></th><th><code>DialectName</code></th></tr></thead>
+<tbody>
+<tr><td><code>LzNex.Client.MySQL</code></td><td><code>'mysql'</code>, <code>'mariadb'</code></td><td><code>mysql</code></td></tr>
+<tr><td><code>LzNex.Client.Postgres</code></td><td><code>'postgresql'</code>, <code>'postgres'</code></td><td><code>postgresql</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  Nome não registrado levanta <code>ELzNexConfig</code>. Para checar antes:
+  <code>IsClientRegistered('mysql')</code>, de <code>LzNex.Client</code>;
+  <code>RegisteredClients</code> devolve a lista do que está disponível.
+</p>
+
+<h2 id="lifecycle">Ciclo de vida</h2>
+<ul>
+  <li><code>Connect</code> abre o pool já com o mínimo de conexões configurado;</li>
+  <li>cada query pega uma conexão emprestada e devolve sozinha ao terminar;</li>
+  <li><code>Shutdown</code> fecha as conexões ociosas e marca o pool como encerrado;</li>
+  <li>depois do <code>Shutdown</code>, qualquer <code>Acquire</code> levanta <code>ELzNexPool</code>.</li>
+</ul>
+</article>

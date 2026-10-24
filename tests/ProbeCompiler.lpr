@@ -1,12 +1,5 @@
 program ProbeCompiler;
 
-{ Sonda do compiler: monta a AST na mao e confere o SQL exato mais a lista de
-  binds NA ORDEM. Nao usa o builder -- e justamente isso que o desenho
-  (compiler recebe TLzNexAst, nao ILzNexQuery) permite.
-
-  Dois dialetos exercitados: o ANSI da classe base (TAnsiTestClient, declarado
-  aqui) e o MySQL de verdade. }
-
 {$MODE DELPHI}{$H+}
 
 uses
@@ -23,8 +16,7 @@ uses
   LzNex.Exceptions;
 
 type
-  // Raw de teste: devolve texto e binds fixos. Serve tambem de
-  // dubles de subquery, porque o compiler aceita ILzNexRaw onde espera subquery.
+
   TTestRaw = class(TInterfacedObject, ILzNexRaw)
   private
     FText: string;
@@ -35,7 +27,6 @@ type
     function Template: string;
   end;
 
-  // Dialeto ANSI concreto: a classe base e abstrata nas fabricas.
   TAnsiTestClient = class(TLzNexClientBase)
   public
     function DialectName: string; override;
@@ -49,8 +40,6 @@ var
   MyC, AnsiC: ILzNexCompiler;
   A: TLzNexAst;
   Total: Integer = 0;
-
-{ TTestRaw }
 
 constructor TTestRaw.Create(const AText: string; const ABinds: TLzNexValues);
 begin
@@ -68,8 +57,6 @@ function TTestRaw.Template: string;
 begin
   Result := FText;
 end;
-
-{ TAnsiTestClient }
 
 function TAnsiTestClient.DialectName: string;
 begin
@@ -90,8 +77,6 @@ function TAnsiTestClient.NewSchemaCompiler: ILzNexSchemaCompiler;
 begin
   Result := nil;
 end;
-
-{ infra da sonda }
 
 procedure Note(const AWhat: string; const ACond: Boolean);
 begin
@@ -137,7 +122,6 @@ begin
   end;
 end;
 
-// Compila e confere texto e binds. Conta como duas asercoes.
 procedure CheckQ(const AWhat: string; const ACmp: ILzNexCompiler;
   const ASQL, ABinds: string);
 var
@@ -178,7 +162,6 @@ begin
   end;
 end;
 
-// Recria a AST do zero com a tabela informada.
 procedure Fresh(const ATable: string);
 begin
   if A <> nil then
@@ -208,8 +191,6 @@ function Basic(const AGroup: TLzNexStatementGroup; const ACol, AOp: string;
 begin
   Result := TLzNexBasicStmt.Create(AGroup, TLzNexValue.Identifier(ACol), AOp, AValue);
 end;
-
-{ ---------------- colunas ---------------- }
 
 procedure TestColumns;
 var
@@ -267,8 +248,6 @@ begin
     'select count(distinct `email`) as `c`, sum(`total`) as `t` from `users`', '');
 end;
 
-{ ---------------- from ---------------- }
-
 procedure TestFrom;
 begin
   Writeln('-- from');
@@ -305,8 +284,6 @@ begin
   Fresh('we"ird');
   CheckQ('aspa dupla dobrada no ansi', AnsiC, 'select * from "we""ird"', '');
 end;
-
-{ ---------------- join ---------------- }
 
 function Clause(const AKind: TLzNexJoinClauseKind): TLzNexJoinClause;
 begin
@@ -448,8 +425,6 @@ begin
     ' on `q`.`id` = `users`.`id`', '4');
 end;
 
-{ ---------------- where ---------------- }
-
 procedure TestWhere;
 var
   B: TLzNexBasicStmt;
@@ -514,8 +489,6 @@ begin
   CheckQ('where not in', MyC,
     'select * from `users` where `id` not in (?, ?)', '1|2');
 
-  // O caso que o desenho de fragmento existe para garantir: bind antes e
-  // depois da subquery, com os binds dela no meio.
   Fresh('users');
   A.Add(Basic(sgWhere, 'a', '=', 10));
   In_ := TLzNexInStmt.Create(sgWhere, Idents(['id']), nil);
@@ -606,7 +579,6 @@ begin
   A.Add(R);
   CheckQ('where raw negado', MyC, 'select * from `users` where not (`x` = 1)', '');
 
-  // Grupo aninhado: OR dentro, AND fora -- sem recortar string.
   Fresh('users');
   A.Add(Basic(sgWhere, 'tenant', '=', 7));
   G := TLzNexGroupStmt.Create(sgWhere);
@@ -632,14 +604,11 @@ begin
   A.Add(G);
   CheckQ('grupo vazio desaparece', MyC, 'select * from `users`', '');
 
-  // CompilePredicates devolve so o corpo: e o que permite o grupo acima.
   Fresh('users');
   A.Add(Basic(sgWhere, 'id', '=', 1));
   Same('CompilePredicates nao inclui o prefixo where',
     MyC.CompilePredicates(sgWhere, A.Group(sgWhere)).Text, '`id` = ?');
 end;
-
-{ ---------------- group / having / order ---------------- }
 
 procedure TestGroupHavingOrder;
 var
@@ -689,8 +658,6 @@ begin
   CheckQ('having com grupo aninhado', MyC,
     'select * from `users` having (`a` > ? or `b` > ?)', '1|2');
 
-  // Like e Exists mantem o Kind skWhere* mesmo no grupo having: o prefixo
-  // vem do Group, nao do Kind.
   Fresh('users');
   A.Add(TLzNexLikeStmt.Create(sgHaving, TLzNexValue.Identifier('n'), 'a%', False));
   CheckQ('like no grupo having (Kind continua skWhereLike)', MyC,
@@ -723,8 +690,6 @@ begin
   CheckQ('order by raw', MyC,
     'select * from `users` order by field(`s`, ?) asc', 'a');
 end;
-
-{ ---------------- paginacao, lock, conjuntos, cte, hint ---------------- }
 
 procedure TestTail;
 begin
@@ -818,8 +783,6 @@ begin
   CheckRaise('hint que fecha o comentario levanta', MyC, ELzNexBuilder,
     'comment delimiter');
 end;
-
-{ ---------------- insert ---------------- }
 
 procedure TestInsert;
 begin
@@ -944,8 +907,6 @@ begin
   CheckRaise('mysql: returning levanta', MyC, ELzNexCompile, 'RETURNING');
 end;
 
-{ ---------------- update / delete / truncate ---------------- }
-
 procedure TestWrite;
 var
   J: TLzNexJoinStmt;
@@ -1021,8 +982,6 @@ begin
   CheckQ('truncate', MyC, 'truncate `users`', '');
 end;
 
-{ ---------------- erros de contrato ---------------- }
-
 procedure TestErrors;
 var
   B: TLzNexBasicStmt;
@@ -1077,8 +1036,6 @@ begin
   A.Add(TLzNexExistsStmt.Create(sgWhere, nil));
   CheckRaise('exists sem subquery levanta', MyC, ELzNexCompile, 'Subquery');
 end;
-
-{ ---------------- dialeto ---------------- }
 
 procedure TestClient;
 var

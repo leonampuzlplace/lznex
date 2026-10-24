@@ -52,8 +52,6 @@ type
 
 implementation
 
-{ TValueTest }
-
 procedure TValueTest.ImplicitConversion;
 var
   Value: TLzNexValue;
@@ -76,7 +74,7 @@ end;
 
 procedure TValueTest.UnsetIsNotBindable;
 begin
-  // vkUnset difere de vkNull: em INSERT vira DEFAULT, em WHERE e erro.
+
   AssertTrue(TLzNexValue.Unset.IsUnset);
   AssertFalse(TLzNexValue.Unset.IsBindable);
 end;
@@ -97,7 +95,7 @@ procedure TValueTest.Int64KeepsPrecision;
 var
   Value: TLzNexValue;
 begin
-  // Acima do maior inteiro exato de um double.
+
   Value := Int64(9007199254740993);
   AssertEquals(Int64(9007199254740993), Value.AsInt64);
 end;
@@ -111,8 +109,6 @@ begin
     on E: ELzNexBuilder do ;
   end;
 end;
-
-{ TArrayOfConstTest }
 
 procedure TArrayOfConstTest.BuildsValueList;
 var
@@ -129,7 +125,7 @@ procedure TArrayOfConstTest.FloatComesThroughPointer;
 var
   List: TLzNexValues;
 begin
-  // vtExtended guarda PONTEIRO no TVarRec: esquecer o ^ devolveria lixo.
+
   List := ValueList([4.5]);
   AssertTrue('float read correctly', Abs(List[0].AsFloat - 4.5) < 1E-9);
 end;
@@ -138,8 +134,7 @@ procedure TArrayOfConstTest.ValsKeepsInsertionOrder;
 var
   Pairs: TLzNexNamedValues;
 begin
-  // O knex ordena as colunas do insert alfabeticamente; aqui vale a ordem
-  // que o usuario escreveu.
+
   Pairs := Vals(['name', 'Leonam', 'age', 38]);
   AssertEquals('name', Pairs[0].Name);
   AssertEquals('age', Pairs[1].Name);
@@ -154,8 +149,6 @@ begin
     on E: ELzNexBuilder do ;
   end;
 end;
-
-{ TBindingsTest }
 
 procedure TBindingsTest.KeepsOrder;
 var
@@ -186,7 +179,7 @@ procedure TBindingsTest.RejectsUnsetValue;
 var
   Bindings: TLzNexBindings;
 begin
-  // Pega variavel nao inicializada antes de ela virar SQL.
+
   Bindings := TLzNexBindings.Empty;
   try
     Bindings.Add(TLzNexValue.Unset);
@@ -209,14 +202,11 @@ begin
   end;
 end;
 
-{ TFragmentTest }
-
 procedure TFragmentTest.TextAndBindingsTravelTogether;
 var
   Fragment: TLzNexFragment;
 begin
-  // Correcao estrutural do knex: nao da para reordenar o texto sem levar os
-  // binds junto.
+
   Fragment := TLzNexFragment.Lit('a = ').Concat(TLzNexFragment.Param(1), '');
   Fragment := Fragment.Concat(TLzNexFragment.Lit('and'));
   Fragment := Fragment.Concat(

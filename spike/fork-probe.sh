@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# fork-probe.sh — valida a abordagem do fork: um repo git com boss.json + tag semver.
-# Monta o "fork" localmente e descobre qual forma de coordenada o Boss aceita.
 set -u
 
 FORK=/opt/zeos-fork

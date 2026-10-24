@@ -1,0 +1,108 @@
+<article>
+<h1>Configuração</h1>
+<p class="subtitle">Três caminhos de entrada, do mais explícito ao mais automático — e eles se compõem.</p>
+
+<ol>
+  <li><code>NewConfig.Client('mysql').Host(…)</code> — em código;</li>
+  <li><code>LoadConfigFile('database/lznex.json', 'development')</code> — arquivo, por ambiente;</li>
+  <li><code>ApplyEnvOverrides(Cfg)</code> — variáveis <code>LZNEX_*</code> do processo.</li>
+</ol>
+
+<p>
+  O caminho do arquivo já aplica as <code>LZNEX_*</code> por cima do que leu. É isso que faz a
+  <strong>mesma imagem de container</strong> servir para dev, CI e produção.
+</p>
+
+<h2 id="json">Arquivo JSON</h2>
+<p>
+  A chave <code>default</code> escolhe o ambiente quando ninguém informa; cada ambiente é um
+  objeto no primeiro nível. Um arquivo que tenha <code>client</code> ou
+  <code>connection</code> na raiz é tratado como configuração única, sem ambientes.
+</p>
+
+<div class="code"><pre data-lang="json">{
+  "default": "development",
+  "development": {
+    "client": "mysql",
+    "connection": {
+      "host": "mysql",
+      "port": 3306,
+      "database": "lznex",
+      "user": "root",
+      "password": "secret",
+      "charset": "utf8mb4",
+      "libraryLocation": "/usr/lib/x86_64-linux-gnu/libmariadb.so.3"
+    },
+    "pool": { "min": 2, "max": 10, "acquireTimeout": 30000 },
+    "migrations": { "table": "migrations", "directory": "database/migrations" },
+    "seeds": { "directory": "database/seeds" },
+    "props": { "timezone": "UTC" }
+  },
+  "test": {
+    "client": "mysql",
+    "connection": { "host": "mysql", "database": "lznex_test", "user": "root", "password": "secret" },
+    "pool": { "min": 1, "max": 4 }
+  }
+}</pre></div>
+
+<p>
+  As chaves de conexão podem ficar dentro de <code>connection</code> ou soltas no nó do
+  ambiente — o leitor procura primeiro no aninhado, depois na raiz do ambiente. Chave
+  desconhecida em <code>props</code> é repassada ao driver sem a config ter que conhecê-la.
+</p>
+
+<div class="code"><pre data-lang="pascal">// o ambiente vem do parametro, de LZNEX_ENV, da chave "default" ou 'development'
+Db := ConnectFromFile('database/lznex.json', 'test');
+
+// ou, separando leitura de conexao:
+Cfg := LoadConfigFile('database/lznex.json', '');
+Cfg.Pool(1, 4);
+Db := Connect(Cfg);</pre></div>
+
+<p>Ambiente inexistente levanta <code>ELzNexConfig</code> listando as chaves de primeiro nível do arquivo.</p>
+
+<h2 id="env">Variáveis de ambiente</h2>
+<p>
+  Reconhecidas por <code>ApplyEnvOverrides</code> (e já aplicadas por
+  <code>LoadConfigFile</code>). Variável vazia ou ausente não mexe no que já estava: a
+  sobrescrita é sempre aditiva. Valor numérico inválido <strong>levanta</strong> — erro de
+  deploy não é algo para silenciar com default.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Variável</th><th>Equivale a</th><th>Default</th></tr></thead>
+<tbody>
+<tr><td><code>LZNEX_CLIENT</code></td><td><code>.Client</code></td><td>obrigatório</td></tr>
+<tr><td><code>LZNEX_HOST</code></td><td><code>.Host</code></td><td>obrigatório</td></tr>
+<tr><td><code>LZNEX_PORT</code></td><td><code>.Port</code></td><td><code>3306</code></td></tr>
+<tr><td><code>LZNEX_DATABASE</code></td><td><code>.Database</code></td><td>obrigatório</td></tr>
+<tr><td><code>LZNEX_USER</code></td><td><code>.User</code></td><td>—</td></tr>
+<tr><td><code>LZNEX_PASSWORD</code></td><td><code>.Password</code></td><td>—</td></tr>
+<tr><td><code>LZNEX_CHARSET</code></td><td><code>.Charset</code></td><td><code>utf8mb4</code></td></tr>
+<tr><td><code>LZNEX_LIBRARY</code></td><td><code>.LibraryLocation</code></td><td>auto-load do Zeos</td></tr>
+<tr><td><code>LZNEX_POOL_MIN</code></td><td><code>.Pool(min, _)</code></td><td><code>2</code></td></tr>
+<tr><td><code>LZNEX_POOL_MAX</code></td><td><code>.Pool(_, max)</code></td><td><code>10</code></td></tr>
+<tr><td><code>LZNEX_ACQUIRE_TIMEOUT</code></td><td><code>.AcquireTimeout</code></td><td><code>30000</code> ms</td></tr>
+<tr><td><code>LZNEX_MIGRATIONS_TABLE</code></td><td><code>.MigrationsTable</code></td><td><code>migrations</code></td></tr>
+<tr><td><code>LZNEX_MIGRATIONS_DIR</code></td><td><code>.MigrationsDir</code></td><td><code>database/migrations</code></td></tr>
+<tr><td><code>LZNEX_SEEDS_DIR</code></td><td><code>.SeedsDir</code></td><td><code>database/seeds</code></td></tr>
+<tr><td><code>LZNEX_ENV</code></td><td>o ambiente do JSON</td><td><code>development</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  Para testar sobrescrita sem mexer no processo, use
+  <code>ApplyOverrides(Cfg, Vals(['host', 'db2', 'pool_min', '1']))</code> — a chave aceita
+  tanto <code>LZNEX_HOST</code> como <code>host</code>.
+</p>
+
+<h2 id="validation">Validação</h2>
+<p>
+  <code>Connect</code> chama <code>Validate</code> antes de abrir qualquer coisa. Levanta
+  <code>ELzNexConfig</code> se faltar <code>client</code>, <code>host</code> ou
+  <code>database</code>, se a porta não for positiva, se o máximo do pool for menor que 1, se
+  o mínimo passar do máximo, ou se o timeout for negativo.
+</p>
+</article>

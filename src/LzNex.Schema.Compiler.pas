@@ -1,21 +1,5 @@
 unit LzNex.Schema.Compiler;
 
-{ TLzNexSchemaCompilerBase: gerador de DDL com defaults ANSI.
-
-  Incluir um banco novo no schema builder = descender desta classe e sobrescrever
-  o que muda (tipos fisicos, ordem de modificadores, prefixos de alter).
-
-  Dois pontos estruturais que valem destacar:
-
-  1. A ORDEM dos modificadores no DDL e do DIALETO (ModifierOrder), nunca a ordem
-     em que o usuario chamou. T.Int('x').Default_(1).Unsigned e
-     T.Int('x').Unsigned.Default_(1) tem que sair identicos, senao bastaria
-     inverter duas chamadas para gerar DDL invalido.
-
-  2. O DEFAULT e INTERPOLADO no texto, nao vira bind: a maioria dos bancos nao
-     aceita placeholder em DDL. A interpolacao aqui e legitima e passa por
-     Client.EscapeForLog, que e o unico escapador do projeto. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -34,21 +18,16 @@ type
   protected
     FClient: ILzNexClient;
 
-    // --- lexico ---
     function Wrap(const AName: string): string;
     function WrapPath(const AName: string): string;
     function ColumnList(const AColumns: TLzNexValues): string;
     function EnumList(const AItems: TLzNexValues): string;
     function TableRef(const ATable: ILzNexTable): string;
 
-    // --- coluna ---
-    // True para os tipos cujo texto ja carrega not null/PK/auto_increment.
-    // Nesses o compiler nao emite modificador nenhum.
     function IsAutoType(const AType: TLzNexColumnType): Boolean; virtual;
-    // Se o comentario de coluna cabe na propria definicao (MySQL) ou precisa de
-    // um comando separado (ANSI/PostgreSQL).
+
     function InlineComments: Boolean; virtual;
-    // Se o tipo aceita DEFAULT. MySQL recusa em TEXT/BLOB.
+
     function SupportsDefaultOn(const ACol: ILzNexColumnDef): Boolean; virtual;
     function DefaultLiteral(const ACol: ILzNexColumnDef): string; virtual;
     function ColumnTypeFor(const ACol: ILzNexColumnDef): string;
@@ -56,12 +35,10 @@ type
       const ACol: ILzNexColumnDef): string; virtual;
     function ColumnDefinitionSQL(const ACol: ILzNexColumnDef): string; virtual;
 
-    // --- prefixos de alter ---
     function AddColumnPrefix: string; virtual;
     function ChangeColumnPrefix: string; virtual;
     function DropColumnPrefix: string; virtual;
 
-    // --- pedacos de comando ---
     function TableOptionsSQL(const ATable: ILzNexTable): string; virtual;
     function IndexNameOf(const ATable: ILzNexTable;
       const AIndex: ILzNexIndexDef): string;
@@ -88,7 +65,6 @@ type
   public
     constructor Create(const AClient: ILzNexClient);
 
-    // O dialeto usado por este compiler.
     function Client: ILzNexClient;
 
     function CompileTable(const ATable: ILzNexTable): TLzNexDdlPlan; virtual;
@@ -105,7 +81,6 @@ type
       const AKind: TLzNexIndexKind): string; virtual;
   end;
 
-// Sufixo do nome automatico de indice ('index', 'unique', 'primary', 'foreign').
 function IndexKindSuffix(const AKind: TLzNexIndexKind): string;
 
 implementation
@@ -122,8 +97,6 @@ begin
   end;
 end;
 
-{ TLzNexSchemaCompilerBase }
-
 constructor TLzNexSchemaCompilerBase.Create(const AClient: ILzNexClient);
 begin
   inherited Create;
@@ -136,8 +109,6 @@ function TLzNexSchemaCompilerBase.Client: ILzNexClient;
 begin
   Result := FClient;
 end;
-
-{ lexico }
 
 function TLzNexSchemaCompilerBase.Wrap(const AName: string): string;
 begin
@@ -195,8 +166,6 @@ begin
     Result := Wrap(ATable.TableName);
 end;
 
-{ coluna }
-
 function TLzNexSchemaCompilerBase.IsAutoType(const AType: TLzNexColumnType): Boolean;
 begin
   Result := AType in [ctIncrements, ctBigIncrements];
@@ -228,9 +197,6 @@ begin
     Exit(R.Template);
   end;
 
-  // Em DDL o default NAO pode ser bind (nem MySQL nem PostgreSQL aceitam
-  // placeholder ali), logo aqui a interpolacao e legitima. O escapador e o
-  // mesmo do log, que e o unico do projeto.
   Result := FClient.EscapeForLog(V);
 end;
 
@@ -256,7 +222,7 @@ begin
       if ACol.HasModifier(mdUnsigned) then
         Result := 'unsigned';
     mdNullable:
-      // Sempre explicito: ausencia de mdNullable significa not null.
+
       if ACol.HasModifier(mdNullable) then
         Result := 'null'
       else
@@ -299,8 +265,6 @@ begin
     SB.Append(' ');
     SB.Append(ColumnTypeFor(ACol));
 
-    // Increments ja vem completo do tipo fisico; qualquer modificador aqui
-    // duplicaria not null/primary key.
     if not IsAutoType(ACol.ColumnType) then
     begin
       Order := ModifierOrder;
@@ -321,8 +285,6 @@ begin
   end;
 end;
 
-{ prefixos de alter }
-
 function TLzNexSchemaCompilerBase.AddColumnPrefix: string;
 begin
   Result := 'add column ';
@@ -338,11 +300,9 @@ begin
   Result := 'drop column ';
 end;
 
-{ pedacos de comando }
-
 function TLzNexSchemaCompilerBase.TableOptionsSQL(const ATable: ILzNexTable): string;
 begin
-  // ANSI nao tem engine/charset por tabela.
+
   Result := '';
 end;
 
@@ -432,8 +392,6 @@ begin
             QuotedStr(ATable.CommentText);
 end;
 
-{ montagem do plano }
-
 procedure TLzNexSchemaCompilerBase.PushStmt(var APlan: TLzNexDdlPlan;
   const ASQL: string);
 begin
@@ -458,7 +416,7 @@ begin
   begin
     Idx := ATable.IndexAt(I);
     if ASkipPrimary and (Idx.IndexKind = ixPrimary) and (not Idx.IsDrop) then
-      Continue;   // em create a PK vai inline no proprio create table
+      Continue;
     if Idx.IsDrop then
       PushPost(APlan, DropIndexSQL(ATable, Idx))
     else
@@ -525,7 +483,6 @@ begin
       First := False;
     end;
 
-    // PK inline: um comando so para a tabela inteira.
     if (Prim <> nil) and (Length(Prim.Columns) > 0) then
     begin
       SB.Append(', primary key (');
@@ -559,8 +516,6 @@ begin
   NChanges := 0;
   NDrops := 0;
 
-  // Os tres builders nascem DENTRO do try: se o segundo Create levantasse, o
-  // primeiro ficaria orfao sem ninguem para liberar. Free em nil e seguro.
   Adds := nil;
   Changes := nil;
   Drops := nil;
@@ -598,8 +553,6 @@ begin
       end;
     end;
 
-    // Um comando por categoria: agregar evita N viagens ao banco e N rebuilds
-    // de tabela no MySQL.
     if NAdds > 0 then
       PushStmt(APlan, Head + Adds.ToString);
     if NChanges > 0 then
@@ -624,8 +577,6 @@ begin
       'alter table "%s" has no operations at all: nothing to do.',
       [ATable.TableName]);
 end;
-
-{ ILzNexSchemaCompiler }
 
 function TLzNexSchemaCompilerBase.CompileTable(
   const ATable: ILzNexTable): TLzNexDdlPlan;
@@ -701,7 +652,7 @@ begin
     ctUuid:
       Result := 'char(36)';
     ctEnum:
-      // ANSI nao tem enum; o dialeto que tiver sobrescreve.
+
       Result := 'varchar(255)';
     ctSpecific:
       Result := '';
@@ -714,7 +665,7 @@ end;
 
 function TLzNexSchemaCompilerBase.ModifierOrder: TLzNexColumnModifiers;
 begin
-  // Ordem ANSI. Comentario nao entra: no ANSI ele e um comando separado.
+
   Result := TLzNexColumnModifiers.Create(
     mdUnsigned, mdCollate, mdNullable, mdDefault, mdFirst, mdAfter);
 end;
@@ -780,8 +731,7 @@ var
   SB: TStringBuilder;
   I: Integer;
 begin
-  // Convencao do knex: <tabela>_<colunas unidas por _>_<tipo>, minusculo,
-  // com '.' e '-' virando '_'.
+
   SB := TStringBuilder.Create;
   try
     SB.Append(ATable);

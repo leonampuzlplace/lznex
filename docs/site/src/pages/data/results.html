@@ -1,0 +1,305 @@
+<article>
+<h1>Resultados</h1>
+<p class="subtitle">
+  Um cursor forward-only, uma linha materializada e um <code>ToJSON</code>. Nenhum
+  <code>TDataset</code> no caminho.
+</p>
+
+<h2 id="cursor">O cursor</h2>
+<p>
+  <code>ILzNexResult</code> é uma casca fina sobre o <code>IZResultSet</code> do ZeosLib: avança
+  para frente, uma linha por vez, sem buffer de todas as linhas em memória e sem componente
+  visual. Na abertura ele lê a metadata uma única vez — nome e tipo de cada coluna — e usa isso em
+  toda leitura seguinte.
+</p>
+
+<p>
+  O cursor <strong>fecha sozinho</strong> quando a interface é liberada: o destrutor chama
+  <code>Close</code>. Variável local de escopo curto já é suficiente; <code>Close</code> explícito
+  serve para encerrar <strong>antes</strong> do fim do escopo. Chamar duas vezes não faz mal.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<thead><tr><th>Método de <code>ILzNexResult</code></th><th>O que faz</th></tr></thead>
+<tbody>
+<tr><td><code>function Next: Boolean</code></td><td>Avança uma linha. <code>False</code> no fim — e também se o cursor já estiver fechado, sem levantar.</td></tr>
+<tr><td><code>function Field(const AName: string): TLzNexValue</code></td><td>Lê a coluna por nome na linha corrente.</td></tr>
+<tr><td><code>function FieldAt(const AIndex: Integer): TLzNexValue</code></td><td>O mesmo, por posição (base zero).</td></tr>
+<tr><td><code>function FieldCount: Integer</code></td><td>Quantas colunas o resultado tem. Vale antes do primeiro <code>Next</code>.</td></tr>
+<tr><td><code>function FieldName(const AIndex: Integer): string</code></td><td>Nome da coluna na posição. Também vale antes do primeiro <code>Next</code>.</td></tr>
+<tr><td><code>function CurrentRow: ILzNexRow</code></td><td>Materializa a linha corrente num objeto independente do cursor.</td></tr>
+<tr><td><code>function ToRows: TLzNexRowArray</code></td><td>Materializa <strong>todas</strong> as linhas restantes e esgota o cursor.</td></tr>
+<tr><td><code>function ToJSON: string</code></td><td>Array JSON com todas as linhas restantes. Também esgota o cursor.</td></tr>
+<tr><td><code>procedure Close</code></td><td>Fecha o resultset do driver. Idempotente.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="code"><pre data-lang="pascal">Rows := Db.Table('users').Select(['id', 'name']).Get;
+while Rows.Next do
+  Writeln(Rows.Field('id').AsInt64, ' ', Rows.Field('name').AsString);</pre></div>
+
+<p>
+  Ler coluna antes do primeiro <code>Next</code>, ou depois do último, levanta
+  <code>ELzNexQuery</code> — <code>Cursor is not on a row. Call Next before reading a column.</code>
+  Depois de <code>Close</code>, a mensagem é <code>Cursor already closed</code>. O caso em que
+  <code>Next</code> devolveu <code>False</code> e o código segue lendo é o mais comum dos dois.
+</p>
+
+<h3 id="column-kinds">O kind de cada coluna</h3>
+<p>
+  O tipo vem da metadata do driver e é fixado na abertura, não deduzido valor por valor. A
+  conversão é esta:
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Tipo SQL</th><th>Kind</th></tr></thead>
+<tbody>
+<tr><td>booleano</td><td><code>vkBoolean</code></td></tr>
+<tr><td>qualquer inteiro</td><td><code>vkInt64</code></td></tr>
+<tr><td><code>float</code>, <code>double</code></td><td><code>vkFloat</code></td></tr>
+<tr><td><code>currency</code>, <code>decimal</code>/<code>numeric</code></td><td><code>vkCurrency</code></td></tr>
+<tr><td><code>date</code> · <code>time</code> · <code>timestamp</code></td><td><code>vkDate</code> · <code>vkTime</code> · <code>vkDateTime</code></td></tr>
+<tr><td>binário e blob</td><td><code>vkBytes</code></td></tr>
+<tr><td>texto, GUID e o que não casar</td><td><code>vkString</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  <code>NULL</code> no banco vira <code>TLzNexValue.Null</code>, qualquer que seja o tipo da
+  coluna — então <code>IsNull</code> funciona uniformemente. A leitura do valor segue as regras
+  de <a href="#values/typed-read">leitura tipada</a>.
+</p>
+
+<p>
+  O nome da coluna é o <strong>label</strong> do driver, ou seja o alias quando existe, caindo
+  para o nome real quando o label vem vazio. <code>Select(['name as nick'])</code> se lê com
+  <code>Field('nick')</code>.
+</p>
+
+<h2 id="row">A linha materializada</h2>
+<p>
+  <code>ILzNexRow</code> é um retrato: nomes e valores já convertidos para
+  <code>TLzNexValue</code>, copiados para fora do driver. Sobrevive ao cursor avançar e ao cursor
+  fechar, e pode ser guardado, devolvido por função e colocado em array.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<thead><tr><th>Método de <code>ILzNexRow</code></th><th>O que faz</th></tr></thead>
+<tbody>
+<tr><td><code>function Field(const AName: string): TLzNexValue</code></td><td>Valor por nome. Nome inexistente levanta.</td></tr>
+<tr><td><code>function TryField(const AName: string; out AValue: TLzNexValue): Boolean</code></td><td>Não levanta: devolve <code>False</code> e deixa <code>AValue</code> em <code>Unset</code>.</td></tr>
+<tr><td><code>function FieldAt(const AIndex: Integer): TLzNexValue</code></td><td>Valor por posição (base zero).</td></tr>
+<tr><td><code>function Has(const AName: string): Boolean</code></td><td>A coluna existe nesta linha?</td></tr>
+<tr><td><code>function FieldCount: Integer</code></td><td>Quantas colunas.</td></tr>
+<tr><td><code>function FieldName(const AIndex: Integer): string</code></td><td>Nome da coluna na posição.</td></tr>
+<tr><td><code>function ToJSON: string</code></td><td>Um <strong>objeto</strong> JSON, não um array.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="cursor-or-materialized">Cursor ou materializado</h2>
+<p>
+  A escolha é entre memória e tempo de vida. O cursor não guarda linha nenhuma, mas só serve
+  enquanto está aberto; a linha materializada custa uma cópia, mas é sua.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Precisa de</th><th>Use</th></tr></thead>
+<tbody>
+<tr><td>varrer muitas linhas e descartar</td><td><code>while Rows.Next do Rows.Field(…)</code></td></tr>
+<tr><td>guardar a linha além da iteração</td><td><code>Rows.CurrentRow</code></td></tr>
+<tr><td>a lista inteira de uma vez</td><td><code>Rows.ToRows</code></td></tr>
+<tr><td>uma linha só</td><td><code>First</code> no builder — já devolve <code>ILzNexRow</code></td></tr>
+<tr><td>devolver como resposta HTTP</td><td><code>Rows.ToJSON</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="code"><pre data-lang="pascal">// cursor: nada fica em memoria
+Rows := Db.Table('logs').Get;
+while Rows.Next do
+  Process(Rows.Field('message').AsString);
+
+// materializado: a linha sobrevive ao cursor
+Rows := Db.Table('users').Where('id', 7).Get;
+if Rows.Next then
+  Row := Rows.CurrentRow;
+Rows := nil;
+Writeln(Row.Field('name').AsString);     // continua valendo
+
+// tudo de uma vez
+List := Db.Table('users').Get.ToRows;
+for I := 0 to High(List) do
+  Writeln(List[I].Field('name').AsString);</pre></div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">ToRows e ToJSON consomem o cursor</span>
+    <p>
+      Os dois varrem até o fim e deixam o cursor esgotado: a segunda chamada devolve array vazio
+      e <code>[]</code>. Os dois também <strong>incluem a linha corrente</strong> se você já tinha
+      chamado <code>Next</code> — então <code>Next</code> seguido de <code>ToRows</code> não
+      perde a primeira linha.
+    </p>
+  </div>
+</div>
+
+<h2 id="json">ToJSON</h2>
+<p>
+  <code>ToJSON</code> serializa sem biblioteca externa e sem passar por <code>TJSONObject</code>.
+  É o caminho mais curto entre um <code>select</code> e um corpo de resposta.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Kind</th><th>Sai como</th></tr></thead>
+<tbody>
+<tr><td><code>vkNull</code>, <code>vkUnset</code></td><td><code>null</code></td></tr>
+<tr><td><code>vkBoolean</code></td><td><code>true</code> / <code>false</code></td></tr>
+<tr><td>inteiro</td><td>número</td></tr>
+<tr><td><code>vkFloat</code>, <code>vkCurrency</code></td><td>número com ponto decimal, independente da locale</td></tr>
+<tr><td><code>vkString</code></td><td>string; <code>"</code>, <code>\</code> e controles escapados — UTF-8 vai <strong>cru</strong>, sem <code>\u</code></td></tr>
+<tr><td><code>vkBytes</code></td><td>string em <strong>base64</strong></td></tr>
+<tr><td><code>vkDate</code> · <code>vkTime</code> · <code>vkDateTime</code></td><td><code>"yyyy-mm-dd"</code> · <code>"hh:nn:ss"</code> · <code>"yyyy-mm-ddThh:nn:ss"</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="code"><pre data-lang="pascal">Writeln(Db.Table('users').Select(['id', 'name', 'avatar', 'created_at'])
+  .OrderBy('id').Limit(2).Get.ToJSON);</pre>
+<div class="code-out">
+  <div class="code-label">Saída</div>
+  <pre data-lang="json">[{"id":1,"name":"José da Silva ✅","avatar":"R0lGODlh","created_at":"2026-10-24T09:15:00"},{"id":2,"name":"Leonam","avatar":null,"created_at":"2026-10-24T10:02:33"}]</pre>
+  <p class="code-note">acento e emoji passam direto; o blob virou base64; <code>NULL</code> virou <code>null</code></p>
+</div>
+</div>
+
+<p>Numa rota Horse, a resposta inteira cabe em duas linhas:</p>
+
+<div class="code"><pre data-lang="pascal">procedure GetUsers(Req: THorseRequest; Res: THorseResponse);
+var
+  Rows: ILzNexResult;
+begin
+  Rows := Db.Table('users')
+    .Select(['id', 'name', 'email'])
+    .OrderBy('id')
+    .Limit(20)
+    .Get;
+  Res.Status(200).ContentType('application/json').Send(Rows.ToJSON);
+end;</pre></div>
+
+<p>
+  <code>Rows</code> é local de propósito: ao sair do procedimento a interface é liberada, o cursor
+  fecha e a conexão volta ao pool. Veja <a href="#results/connection-lease">o empréstimo da conexão</a>
+  logo abaixo.
+</p>
+
+<p>
+  Para um objeto único, use <code>ILzNexRow.ToJSON</code> —
+  <code>Db.Table('users').Select(['id', 'name']).Where('id', 7).First.ToJSON</code> devolve
+  <code>{"id":7,"name":"ana"}</code>. Lembre que <code>First</code> devolve <code>nil</code>
+  quando não há linha.
+</p>
+
+<h2 id="missing-column">Coluna que não existe</h2>
+<p>
+  <code>Field</code> levanta <code>ELzNexQuery</code> e a mensagem <strong>lista as colunas que
+  existem</strong> — é o que transforma um erro de digitação em dois segundos de depuração em vez
+  de dez minutos.
+</p>
+
+<div class="code"><pre data-lang="pascal">Rows := Db.Table('users').Select(['id', 'name']).Get;
+Rows.Next;
+Rows.Field('nome');
+// ELzNexQuery: Column "nome" does not exist in the result. Columns: id, name</pre></div>
+
+<p>
+  A busca tenta primeiro o nome exato e depois sem distinguir caixa, então
+  <code>Field('NAME')</code> acha <code>name</code>. Em <code>ILzNexRow</code> o comportamento é o
+  mesmo, com <code>in the row</code> no texto.
+</p>
+
+<p>Quando a coluna é opcional — select que varia, por exemplo — use <code>TryField</code>:</p>
+
+<div class="code"><pre data-lang="pascal">if Row.TryField('deleted_at', V) and not V.IsNull then
+  Writeln('removido em ', V.AsDateTime);</pre></div>
+
+<p>
+  <code>TryField</code> existe só em <code>ILzNexRow</code>. No cursor, a pergunta equivalente é
+  varrer <code>FieldName</code> até <code>FieldCount - 1</code>, ou materializar a linha com
+  <code>CurrentRow</code> e perguntar lá.
+</p>
+
+<h2 id="connection-lease">O empréstimo da conexão</h2>
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">O resultado segura a conexão, não a variável de conexão</span>
+    <p>
+      Um resultado vindo do pool carrega <strong>dentro dele</strong> o empréstimo da conexão. O
+      empréstimo termina no fim da vida do <em>resultado</em> — não no fim do escopo onde a
+      conexão foi pedida, e nem no <code>Close</code>: <code>Close</code> fecha o resultset do
+      driver, mas a conexão só volta ao pool quando a última referência ao
+      <code>ILzNexResult</code> é liberada.
+    </p>
+    <p>
+      Por isso <code>Db.Fetch(…)</code> e <code>.Get</code> funcionam sem você segurar nenhum
+      <code>ILzNexConnection</code>: o resultado faz isso por você. E por isso guardar um
+      <code>ILzNexResult</code> em variável global, campo de objeto ou cache é vazamento de
+      conexão disfarçado.
+    </p>
+  </div>
+</div>
+
+<div class="code"><pre data-lang="pascal">// errado: Rows e campo do objeto, a conexao fica emprestada indefinidamente
+FRows := Db.Table('users').Get;
+
+// certo: variavel local, o emprestimo acaba com o escopo
+procedure Handle;
+var
+  Rows: ILzNexResult;
+begin
+  Rows := Db.Table('users').Get;
+  while Rows.Next do
+    ...;
+end;
+
+// certo: devolver o emprestimo antes do fim do escopo
+Rows := Db.Table('users').Get;
+List := Rows.ToRows;
+Rows := nil;              // aqui a conexao volta ao pool
+Process(List);            // as linhas sao copias, nao precisam do cursor</pre></div>
+
+<p>
+  Com o pool esgotado, <code>Acquire</code> espera o timeout configurado e levanta
+  <code>ELzNexPool</code> — a mensagem termina em
+  <code>Either max is too low, or some ILzNexConnection is being kept alive beyond the request
+  scope</code>, que é exatamente este sintoma. Veja <a href="#pool">pool de conexões</a>.
+</p>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">Terminal que materializa não deixa cursor aberto</span>
+    <p>
+      <code>First</code>, <code>Value</code>, <code>Scalar</code>, <code>Pluck</code>,
+      <code>Count</code>, <code>Exists</code> e <code>Aggregate</code> consomem o cursor
+      internamente e devolvem dado copiado — nenhum deles prende conexão. Só
+      <code>Get</code> e <code>Db.Fetch</code> devolvem o cursor em si.
+    </p>
+  </div>
+</div>
+
+<div class="cards">
+  <a class="card" href="#reading"><h4>Executar e ler →</h4><p>Os terminais que produzem estes resultados.</p></a>
+  <a class="card" href="#values"><h4>Valores e binds →</h4><p>O que você tem na mão depois de <code>Field</code>.</p></a>
+  <a class="card" href="#pool"><h4>Pool de conexões →</h4><p>Tamanho, timeout e devolução ao pool.</p></a>
+</div>
+</article>

@@ -1,26 +1,5 @@
 unit LzNex.Connection;
 
-{ ILzNexConnection sobre IZConnection (camada DBC do Zeos).
-
-  Duas decisoes que valem explicacao:
-
-  1) Cache de prepared statement por conexao. Preparar custa um round-trip; numa
-     API fluente o mesmo SQL sai centenas de vezes por segundo com binds
-     diferentes. O cache e FIFO com teto fixo, porque LRU exigiria comparador
-     customizado (que o FPC 3.2.2 nao digere bem) e porque o padrao de uso real
-     e um conjunto pequeno e estavel de statements.
-
-     Consequencia que o chamador precisa saber: um IZPreparedStatement so tem UM
-     cursor aberto por vez. Reexecutar o mesmo SQL antes de consumir o
-     ILzNexResult anterior invalida o anterior. Isso nao e um problema no uso
-     normal porque conexao NAO e compartilhada entre threads (o pool entrega uma
-     por requisicao) e porque o resultado e consumido antes da proxima query.
-
-  2) Os parametros de conexao vem num record, nao em ILzNexConfig. Assim esta
-     unit nao depende da implementacao da config (que mora em outra unit) e da
-     para abrir conexao em teste sem montar a facade inteira. ParamsFromConfig
-     faz a ponte quando a config existe. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -38,29 +17,27 @@ uses
   LzNex.Exceptions;
 
 const
-  // Teto do cache de prepared statements por conexao.
+
   LZNEX_STMT_CACHE_MAX = 64;
 
 type
-  // Dados de conexao sem depender de ILzNexConfig.
+
   TLzNexConnectionParams = record
-    Protocol: string;      // 'mysql', 'postgresql'...
+    Protocol: string;
     Host: string;
     Port: Integer;
     Database: string;
     User: string;
     Password: string;
-    // Caminho da lib cliente. No Ubuntu 26.04 o auto-load do Zeos falha,
-    // entao informar isso explicitamente e praticamente obrigatorio.
+
     LibLocation: string;
-    Charset: string;       // vira a propriedade 'codepage' do Zeos
+    Charset: string;
     Props: TLzNexNamedValues;
     class function Empty: TLzNexConnectionParams; static;
-    // A URL que o DriverManager do Zeos espera.
+
     function BuildURL: string;
   end;
 
-  // Entrada do cache: SQL e o statement ja preparado.
   TLzNexCachedStmt = record
     SQL: string;
     Stmt: IZPreparedStatement;
@@ -73,10 +50,9 @@ type
     FCache: array of TLzNexCachedStmt;
     FCacheCount: Integer;
     FTxLevel: Integer;
-    // Devolve o statement do cache, preparando e guardando se faltar.
+
     function PrepareCached(const ASQL: string): IZPreparedStatement;
-    // Tira o SQL do cache: usado quando a execucao falhou e o
-    // statement pode ter ficado num estado que nao da para reaproveitar.
+
     procedure DropCached(const ASQL: string);
     procedure ClearCache;
     procedure BindAll(const AStmt: IZPreparedStatement;
@@ -101,32 +77,23 @@ type
     function Native: IInterface;
     function Client: ILzNexClient;
 
-    // Quantos statements estao no cache. Existe para o teste provar
-    // que o cache nao cresce sem limite.
     function CachedStatementCount: Integer;
   end;
 
-// Abre uma conexao nova e a envolve.
 function NewConnection(const AClient: ILzNexClient;
   const AParams: TLzNexConnectionParams): ILzNexConnection; overload;
 
-// Idem, lendo os dados da config. E a porta de entrada que a facade usa.
 function NewConnection(const AConfig: ILzNexConfig;
   const AClient: ILzNexClient): ILzNexConnection; overload;
 
-// Envolve um IZConnection que o chamador abriu.
 function WrapConnection(const AClient: ILzNexClient;
   const AZConn: IZConnection): ILzNexConnection;
 
-// Copia da config para o record de parametros.
 function ParamsFromConfig(const AConfig: ILzNexConfig): TLzNexConnectionParams;
 
-// Traducao do nivel de isolamento do LzNex para o do Zeos.
 function ZeosIsolation(const AIsolation: TLzNexIsolation): TZTransactIsolationLevel;
 
 implementation
-
-{ TLzNexConnectionParams }
 
 class function TLzNexConnectionParams.Empty: TLzNexConnectionParams;
 begin
@@ -154,17 +121,13 @@ begin
     if LibLocation <> '' then
       Url.LibLocation := LibLocation;
     if Charset <> '' then
-      // Sem isso o emoji vira '?' silenciosamente no MySQL.
+
       Url.Properties.Values['codepage'] := Charset;
 
-    // Sem esta propriedade o Zeos trata bit(1)/tinyint(1) como texto 'Y'/'N':
-    // SetBoolean manda a letra, e o MySQL recusa com "Incorrect integer value".
-    // Ligada, tinyint(1) vira stBoolean na leitura e 0/1 no bind.
     if (Pos('mysql', LowerCase(Protocol)) = 1) or
        (Pos('mariadb', LowerCase(Protocol)) = 1) then
       Url.Properties.Values['MySQL_FieldType_Bit_1_IsBoolean'] := 'True';
 
-    // Props por ultimo: o que o chamador informou vence os defaults acima.
     for I := 0 to High(Props) do
       Url.Properties.Values[Props[I].Name] := Props[I].Value.AsString;
     Result := Url.URL;
@@ -179,8 +142,6 @@ begin
   if AConfig = nil then
     raise ELzNexConfig.Create('Nil config while building the connection parameters');
 
-  // Campo vazio na config NAO sobrescreve o default: zerar o codepage, por
-  // exemplo, faria o emoji virar '?' sem nenhum erro aparecer.
   if AConfig.GetClient <> '' then
     Result.Protocol := AConfig.GetClient;
   if AConfig.GetHost <> '' then
@@ -208,8 +169,6 @@ begin
     Result := tiNone;
   end;
 end;
-
-{ TLzNexConnection }
 
 constructor TLzNexConnection.Create(const AClient: ILzNexClient;
   const AZConn: IZConnection);
@@ -248,7 +207,7 @@ begin
       try
         FCache[I].Stmt.Close;
       except
-        // Conexao caida ja invalidou o statement; nada a recuperar.
+
       end;
       FCache[I].Stmt := nil;
     end;
@@ -284,8 +243,7 @@ var
 begin
   Result := nil;
   Len := Length(ASQL);
-  // Compara tamanho antes do texto: a varredura linear sobre no maximo
-  // LZNEX_STMT_CACHE_MAX entradas sai mais barata que um hash do SQL inteiro.
+
   for I := 0 to FCacheCount - 1 do
     if (Length(FCache[I].SQL) = Len) and (FCache[I].SQL = ASQL) then
       Exit(FCache[I].Stmt);
@@ -299,8 +257,7 @@ begin
 
   if FCacheCount >= LZNEX_STMT_CACHE_MAX then
   begin
-    // Descarta o mais antigo e desloca: acontece raramente, porque o conjunto
-    // de SQL distinto de uma aplicacao e pequeno e estavel.
+
     try
       FCache[0].Stmt.Close;
     except
@@ -351,8 +308,7 @@ begin
       vkDateTime:
         AStmt.SetTimestamp(P, V.AsDateTime);
     else
-      // vkUnset, vkIdentifier, vkRaw e vkSubQuery nunca deveriam chegar aqui:
-      // identificador vai quotado no texto e raw/subquery tem binds proprios.
+
       raise ELzNexQuery.CreateFmt(
         Format('Bind %d is not a bindable value: %s', [I + 1, V.Describe]), ASQL);
     end;
@@ -417,7 +373,7 @@ begin
 
   if RS = nil then
     raise ELzNexQuery.CreateFmt('The query did not return a resultset', SQL);
-  // Prep vai como owner: o cursor fica invalido se o statement morrer.
+
   Result := NewResult(RS, Prep);
 end;
 
@@ -429,8 +385,6 @@ begin
   if Trim(ASQL) = '' then
     raise ELzNexQuery.CreateFmt('Empty SQL in ExecuteScript', ASQL);
 
-  // Statement simples, nao preparado: o MySQL recusa boa parte do DDL
-  // pelo protocolo de prepared statement.
   Stmt := NeedZ.CreateStatement;
   try
     try
@@ -456,8 +410,6 @@ begin
   if FClient <> nil then
     Dialect := LowerCase(FClient.DialectName);
 
-  // ILzNexClient nao expoe um hook para isso, entao o SQL vai escolhido pelo
-  // nome do dialeto. Ver relatorio: e uma lacuna do contrato.
   if (Dialect = 'postgresql') or (Dialect = 'postgres') then
     SQL := 'select lastval()'
   else if Dialect = 'sqlite' then
@@ -486,7 +438,7 @@ function TLzNexConnection.StartTransaction: Integer;
 begin
   Result := 0;
   try
-    // O Zeos devolve 1 na transacao raiz e >1 no savepoint aninhado.
+
     Result := NeedZ.StartTransaction;
   except
     on E: Exception do
@@ -521,8 +473,7 @@ end;
 
 function TLzNexConnection.InTransaction: Boolean;
 begin
-  // Estado real do servidor, nao o contador: autocommit desligado e a
-  // definicao de "dentro de transacao" no Zeos.
+
   Result := (FZConn <> nil) and (not FZConn.IsClosed) and (not FZConn.GetAutoCommit);
 end;
 
@@ -541,7 +492,7 @@ begin
       Exit;
     Result := FZConn.PingServer = 0;
   except
-    // Conexao morta levanta aqui; Ping nunca propaga, so responde False.
+
     Result := False;
   end;
 end;
@@ -560,7 +511,7 @@ begin
       if not FZConn.IsClosed then
         FZConn.Close;
     except
-      // Fechar e best effort: a conexao pode ja ter caido do outro lado.
+
     end;
     FZConn := nil;
   end;
@@ -581,8 +532,6 @@ function TLzNexConnection.CachedStatementCount: Integer;
 begin
   Result := FCacheCount;
 end;
-
-{ fabricas }
 
 function WrapConnection(const AClient: ILzNexClient;
   const AZConn: IZConnection): ILzNexConnection;
@@ -617,8 +566,7 @@ var
   P: TLzNexConnectionParams;
 begin
   P := ParamsFromConfig(AConfig);
-  // O dialeto manda no protocolo: GetClient e o nome do dialeto do LzNex, que
-  // nao e necessariamente o Protocol do Zeos.
+
   if AClient <> nil then
     P.Protocol := AClient.ZeosProtocol;
   Result := NewConnection(AClient, P);

@@ -1,9 +1,9 @@
 # LzNex
 
-Query builder, schema builder e migrations para **Lazarus/FPC**, no espírito do
-[Knex.js](https://knexjs.org). Usa [ZeosLib](https://zeoslib.sourceforge.io) por baixo
-(camada DBC, sem `TDataset`). MySQL pronto; PostgreSQL com SQL/DDL implementados;
-arquitetura aberta para Firebird.
+Query builder, schema builder e migrations para **Lazarus/FPC**, com API fluente e
+encadeável. Usa [ZeosLib](https://zeoslib.sourceforge.io) por baixo (camada DBC, sem
+`TDataset`). MySQL pronto; PostgreSQL com SQL/DDL implementados; arquitetura aberta
+para Firebird.
 
 Instalável por [Boss](https://github.com/HashLoad/boss) em qualquer projeto Lazarus,
 inclusive os que usam [Horse](https://github.com/HashLoad/horse).
@@ -13,7 +13,7 @@ inclusive os que usam [Horse](https://github.com/HashLoad/horse).
 ```jsonc
 // boss.json do seu projeto
 "dependencies": {
-  "github.com/SEU-USUARIO/lznex": "^1.0.0"
+  "github.com/leonampuzlplace/lznex": "^1.0.0"
 }
 ```
 
@@ -21,9 +21,13 @@ inclusive os que usam [Horse](https://github.com/HashLoad/horse).
 boss install
 ```
 
-O ZeosLib vem junto, como dependência transitiva. A coordenada acima ainda é um
-placeholder (`CHANGEME`): enquanto o repositório não for publicado, os Dockerfiles
-montam `modules/` com o mesmo layout que o Boss produziria.
+O Boss resolve a versão pelas tags do repositório: cada entrega em `production` publica
+uma tag `vX.Y.Z` pela GitHub Action, e é dela que sai o `^1.0.0` acima.
+
+O ZeosLib vem junto, como dependência transitiva. A coordenada dele ainda é um
+placeholder (`github.com/CHANGEME/zeoslib`), porque depende de um fork com `boss.json` —
+enquanto isso, os Dockerfiles clonam o Zeos do repositório oficial e montam `modules/`
+com o mesmo layout que o Boss produziria.
 
 ## Usar
 

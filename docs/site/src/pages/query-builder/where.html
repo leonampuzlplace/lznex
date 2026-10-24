@@ -1,0 +1,209 @@
+<article>
+<h1>Where e grupos</h1>
+<p class="subtitle">
+  Valor entra sempre como bind. Números, strings e booleanos convertem sozinhos.
+</p>
+
+<h2 id="basics">Comparação</h2>
+<p>Dois overloads: sem operador (assume <code>=</code>) e com operador explícito.</p>
+
+<div class="code"><pre data-lang="pascal">Db.Table('users').Where('id', 1)
+Db.Table('users').Where('age', '>=', 18)
+Db.Table('users').Where('a', 1).Where('b', 'x')        // and
+Db.Table('t').Where('a', 1).OrWhere('b', 2).Where('c', 3)
+Db.Table('t').WhereNot('a', 1)</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `users` where `id` = ?
+select * from `users` where `age` >= ?
+select * from `users` where `a` = ? and `b` = ?
+select * from `t` where `a` = ? or `b` = ? and `c` = ?
+select * from `t` where not `a` = ?</pre>
+</div>
+</div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">O OR não contamina o resto</span>
+    <p>
+      O conector é parâmetro de cada statement, não um estado do builder:
+      <code>OrWhere</code> afeta <strong>só</strong> o predicado que ele introduz, como mostra
+      o quarto exemplo acima.
+    </p>
+  </div>
+</div>
+
+<h3 id="operators">Operadores aceitos</h3>
+<p>
+  A lista é <strong>fechada</strong>. Operador fora dela levanta <code>ELzNexBuilder</code> —
+  é o que fecha a porta para injeção via operador vindo de entrada do usuário.
+</p>
+<div class="table-wrap">
+<table>
+<tbody>
+<tr><td><code>=</code> <code>&lt;</code> <code>&gt;</code> <code>&lt;=</code> <code>&gt;=</code> <code>&lt;&gt;</code> <code>!=</code> <code>&lt;=&gt;</code></td><td>comparação</td></tr>
+<tr><td><code>like</code> <code>not like</code> <code>ilike</code> <code>not ilike</code></td><td>padrão textual</td></tr>
+<tr><td><code>between</code> <code>not between</code> <code>in</code> <code>not in</code></td><td>faixa e conjunto</td></tr>
+<tr><td><code>is</code> <code>is not</code> <code>exists</code> <code>not exists</code></td><td>nulidade e existência</td></tr>
+<tr><td><code>rlike</code> <code>not rlike</code> <code>regexp</code> <code>not regexp</code></td><td>expressão regular</td></tr>
+<tr><td><code>&amp;</code> <code>|</code> <code>^</code> <code>~</code></td><td>bit a bit</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="code"><pre data-lang="pascal">Db.Table('t').Where('a', '; drop table users; --', 1);
+// ELzNexBuilder: operador fora da lista aceita</pre></div>
+
+<h3 id="where-column">Coluna contra coluna</h3>
+<div class="code"><pre data-lang="pascal">Db.Table('t').WhereColumn('a.id', '=', 'b.a_id')</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `t` where `a`.`id` = `b`.`a_id`</pre>
+  <p class="code-note">binds: nenhum — os dois lados são identificadores</p>
+</div>
+</div>
+
+<h2 id="lists">Listas</h2>
+<div class="code"><pre data-lang="pascal">Db.Table('t').WhereIn('id', ValueList([1, 2, 3]))
+Db.Table('t').WhereNotIn('id', ValueList([1, 2]))
+Db.Table('t').WhereIn('id', nil)       // lista vazia
+Db.Table('t').WhereNotIn('id', nil)</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `t` where `id` in (?, ?, ?)
+select * from `t` where `id` not in (?, ?)
+select * from `t` where 1 = 0
+select * from `t` where 1 = 1</pre>
+</div>
+</div>
+
+<p>
+  Lista vazia vira <code>1 = 0</code> (e <code>not in</code> vazio vira <code>1 = 1</code>)
+  por duas razões: <code>in ()</code> não é SQL válido, e um filtro sem candidatos não deve
+  casar com nada.
+</p>
+
+<div class="code"><pre data-lang="pascal">Sub := Db.Query.Table('t').Select(['id']).Where('z', 9);
+Db.Table('users').Where('a', 1).WhereInSub('id', Sub);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `users` where `a` = ? and `id` in (select `id` from `t` where `z` = ?)</pre>
+  <p class="code-note">binds: 1 | 9 — na ordem do texto</p>
+</div>
+</div>
+
+<h2 id="null-range-pattern">Nulidade, faixa e padrão</h2>
+<div class="code"><pre data-lang="pascal">Db.Table('t').WhereNull('a')
+Db.Table('t').WhereNotNull('a')
+Db.Table('t').WhereBetween('age', 18, 65)
+Db.Table('t').WhereNotBetween('age', 18, 65)
+Db.Table('t').WhereLike('name', '%jo%')
+Db.Table('t').WhereNotLike('name', '%jo%')</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `t` where `a` is null
+select * from `t` where `a` is not null
+select * from `t` where `age` between ? and ?
+select * from `t` where `age` not between ? and ?
+select * from `t` where `name` like ?
+select * from `t` where `name` not like ?</pre>
+</div>
+</div>
+
+<p>
+  <code>WhereILike</code> usa <code>ilike</code> nativo onde existe. Em MySQL, onde a
+  comparação já é insensível a caixa por collation, cai em <code>like</code>.
+</p>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">select * from `users` where `name` like ?</pre>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">select * from "users" where "name" ilike ?</pre>
+  </div>
+</div>
+
+<h2 id="exists">Exists e SQL cru</h2>
+<div class="code"><pre data-lang="pascal">Sub := Db.Query.Table('p').SelectRaw('1', []).WhereColumn('p.u', '=', 'users.id');
+Db.Table('users').WhereExists(Sub);
+Db.Table('users').WhereNotExists(Sub);
+
+Db.Table('t').WhereRaw('age > ? and active = ?', [18, True]);
+Db.Table('users').WhereRaw('json_extract(??, ?) = ?', ['d', '$.a', 5]);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `users` where exists (select 1 from `p` where `p`.`u` = `users`.`id`)
+select * from `users` where not exists (select 1 from `p` where `p`.`u` = `users`.`id`)
+select * from `t` where age > ? and active = ?
+select * from `users` where json_extract(`d`, ?) = ?</pre>
+  <p class="code-note">binds: 18 | True · $.a | 5</p>
+</div>
+</div>
+
+<p>Veja <a href="#raw-sql">SQL cru</a> para a gramática completa de <code>?</code>, <code>??</code> e <code>:nome</code>.</p>
+
+<h2 id="groups">Grupos de predicado</h2>
+<p>
+  Como o FPC 3.2.2 não tem função anônima, o parêntese é aberto e fechado explicitamente. O
+  builder mantém uma pilha de grupos.
+</p>
+
+<div class="code"><pre data-lang="pascal">Db.Table('users')
+  .Where('active', True)
+  .WhereOpen
+    .Where('role', 'admin')
+    .OrWhere('role', 'owner')
+  .WhereClose</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `users` where `active` = ? and (`role` = ? or `role` = ?)</pre>
+  <p class="code-note">binds: True | admin | owner</p>
+</div>
+</div>
+
+<p>Grupos aninham, e um grupo pode abrir a cláusula:</p>
+
+<div class="code"><pre data-lang="pascal">Db.Table('t').Where('a', 1)
+  .WhereOpen
+    .Where('b', 2)
+    .OrWhereOpen.Where('c', 3).Where('d', 4).WhereClose
+  .WhereClose;
+
+Db.Table('t')
+  .WhereOpen.Where('a', 1).OrWhere('b', 2).WhereClose
+  .Where('c', 3);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `t` where `a` = ? and (`b` = ? or (`c` = ? and `d` = ?))
+select * from `t` where (`a` = ? or `b` = ?) and `c` = ?</pre>
+</div>
+</div>
+
+<div class="table-wrap">
+<table class="api">
+<thead><tr><th>Método</th><th>Abre</th></tr></thead>
+<tbody>
+<tr><td><code>WhereOpen</code></td><td><code>and (</code></td></tr>
+<tr><td><code>OrWhereOpen</code></td><td><code>or (</code></td></tr>
+<tr><td><code>WhereNotOpen</code></td><td><code>and not (</code></td></tr>
+<tr><td><code>WhereClose</code></td><td>fecha o grupo mais interno</td></tr>
+<tr><td><code>HavingOpen</code> / <code>HavingClose</code></td><td>o mesmo, em <code>having</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Grupo mal formado levanta</span>
+    <p>
+      <code>ToSQL</code> exige <code>OpenGroupCount = 0</code>: grupo aberto e não fechado
+      levanta <code>ELzNexBuilder</code>. <code>WhereClose</code> sem <code>WhereOpen</code>
+      correspondente levanta na hora da chamada. Nenhum dos dois casos chega ao banco como SQL
+      quebrado.
+    </p>
+  </div>
+</div>
+</article>

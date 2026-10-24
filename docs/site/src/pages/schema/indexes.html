@@ -1,0 +1,241 @@
+<article>
+<h1>Índices e chaves</h1>
+<p class="subtitle">
+  Índice e constraint saem como comando próprio no <code>Post</code> do plano. A exceção é a
+  primary key, que vai inline no <code>create table</code>.
+</p>
+
+<h2 id="why-outside-create">Por que fora do create table</h2>
+<p>
+  O <code>create table</code> é um único statement com as colunas. Todo índice, unique e chave
+  estrangeira vira um comando separado na lista <code>Post</code> do
+  <a href="#schema">plano DDL</a> — um comando por índice. Isso mantém a mesma montagem
+  funcionando em create e em alter, e faz um índice que falha não levar o
+  <code>create table</code> junto.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Sch.CreateTable('users');
+T.Increments('id');
+T.Str('email', 191).NotNull.Unique;
+T.Str('name').Index;
+P := T.ToSQL;</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">create table `users` (`id` int unsigned not null auto_increment primary key, `email` varchar(191) not null, `name` varchar(255) null)
+alter table `users` add unique `users_email_unique`(`email`)
+alter table `users` add index `users_name_index`(`name`)</pre>
+  <p class="code-note">Statements: 1 · Post: 2 · <code>P.Count</code> = 3</p>
+</div>
+</div>
+
+<h2 id="auto-name">O nome automático</h2>
+<p>
+  Sem <code>ConstraintName</code>, o nome é <code>&lt;tabela&gt;_&lt;colunas&gt;_&lt;tipo&gt;</code>:
+  a tabela, cada coluna na ordem, e o sufixo do tipo (<code>index</code>, <code>unique</code>,
+  <code>primary</code>, <code>foreign</code>). Tudo em caixa baixa, com <code>.</code> e
+  <code>-</code> trocados por <code>_</code> para o nome continuar sendo um identificador simples.
+  Quem monta é <code>IndexName</code> no compilador do dialeto, e dá para chamar direto:
+</p>
+
+<div class="code"><pre data-lang="pascal">Cmp := Db.Client.NewSchemaCompiler;
+Cmp.IndexName('t', StringsToValues(['c']), ixUnique)         // t_c_unique
+Cmp.IndexName('My.Tbl', StringsToValues(['A-B']), ixIndex)   // my_tbl_a_b_index</pre></div>
+
+<h2 id="unique-index">Unique e index</h2>
+<p>
+  As formas de uma coluna (<code>Unique</code>, <code>Index</code> sem argumento) agem sobre a
+  última coluna adicionada. As formas com lista montam índice composto, e o nome une as colunas
+  na ordem em que você passou.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Sch.CreateTable('comp');
+T.Int('a').NotNull;
+T.Int('b').NotNull;
+T.Unique(['a', 'b']);
+T.Index(['b', 'a']);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">alter table `comp` add unique `comp_a_b_unique`(`a`, `b`)
+alter table `comp` add index `comp_b_a_index`(`b`, `a`)</pre>
+  <p class="code-note">a ordem das colunas muda o nome e muda o índice</p>
+</div>
+</div>
+
+<p>A sintaxe do comando difere por banco:</p>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">alter table `users` add unique `users_email_unique`(`email`)
+alter table `users` add index `users_name_index`(`name`)</pre>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">alter table "users" add constraint "users_email_unique" unique ("email")
+create index "users_name_index" on "users" ("name")</pre>
+    <p class="code-note">unique é constraint; index comum é <code>create index</code></p>
+  </div>
+</div>
+
+<h2 id="primary">Primary key</h2>
+<p>
+  A primary key é a única que vai <strong>inline</strong> no <code>create table</code>, como
+  cláusula <code>primary key (…)</code> depois das colunas. Não gera comando extra: índice
+  de PK criado depois do fato custaria uma reescrita da tabela.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Sch.CreateTable('pk1');
+T.Int('a').NotNull;
+T.Int('b').NotNull;
+T.Primary(['a', 'b']);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">create table `pk1` (`a` int not null, `b` int not null, primary key (`a`, `b`))</pre>
+  <p class="code-note">Post: 0 comandos</p>
+</div>
+</div>
+
+<p>
+  <code>Primary</code> sem argumento também compõe: a segunda chamada <strong>acrescenta</strong>
+  a coluna à PK que já existe em vez de criar uma segunda.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Sch.CreateTable('pk2');
+T.Int('a').NotNull.Primary;
+T.Int('b').NotNull.Primary;</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">create table `pk2` (`a` int not null, `b` int not null, primary key (`a`, `b`))</pre>
+</div>
+</div>
+
+<p>
+  <code>Increments</code> e <code>BigIncrements</code> já embutem <code>primary key</code> no
+  próprio tipo, então não precisam (nem devem) de <code>Primary</code> em cima.
+</p>
+
+<h2 id="foreign">Chave estrangeira</h2>
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function References(const AColumn: string): ILzNexTable</code></td><td>Abre a FK na última coluna, apontando para <code>AColumn</code>. Aceita <code>'tabela.coluna'</code> e nesse caso já resolve a tabela.</td></tr>
+<tr><td><code>function InTable(const ATable: string): ILzNexTable</code></td><td>Tabela referenciada. Dispensável se <code>References</code> veio qualificado.</td></tr>
+<tr><td><code>function OnDelete(const AAction: string): ILzNexTable</code></td><td>Ação no delete. Normalizada: caixa baixa e <code>_</code> vira espaço (<code>'SET_NULL'</code> → <code>set null</code>).</td></tr>
+<tr><td><code>function OnUpdate(const AAction: string): ILzNexTable</code></td><td>O mesmo, no update.</td></tr>
+<tr><td><code>function ConstraintName(const AName: string): ILzNexTable</code></td><td>Sobrepõe o nome automático do último índice/FK declarado.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="code"><pre data-lang="pascal">T := Sch.CreateTable('posts');
+T.Increments('id');
+T.Int('user_id').Unsigned.NotNull
+  .References('id').InTable('users').OnDelete('cascade').OnUpdate('RESTRICT');</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">alter table `posts` add constraint `posts_user_id_foreign` foreign key (`user_id`) references `users` (`id`) on delete cascade on update restrict</pre>
+  <p class="code-note">a coluna sai normal no create: <code>`user_id` int unsigned not null</code></p>
+</div>
+</div>
+
+<p>A forma curta, com a tabela junto da coluna, dispensa <code>InTable</code>:</p>
+
+<div class="code"><pre data-lang="pascal">T := Sch.CreateTable('posts');
+T.Int('user_id').NotNull.References('users.id');</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">alter table `posts` add constraint `posts_user_id_foreign` foreign key (`user_id`) references `users` (`id`)</pre>
+</div>
+</div>
+
+<div class="code"><pre data-lang="pascal">T.Int('user_id').NotNull.References('users.id').ConstraintName('fk_posts_user');</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">alter table `posts` add constraint `fk_posts_user` foreign key (`user_id`) references `users` (`id`)</pre>
+</div>
+</div>
+
+<h3 id="actions">Ações aceitas</h3>
+<p>
+  A lista é <strong>fechada</strong>: <code>cascade</code>, <code>restrict</code>,
+  <code>set null</code>, <code>no action</code>, <code>set default</code>. Qualquer outra coisa
+  levanta <code>ELzNexSchema</code> na hora da chamada. O motivo é direto: a ação é
+  <strong>interpolada</strong> no DDL, não bindada, então tem que vir de uma lista conhecida.
+</p>
+
+<div class="code"><pre data-lang="pascal">T.Int('a').References('id').InTable('y').OnDelete('drop table');
+// ELzNexSchema: acao referencial fora da lista</pre></div>
+
+<h2 id="validations">O que levanta ELzNexSchema</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Situação</th><th>Quando</th></tr></thead>
+<tbody>
+<tr><td><code>InTable</code> sem <code>References</code> antes</td><td>na chamada — não há FK para completar</td></tr>
+<tr><td><code>References</code> sem coluna anterior</td><td>na chamada — e sem deixar FK órfã no builder</td></tr>
+<tr><td><code>References</code> sem <code>InTable</code> nem tabela qualificada</td><td>na <strong>compilação</strong> (<code>ToSQL</code>), e o plano parcial é descartado inteiro</td></tr>
+<tr><td>ação de FK fora da lista aceita</td><td>na chamada de <code>OnDelete</code>/<code>OnUpdate</code></td></tr>
+<tr><td>índice sem colunas (<code>Unique([])</code>, <code>Index([])</code>, <code>Primary([])</code>)</td><td>na chamada</td></tr>
+<tr><td><code>Unique</code>/<code>Index</code>/<code>Primary</code> sem coluna anterior</td><td>na chamada</td></tr>
+<tr><td><code>ConstraintName</code> sem índice ou FK declarado</td><td>na chamada</td></tr>
+<tr><td><code>create table</code> sem nenhuma coluna</td><td>na compilação</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="drop">Remover índices e chaves</h2>
+<p>
+  Os quatro só valem em alter table (<code>Db.Schema.Table(…)</code>); em create levantam.
+  Eles identificam o alvo pelo <strong>nome automático</strong> derivado das colunas, então passe
+  as mesmas colunas usadas na criação — ou o nome que você deu com <code>ConstraintName</code>.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Sch.Table('users');
+T.DropPrimary;
+T.DropForeign(['user_id']);
+T.DropUnique(['email']);
+T.DropIndex(['age']);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">alter table `users` drop primary key
+alter table `users` drop foreign key `users_user_id_foreign`
+alter table `users` drop index `users_email_unique`
+alter table `users` drop index `users_age_index`</pre>
+  <p class="code-note">Statements: 0 — alter só de índice não gera comando de coluna</p>
+</div>
+</div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">No MySQL, unique também é índice</span>
+    <p>
+      O MySQL implementa unique como índice único, e <code>drop index</code> remove os dois.
+      <code>DropUnique</code> e <code>DropIndex</code> portanto geram o mesmo comando — a única
+      diferença é o sufixo do nome procurado (<code>_unique</code> contra <code>_index</code>).
+      Primary e foreign key têm sintaxe própria (<code>drop primary key</code>,
+      <code>drop foreign key</code>).
+    </p>
+  </div>
+</div>
+
+<p>No PostgreSQL tudo que não é índice comum é constraint:</p>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">alter table `users` drop primary key
+alter table `users` drop foreign key `users_user_id_foreign`
+alter table `users` drop index `users_email_unique`
+alter table `users` drop index `users_age_index`</pre>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">alter table "users" drop constraint "users_primary"
+alter table "users" drop constraint "users_user_id_foreign"
+alter table "users" drop constraint "users_email_unique"
+drop index "users_age_index"</pre>
+  </div>
+</div>
+
+<div class="cards">
+  <a class="card" href="#alter-table"><h4>Alterar tabela →</h4><p>Como o alter agrega adições, mudanças e drops.</p></a>
+  <a class="card" href="#modifiers"><h4>Modificadores →</h4><p>NotNull, default, comment e a ordem do dialeto.</p></a>
+</div>
+</article>

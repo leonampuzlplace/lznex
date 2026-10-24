@@ -1,19 +1,5 @@
 unit LzNex.Seed;
 
-{ Seeds: dados de desenvolvimento e de teste.
-
-  Diferenca deliberada em relacao a migration (mesma escolha do knex): seed nao
-  tem batch, nao tem lock, nao tem transacao e nao tem tabela de controle. Seed
-  roda quantas vezes se quiser e a propria seed cuida de ser idempotente
-  (delete antes de insert, ou upsert). Isso e o que permite "zera e popula" no
-  comeco de cada suite de teste.
-
-  A ordem e ALFABETICA por nome, nao por timestamp: seed nao tem historico, so
-  dependencia entre si -- '01_users', '02_posts'.
-
-  Vale a mesma armadilha de link das migrations: unit que ninguem referencia em
-  `uses` nao e linkada, seu `initialization` nao roda e a seed nao se registra. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -30,19 +16,16 @@ type
   TLzNexSeedClass = class of TLzNexSeed;
   TLzNexSeedClassArray = array of TLzNexSeedClass;
 
-  { Nao e TInterfacedObject: nao existe ILzNexSeed no contrato, a seed e so um
-    bloco de codigo com nome. O seeder instancia, roda e libera. }
   TLzNexSeed = class(TObject)
   public
-    // O nome que define a ordem e aparece no log. Toda subclasse sobrescreve.
+
     class function SeedName: string; virtual;
     procedure Run(const ADb: ILzNex); virtual; abstract;
   end;
 
   TLzNexSeeder = class(TInterfacedObject, ILzNexSeeder)
   private
-    { Referencia FORTE, e seguro: a facade cria um seeder novo a cada acesso a
-      Db.Seeder e NAO guarda a instancia, entao nao ha ciclo de refcount. }
+
     FDb: ILzNex;
     function Db: ILzNex;
     function Log: ILzNexLogger;
@@ -56,23 +39,16 @@ type
     function Names: TLzNexStringArray;
   end;
 
-// Acrescenta a seed ao registry, mantendo a ordem alfabetica. Chamar no
-// `initialization` da unit da seed.
 procedure RegisterSeed(const AClass: TLzNexSeedClass);
 
-// Quantas estao registradas.
 function RegisteredSeedCount: Integer;
 
-// Copia do registry, em ordem alfabetica.
 function RegisteredSeeds: TLzNexSeedClassArray;
 
-// A classe de um nome, ou nil.
 function FindSeedClass(const AName: string): TLzNexSeedClass;
 
-// Esvazia o registry. Existe para teste.
 procedure ClearSeeds;
 
-// O seeder pronto para uso. Construtor barato: nada vai ao banco aqui.
 function NewSeeder(const ADb: ILzNex): ILzNexSeeder;
 
 implementation
@@ -81,16 +57,12 @@ var
   GSeeds: TLzNexSeedClassArray = nil;
   GCount: Integer = 0;
 
-{ TLzNexSeed }
-
 class function TLzNexSeed.SeedName: string;
 begin
   Result := '';
   raise ELzNex.Create(
     'Seed ' + ClassName + ' did not override SeedName.');
 end;
-
-{ Registry }
 
 function RegisteredSeedCount: Integer;
 begin
@@ -150,7 +122,6 @@ begin
       SetLength(GSeeds, Length(GSeeds) * 2);
   end;
 
-  { Insercao ordenada: o registry ja sai alfabetico. }
   Slot := GCount;
   for I := 0 to GCount - 1 do
     if CompareText(GSeeds[I].SeedName, NewName) > 0 then
@@ -163,8 +134,6 @@ begin
   GSeeds[Slot] := AClass;
   Inc(GCount);
 end;
-
-{ TLzNexSeeder }
 
 constructor TLzNexSeeder.Create(const ADb: ILzNex);
 begin
@@ -209,8 +178,7 @@ begin
       Seed.Run(Db);
     except
       on E: Exception do
-        { Preserva a mensagem original: sem ela o usuario so saberia que
-          "uma seed" falhou. }
+
         raise ELzNex.Create(
           'Seed "' + AClass.SeedName + '" (' + AClass.ClassName +
           ') failed: ' + E.Message);

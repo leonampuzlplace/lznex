@@ -1,0 +1,18 @@
+# O projeto compila e roda em Linux: fim de linha LF em tudo que e texto,
+# independente de quem commitou.
+* text=auto eol=lf
+
+*.pas text eol=lf
+*.lpr text eol=lf
+*.lpi text eol=lf
+*.lpk text eol=lf
+*.sh  text eol=lf
+*.py  text eol=lf
+*.sql text eol=lf
+*.md  text eol=lf
+*.yml text eol=lf
+
+# Gerado por docs/site/src/build.py: nao polui o diff nem conta como codigo.
+docs/site/index.html  -diff linguist-generated
+# Tailwind vendorizado.
+docs/site/assets/tailwind.js  -diff linguist-vendored

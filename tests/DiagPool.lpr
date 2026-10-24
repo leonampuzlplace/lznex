@@ -1,10 +1,5 @@
 program DiagPool;
 
-{ Isola qual operacao nao devolve a conexao ao pool.
-
-  Mede Pool.InUse depois de cada tipo de chamada, numa thread so, para separar
-  o problema de concorrencia do problema de ciclo de vida. }
-
 {$MODE DELPHI}{$H+}
 
 uses
@@ -102,7 +97,6 @@ begin
   Show('depois de laco misto x' + IntToStr(AVoltas) + ' DENTRO da rotina');
 end;
 
-// Reproduz o padrao do worker: transacao a cada volta, dentro de UMA rotina.
 procedure StepLacoComTransacao(const AVoltas: Integer);
 var
   I: Integer;

@@ -1,0 +1,127 @@
+<article>
+<h1>Config e logger</h1>
+<p class="subtitle">
+  <code>ILzNexConfig</code> é um par de setter encadeável e getter para cada campo, mais os
+  defaults aplicados na construção.
+</p>
+
+<h2 id="ilznexconfig">ILzNexConfig</h2>
+<p>
+  Todo setter devolve <code>ILzNexConfig</code>, então a configuração se escreve em cadeia. Os
+  getters têm prefixo <code>Get</code> para não colidir com o setter de mesmo nome — é por isso
+  que existe <code>Client</code> e <code>GetClient</code> em vez de uma propriedade. Nada aqui
+  abre conexão: é só um saco de valores validado.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<thead><tr><th>Setter</th><th>Getter</th></tr></thead>
+<tbody>
+<tr><td><code>function Client(const AName: string): ILzNexConfig</code></td><td><code>function GetClient: string</code></td></tr>
+<tr><td><code>function Host(const AValue: string): ILzNexConfig</code></td><td><code>function GetHost: string</code></td></tr>
+<tr><td><code>function Port(const AValue: Integer): ILzNexConfig</code></td><td><code>function GetPort: Integer</code></td></tr>
+<tr><td><code>function Database(const AValue: string): ILzNexConfig</code></td><td><code>function GetDatabase: string</code></td></tr>
+<tr><td><code>function User(const AValue: string): ILzNexConfig</code></td><td><code>function GetUser: string</code></td></tr>
+<tr><td><code>function Password(const AValue: string): ILzNexConfig</code></td><td><code>function GetPassword: string</code></td></tr>
+<tr><td><code>function LibraryLocation(const AValue: string): ILzNexConfig</code></td><td><code>function GetLibraryLocation: string</code></td></tr>
+<tr><td><code>function Charset(const AValue: string): ILzNexConfig</code></td><td><code>function GetCharset: string</code></td></tr>
+<tr><td><code>function Pool(const AMin, AMax: Integer): ILzNexConfig</code></td><td><code>function GetPoolMin: Integer</code><br><code>function GetPoolMax: Integer</code></td></tr>
+<tr><td><code>function AcquireTimeout(const AMilliseconds: Integer): ILzNexConfig</code></td><td><code>function GetAcquireTimeout: Integer</code></td></tr>
+<tr><td><code>function MigrationsTable(const AValue: string): ILzNexConfig</code></td><td><code>function GetMigrationsTable: string</code></td></tr>
+<tr><td><code>function MigrationsDir(const AValue: string): ILzNexConfig</code></td><td><code>function GetMigrationsDir: string</code></td></tr>
+<tr><td><code>function SeedsDir(const AValue: string): ILzNexConfig</code></td><td><code>function GetSeedsDir: string</code></td></tr>
+<tr><td><code>function Prop(const AName, AValue: string): ILzNexConfig</code></td><td><code>function GetProps: TLzNexNamedValues</code></td></tr>
+<tr><td><code>function Logger(const AValue: ILzNexLogger): ILzNexConfig</code></td><td><code>function GetLogger: ILzNexLogger</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Notas que não cabem na tabela:</p>
+
+<ul>
+<li>
+  <code>Client</code> guarda o nome do dialeto (<code>'mysql'</code>,
+  <code>'postgresql'</code>) e é o que resolve o <code>ILzNexClient</code> no registro de
+  dialetos — veja <a href="#dialects">dialetos</a>.
+</li>
+<li>
+  <code>Pool</code> valida na hora: mínimo negativo, máximo menor que 1 ou mínimo maior que o
+  máximo levantam <code>ELzNexConfig</code>. É o único setter que critica o valor.
+</li>
+<li>
+  <code>LibraryLocation</code> aponta o arquivo da biblioteca cliente. Vale preencher quando o
+  auto-load do Zeos não acha o <code>.so</code>/<code>.dll</code> — veja
+  <a href="#installation">instalação</a>.
+</li>
+<li>
+  <code>Prop</code> sobrescreve a chave existente comparando sem caixa, e as props vão para a
+  URL de conexão do Zeos como propriedades extras. <code>GetProps</code> devolve uma cópia: alterar
+  o array recebido não mexe na config.
+</li>
+<li>
+  <code>Logger</code> sem valor deixa a config sem logger, e aí nada é registrado — não há logger
+  padrão implícito. Veja <a href="#logging">log</a>.
+</li>
+</ul>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>procedure Validate</code></td><td>Exige <code>client</code>, <code>host</code> e <code>database</code> preenchidos e critica porta, pool e timeout. A mensagem lista o que falta e as três formas de fornecer: código, arquivo JSON ou variável de ambiente.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="ilznexlogger">ILzNexLogger</h2>
+<p>
+  Quatro métodos, nenhum retorno: a implementação decide o destino. O LzNex chama
+  <code>LogQuery</code> depois de cada execução com o tempo medido, e as bindings chegam cruas —
+  formatar (ou omitir, se houver dado sensível) é responsabilidade de quem implementa.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>procedure LogQuery(const ASQL: string; const ABindings: TLzNexBindings; const AElapsedMs: Int64)</code></td><td>Uma execução concluída: SQL com os <code>?</code> no lugar, os binds e o tempo em milissegundos.</td></tr>
+<tr><td><code>procedure LogError(const ASQL: string; const AError: string)</code></td><td>Falha. O SQL pode vir vazio quando o erro não pertence a um comando — é o caso do rollback automático no destrutor da transação.</td></tr>
+<tr><td><code>procedure LogWarning(const AMessage: string)</code></td><td>Aviso. O migrator usa este canal para alertar sobre commit implícito de DDL.</td></tr>
+<tr><td><code>procedure LogInfo(const AMessage: string)</code></td><td>Informativo. É por onde migrations e seeds anunciam o que estão rodando.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  <code>TLzNexConsoleLogger</code> já implementa os quatro escrevendo em <code>Output</code> com
+  timestamp, e aceita desligar só o log de query no construtor.
+</p>
+
+<h2 id="defaults">Defaults</h2>
+<p>
+  Valores aplicados no construtor da config, antes de qualquer setter. Estão em
+  <code>LzNex.Config</code>.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Constante</th><th>Valor</th><th>O que define</th></tr></thead>
+<tbody>
+<tr><td><code>LZNEX_DEFAULT_PORT</code></td><td><code>3306</code></td><td>Porta inicial. Em PostgreSQL você precisa trocar para 5432.</td></tr>
+<tr><td><code>LZNEX_DEFAULT_CHARSET</code></td><td><code>'utf8mb4'</code></td><td>Charset da conexão, enviado ao Zeos como <code>codepage</code>.</td></tr>
+<tr><td><code>LZNEX_DEFAULT_POOL_MIN</code></td><td><code>2</code></td><td>Conexões abertas já na construção do pool.</td></tr>
+<tr><td><code>LZNEX_DEFAULT_POOL_MAX</code></td><td><code>10</code></td><td>Teto de conexões vivas.</td></tr>
+<tr><td><code>LZNEX_DEFAULT_ACQUIRE_TIMEOUT</code></td><td><code>30000</code></td><td>Milissegundos que <code>Acquire</code> espera por uma conexão livre antes de levantar.</td></tr>
+<tr><td><code>LZNEX_DEFAULT_MIGRATIONS_DIR</code></td><td><code>'database/migrations'</code></td><td>Diretório das migrations em arquivo <code>.sql</code>.</td></tr>
+<tr><td><code>LZNEX_DEFAULT_SEEDS_DIR</code></td><td><code>'database/seeds'</code></td><td>Diretório dos seeds.</td></tr>
+<tr><td><code>LZNEX_DEFAULT_ENV</code></td><td><code>'development'</code></td><td>Ambiente usado ao ler o JSON quando nem o argumento nem <code>LZNEX_ENV</code> nem a chave <code>default</code> dizem qual é.</td></tr>
+<tr><td><code>LZNEX_ENV_PREFIX</code></td><td><code>'LZNEX_'</code></td><td>Prefixo das variáveis de ambiente que sobrescrevem a config (<code>LZNEX_HOST</code>, <code>LZNEX_DATABASE</code>, …).</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  A tabela de migrations não aparece na lista porque o default vem de <code>LzNex.Types</code>:
+  <code>LZNEX_MIGRATIONS_TABLE = 'migrations'</code>, e a tabela de lock é esse nome mais
+  <code>'_lock'</code>. Para como a config é carregada de JSON e sobrescrita por ambiente, veja
+  <a href="#configuration">configuração</a>.
+</p>
+</article>

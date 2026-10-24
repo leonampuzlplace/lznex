@@ -1,11 +1,5 @@
 program ProbeQuery;
 
-{ Sonda do builder e do raw.
-
-  O compiler e de outro agente, logo aqui se confere a AST PRODUZIDA, nunca o
-  SQL. O unico ponto que precisa de dialeto e o Raw.Build, atendido por um
-  TLzNexClientBase minimo definido aqui mesmo. }
-
 {$MODE DELPHI}{$H+}
 
 uses
@@ -22,8 +16,7 @@ uses
   LzNex.Query;
 
 type
-  // Dialeto de sonda: so os defaults ANSI da classe base. Sem compiler, porque
-  // nenhuma asercao aqui chega a compilar SQL.
+
   TProbeClient = class(TLzNexClientBase)
   public
     function DialectName: string; override;
@@ -70,7 +63,6 @@ end;
 var
   Cli: ILzNexClient;
 
-// Where de cada familia cai em sgWhere com o Kind certo.
 procedure TestWhereFamilies;
 var
   Q: ILzNexQuery;
@@ -121,7 +113,6 @@ begin
     (A.Group(sgWhere)[9].Kind = skWhereIn) and
     (TLzNexInStmt(A.Group(sgWhere)[9]).Sub <> nil));
 
-  // ILike e NotLike compartilham a classe, mudando as flags
   Q := NewQuery(Cli).Table('users').WhereILike('nome', 'x');
   Check('WhereILike marca CaseInsensitive',
     TLzNexLikeStmt(Q.Ast.Group(sgWhere)[0]).CaseInsensitive);
@@ -131,8 +122,6 @@ begin
     not TLzNexLikeStmt(Q.Ast.Group(sgWhere)[0]).CaseInsensitive);
 end;
 
-// OrWhere marca boOr; WhereNot marca Negated. Sem flag destrutivo: o OR nao
-// pode vazar para o predicado seguinte.
 procedure TestBoolOpAndNegation;
 var
   Q: ILzNexQuery;
@@ -165,8 +154,6 @@ begin
   Check('OrWhereRaw marca boOr', A.Group(sgWhere)[8].BoolOp = boOr);
 end;
 
-// Lista vazia fica na AST como Values vazio; quem decide "1 = 0" / "1 = 1" pelo
-// Negated e o compiler.
 procedure TestEmptyIn;
 var
   Q: ILzNexQuery;
@@ -185,7 +172,6 @@ begin
     (Length(S.Values) = 0) and S.Negated);
 end;
 
-// Pilha de grupos: substitui o callback do knex.
 procedure TestGroups;
 var
   Q: ILzNexQuery;
@@ -227,7 +213,6 @@ begin
   Check('predicado depois do fechamento volta a raiz',
     A.Group(sgWhere)[2].Kind = skWhereBasic);
 
-  // having tem pilha propria
   Q := NewQuery(Cli).Table('v');
   Q := Q.HavingOpen.Having('n', '>', 1).OrHaving('n', '<', 9).HavingClose;
   Check('having fecha a pilha', Q.OpenGroupCount = 0);
@@ -238,7 +223,6 @@ begin
     TLzNexGroupStmt(Q.Ast.Group(sgHaving)[0]).Items[0].Kind = skHavingBasic);
 end;
 
-// Erros de uso que o builder tem que recusar.
 procedure TestErrors;
 var
   Q: ILzNexQuery;
@@ -246,7 +230,6 @@ var
 begin
   Writeln('-- erros de uso --');
 
-  // grupo aberto bloqueia ToSQL
   Q := NewQuery(Cli).Table('users').WhereOpen.Where('a', 1);
   try
     Q.ToSQL;
@@ -255,7 +238,6 @@ begin
     on E: ELzNexBuilder do Check('ToSQL com grupo aberto levanta', True);
   end;
 
-  // fechar sem abrir
   Q := NewQuery(Cli).Table('users');
   try
     Q.WhereClose;
@@ -270,7 +252,6 @@ begin
     on E: ELzNexBuilder do Check('HavingClose sem HavingOpen levanta', True);
   end;
 
-  // operador fora da whitelist
   try
     NewQuery(Cli).Table('users').Where('id', '; drop table users --', 1);
     Check('operador fora da whitelist levanta', False);
@@ -284,7 +265,6 @@ begin
     on E: ELzNexBuilder do Check('operador da whitelist em maiuscula e aceito', False);
   end;
 
-  // clone com grupo aberto
   Q := NewQuery(Cli).Table('users').WhereOpen;
   try
     Q.Clone;
@@ -293,7 +273,6 @@ begin
     on E: ELzNexBuilder do Check('Clone com grupo aberto levanta', True);
   end;
 
-  // query sem conexao: terminal tem que explicar o motivo
   try
     NewQuery(Cli).Table('users').Delete;
     Check('terminal sem conexao levanta', False);
@@ -303,7 +282,6 @@ begin
         Pos('not bound to a connection', E.Message) > 0);
   end;
 
-  // On* sem join corrente
   Q := NewQuery(Cli).Table('posts');
   J := Q.Join('users');
   Q.Clear(sgJoin);
@@ -314,7 +292,6 @@ begin
     on E: ELzNexBuilder do Check('On* sem join corrente levanta', True);
   end;
 
-  // pagina 1-based
   try
     NewQuery(Cli).Table('users').Page(0, 10);
     Check('Page(0, ...) levanta', False);
@@ -323,7 +300,6 @@ begin
   end;
 end;
 
-// Clone profundo e independente.
 procedure TestClone;
 var
   Q, C: ILzNexQuery;
@@ -346,7 +322,6 @@ begin
     TLzNexGroupStmt(C.Ast.Group(sgWhere)[1]).Items[0] <>
     TLzNexGroupStmt(Q.Ast.Group(sgWhere)[1]).Items[0]);
 
-  // mutar um lado nao pode afetar o outro
   C := C.Where('novo', 1);
   Check('acrescentar no clone nao afeta o original',
     (Q.Ast.CountOf(sgWhere) = 2) and (C.Ast.CountOf(sgWhere) = 3));
@@ -359,7 +334,6 @@ begin
     TLzNexGroupStmt(Q.Ast.Group(sgWhere)[1]).Items.Count = 2);
 end;
 
-// Join: OnColumns nao gera bind, OnValue gera.
 procedure TestJoin;
 var
   Q: ILzNexQuery;
@@ -400,7 +374,6 @@ begin
     (Length(J.Clauses[5].Values) = 2) and
     (J.Clauses[5].Values[0].AsInt64 = 18));
 
-  // operador do ON tambem passa pela whitelist
   try
     NewQuery(Cli).Table('a').Join('b').OnColumns('a.x', 'drop', 'b.y');
     Check('operador invalido no ON levanta', False);
@@ -408,7 +381,6 @@ begin
     on E: ELzNexBuilder do Check('operador invalido no ON levanta', True);
   end;
 
-  // join cru nao vira join corrente
   Q := NewQuery(Cli).Table('a').JoinRaw('join b on b.id = ?', [1]);
   Check('JoinRaw cria statement de join com jtRaw',
     (Q.Ast.CountOf(sgJoin) = 1) and
@@ -425,7 +397,6 @@ begin
         .Ast.Group(sgJoin)[0]).Clauses[0].UsingColumns) = 2);
 end;
 
-// Limit / Offset / Page e o resto do Single.
 procedure TestSingle;
 var
   Q: ILzNexQuery;
@@ -477,11 +448,9 @@ begin
   Check('With_ -> sgWith', Q.Ast.Group(sgWith)[0].Kind = skWith);
   Check('HintComment -> sgHint', Q.Ast.Group(sgHint)[0].Kind = skHint);
 
-  // Clear esvazia o grupo
   Q := Q.Clear(sgUnion);
   Check('Clear esvazia o grupo', not Q.Ast.Has(sgUnion));
 
-  // upsert
   Q := NewQuery(Cli).Table('users').OnConflict(['email']).Merge(['nome']);
   Check('OnConflict guarda o alvo',
     Length(Q.Ast.Single.ConflictTargets) = 1);
@@ -493,7 +462,6 @@ begin
   Check('Ignore -> caIgnore', Q.Ast.Single.Conflict = caIgnore);
 end;
 
-// Raw: template, binds e validacao de contagem.
 procedure TestRaw;
 var
   R, Inner: ILzNexRaw;
@@ -528,7 +496,6 @@ begin
   F := R.Build(Cli);
   Check('raw sem parametro', (F.Text = 'now()') and (F.Bindings.Count = 0));
 
-  // contagem: faltando
   try
     LzNexRaw('? and ?', [1]).Build(Cli);
     Check('argumento faltando levanta', False);
@@ -538,7 +505,6 @@ begin
         (Pos('2', E.Message) > 0) and (Pos('1', E.Message) > 0));
   end;
 
-  // contagem: sobrando
   try
     LzNexRaw('?', [1, 2]).Build(Cli);
     Check('argumento sobrando levanta', False);
@@ -546,7 +512,6 @@ begin
     on E: ELzNexBuilder do Check('argumento sobrando levanta', True);
   end;
 
-  // nomeado ausente
   try
     LzNexRawNamed('id = :id', Vals(['outro', 1])).Build(Cli);
     Check('nomeado ausente levanta', False);
@@ -554,7 +519,6 @@ begin
     on E: ELzNexBuilder do Check('nomeado ausente levanta', True);
   end;
 
-  // nomeado sobrando
   try
     LzNexRawNamed('id = :id', Vals(['id', 1, 'sobra', 2])).Build(Cli);
     Check('nomeado nao usado levanta', False);
@@ -562,7 +526,6 @@ begin
     on E: ELzNexBuilder do Check('nomeado nao usado levanta', True);
   end;
 
-  // raw aninhado num '?': texto e binds entram na posicao certa
   Inner := LzNexRaw('coalesce(??, ?)', ['x', 0]);
   R := LzNexRawValues('select ? + ?',
     [TLzNexValue.Raw(Inner), TLzNexValue.FromInteger(5)]);
@@ -573,23 +536,19 @@ begin
     (F.Bindings.Count = 2) and (F.Bindings.Items(0).AsInt64 = 0) and
     (F.Bindings.Items(1).AsInt64 = 5));
 
-  // identificador entregue num '?' sai quotado, sem bind
   R := LzNexRawValues('order by ?', [TLzNexValue.Identifier('u.nome')]);
   F := R.Build(Cli);
   Check('identificador num ? sai quotado e sem bind',
     (F.Text = 'order by "u"."nome"') and (F.Bindings.Count = 0));
 end;
 
-// Caminhos de erro em que a excecao sobe NO MEIO da montagem. O que importa
-// aqui nao e a mensagem, e nao sobrar objeto sem dono: sob -gh qualquer
-// alocacao orfa aparece no dump do heaptrc.
 procedure TestNoLeakOnErrorPaths;
 var
   Bad: Pointer;
   Q: ILzNexQuery;
 begin
   Writeln('-- caminhos de erro sem vazamento --');
-  // Ponteiro nao nulo: ValueOf recusa, entao LzNexRaw levanta na construcao.
+
   Bad := @Checks;
 
   try
@@ -620,7 +579,6 @@ begin
     on E: ELzNexBuilder do Check('Having com operador invalido levanta', True);
   end;
 
-  // argumento de tipo recusado: o raw levanta antes de existir statement
   try
     NewQuery(Cli).Table('a').Join('b').OnRaw('x = ?', [Bad]);
     Check('OnRaw com argumento invalido levanta', False);
@@ -677,7 +635,6 @@ begin
     on E: ELzNexBuilder do Check('LzNexRaw com argumento invalido levanta', True);
   end;
 
-  // builder sem dialeto: o construtor levanta depois do inherited Create
   try
     NewQuery(nil);
     Check('NewQuery(nil) levanta', False);
@@ -692,14 +649,11 @@ begin
     on E: ELzNexBuilder do Check('NewBoundQuery(nil, nil) levanta', True);
   end;
 
-  // query descartada com grupos ainda abertos: a AST e dona dos grupos e
-  // precisa liberar os dois niveis
   Q := NewQuery(Cli).Table('a').WhereOpen.Where('x', 1).WhereNotOpen.WhereNull('y');
   Check('query com 2 grupos abertos antes do descarte', Q.OpenGroupCount = 2);
   Q := nil;
   Check('descartar query com grupo aberto nao vaza', True);
 
-  // Build que levanta no meio: o TStringBuilder interno tem que ser liberado
   try
     LzNexRaw('? ? ?', [1]).Build(Cli);
     Check('Build com contagem errada levanta sem vazar o builder interno', False);

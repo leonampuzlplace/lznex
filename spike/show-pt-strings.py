@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Mostra, com linha e conteudo, as strings ainda em portugues."""
 import re
 import sys
 import pathlib

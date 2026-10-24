@@ -1,0 +1,264 @@
+<article>
+<h1>Alterar tabela</h1>
+<p class="subtitle">
+  <code>Db.Schema.Table(nome)</code> entra em modo alter. O builder agrega as operações do mesmo
+  tipo num comando só, em vez de emitir um <code>alter table</code> por coluna.
+</p>
+
+<h2 id="aggregation">O que o builder agrega</h2>
+<p>
+  Na compilação, as colunas do alter são separadas em três baldes e cada balde vira
+  <strong>um</strong> statement. Rename de coluna sai em comando próprio, e índice vai para o
+  <code>Post</code> como em create:
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Balde</th><th>Vira</th></tr></thead>
+<tbody>
+<tr><td>todas as adições</td><td>1 statement com os <code>add</code> separados por vírgula</td></tr>
+<tr><td>todas as colunas marcadas com <code>Change</code></td><td>1 statement com os <code>modify</code>/<code>alter column</code></td></tr>
+<tr><td>todos os <code>DropColumn</code></td><td>1 statement com os <code>drop</code></td></tr>
+<tr><td>cada <code>RenameColumn</code></td><td>1 statement por rename</td></tr>
+<tr><td>índices, uniques, FKs e drops deles</td><td>comandos no <code>Post</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  Agregar importa porque cada <code>alter table</code> no MySQL pode reescrever a tabela inteira:
+  três comandos custam três reescritas, um comando custa uma.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Sch.Table('users');
+T.Str('nick', 50);
+T.Int('age').NotNull;
+T.Text('bio').Change;
+T.DropColumn('old1');
+T.DropColumn('old2');
+T.RenameColumn('a', 'b');
+T.Index(['nick']);
+T.DropIndex(['age']);
+P := T.ToSQL;</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">alter table `users` add `nick` varchar(50) null, add `age` int not null
+alter table `users` modify `bio` text null
+alter table `users` drop `old1`, drop `old2`
+alter table `users` rename column `a` to `b`
+alter table `users` add index `users_nick_index`(`nick`)
+alter table `users` drop index `users_age_index`</pre>
+  <p class="code-note">Statements: 4 · Post: 2 — os dois últimos são o Post</p>
+</div>
+</div>
+
+<p>
+  A ordem dos statements é sempre essa: adições, alterações, drops, renames. Não é a ordem das
+  chamadas — declarar o <code>DropColumn</code> antes do <code>Str</code> dá o mesmo plano.
+</p>
+
+<h2 id="prefixes">Prefixos por dialeto</h2>
+<p>
+  A diferença entre os dois bancos no alter é só o prefixo de cada operação. O MySQL usa a forma
+  curta; o PostgreSQL exige a palavra <code>column</code>:
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Sch.Table('users');
+T.Str('nick', 50);
+T.Int('age').NotNull;
+
+T := Sch.Table('users');
+T.Int('age').NotNull.Change;
+
+T := Sch.Table('users');
+T.DropColumn('legacy');</pre></div>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">alter table `users` add `nick` varchar(50) null, add `age` int not null
+alter table `users` modify `age` int not null
+alter table `users` drop `legacy`</pre>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">alter table "users" add column "nick" varchar(50) null, add column "age" integer not null
+alter table "users" alter column "age" integer not null
+alter table "users" drop column "legacy"</pre>
+  </div>
+</div>
+
+<p>
+  <code>RenameColumn</code> usa a mesma forma nos dois:
+  <code>alter table … rename column … to …</code>.
+</p>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">DropColumn e RenameColumn zeram a última coluna</span>
+    <p>
+      Os dois não deixam coluna "atual" no builder — não haveria sentido em aplicar
+      <code>NotNull</code> a uma coluna que está sendo removida ou renomeada. Um modificador
+      encadeado depois deles levanta <code>ELzNexSchema</code>, a mesma exceção de modificador
+      sem coluna anterior. É erro em tempo de montagem, não DDL torto chegando no banco.
+    </p>
+  </div>
+</div>
+
+<div class="code"><pre data-lang="pascal">T := Sch.Table('x');
+T.Int('a');
+T.DropColumn('a');
+T.NotNull;            // ELzNexSchema: nao ha coluna para aplicar
+
+T := Sch.Table('x');
+T.RenameColumn('a', 'b');
+T.Nullable;           // ELzNexSchema: a mesma coisa</pre></div>
+
+<p>
+  Um alter sem operação nenhuma também levanta na compilação: <code>ToSQL</code> de um
+  <code>Table(…)</code> vazio é erro, não plano vazio.
+</p>
+
+<h2 id="table-options">Opções de tabela</h2>
+<p>
+  <code>Engine</code>, <code>Charset</code>, <code>TableCollate</code> e
+  <code>TableComment</code> valem <strong>só em create table</strong> — em alter levantam
+  <code>ELzNexSchema</code>. No MySQL elas formam a cláusula depois do fecha-parênteses:
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Sch.CreateTable('opt');
+T.Increments;
+T.Engine('InnoDB').Charset('utf8mb4').TableCollate('utf8mb4_bin').TableComment('oi');</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">create table `opt` (`id` int unsigned not null auto_increment primary key) engine = InnoDB default character set utf8mb4 collate utf8mb4_bin comment = 'oi'</pre>
+</div>
+</div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">No PostgreSQL a cláusula sai vazia</span>
+    <p>
+      Nada de <code>engine</code>, <code>character set</code> ou <code>collate</code> de tabela
+      existe lá, então a cláusula de opções é string vazia e as três chamadas são ignoradas em
+      silêncio — a mesma escolha de <code>Unsigned</code>, para a migration rodar nos dois bancos.
+      <code>TableComment</code> é a exceção: volta como <code>comment on table "opt" is 'oi'</code>
+      no <code>Post</code>.
+    </p>
+  </div>
+</div>
+
+<h2 id="api">ILzNexSchema</h2>
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function WithSchema(const AName: string): ILzNexSchema</code></td><td>Qualifica as tabelas criadas daqui para frente (<code>create table `outro`.`q` (…)</code>) e o filtro de <code>HasTable</code>/<code>HasColumn</code>. Vale só nesta instância.</td></tr>
+<tr><td><code>function CreateTable(const AName: string): ILzNexTable</code></td><td>Abre um builder em modo create.</td></tr>
+<tr><td><code>function Table(const AName: string): ILzNexTable</code></td><td>Abre um builder em modo alter.</td></tr>
+<tr><td><code>function HasTable(const AName: string): Boolean</code></td><td>Consulta <code>information_schema.tables</code>. Executa na hora.</td></tr>
+<tr><td><code>function HasColumn(const ATable, AColumn: string): Boolean</code></td><td>Consulta <code>information_schema.columns</code>. Executa na hora.</td></tr>
+<tr><td><code>procedure DropTable(const AName: string)</code></td><td><code>drop table `users`</code>. Sem <code>if exists</code>: se a tabela não existir, o erro vem do banco.</td></tr>
+<tr><td><code>procedure DropTableIfExists(const AName: string)</code></td><td><code>drop table if exists `users`</code>.</td></tr>
+<tr><td><code>procedure RenameTable(const AFrom, ATo: string)</code></td><td>MySQL: <code>rename table `a` to `b`</code>. PostgreSQL: <code>alter table "a" rename to "b"</code>.</td></tr>
+<tr><td><code>procedure Truncate(const AName: string)</code></td><td>MySQL: <code>truncate `users`</code>. PostgreSQL: <code>truncate "users" restart identity</code> — sem isso a sequência continuaria de onde parou, ao contrário do MySQL.</td></tr>
+<tr><td><code>procedure Raw(const ASQL: string; const AArgs: array of const)</code></td><td>Escapatória para DDL que o builder não cobre. Mesma gramática de <a href="#raw-sql">SQL cru</a>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  As quatro <code>procedure</code> de tabela e as duas consultas de existência
+  <strong>executam na chamada</strong> — não devolvem plano. Todas exigem uma conexão: num
+  builder criado em modo só-SQL (<code>NewSchema(nil, Client)</code>) elas levantam
+  <code>ELzNexSchema</code>, enquanto <code>ToSQL</code> continua funcionando.
+</p>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Db.Schema devolve uma instância nova</span>
+    <p>
+      Cada <code>Db.Schema</code> cria um <code>ILzNexSchema</code> do zero, então
+      <code>Db.Schema.WithSchema('outro')</code> seguido de <code>Db.Schema.CreateTable(…)</code>
+      cria a tabela <strong>sem</strong> o schema. Guarde a instância numa variável quando usar
+      <code>WithSchema</code>.
+    </p>
+  </div>
+</div>
+
+<h2 id="existence">Consultas de existência</h2>
+<p>
+  Sem <code>WithSchema</code>, o filtro do schema vem do banco corrente — e é aí que os dois
+  dialetos divergem. O nome da tabela e da coluna vão como bind; só a função do schema é texto.
+</p>
+
+<div class="code"><pre data-lang="pascal">Sch.HasTable('users');
+Sch.HasColumn('users', 'email');</pre></div>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">select count(*) from information_schema.tables where table_name = ? and table_schema = database()
+select count(*) from information_schema.columns where table_name = ? and column_name = ? and table_schema = database()</pre>
+    <p class="code-note">binds: users · users | email</p>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">select count(*) from information_schema.tables where table_name = ? and table_schema = current_schema()
+select count(*) from information_schema.columns where table_name = ? and column_name = ? and table_schema = current_schema()</pre>
+    <p class="code-note">binds: users · users | email</p>
+  </div>
+</div>
+
+<p>Com schema explícito, a função dá lugar a mais um bind nos dois bancos:</p>
+
+<div class="code"><pre data-lang="pascal">Sch := Db.Schema.WithSchema('public');
+Sch.HasTable('users');</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select count(*) from information_schema.tables where table_name = ? and table_schema = ?</pre>
+  <p class="code-note">binds: users | public</p>
+</div>
+</div>
+
+<p>O uso típico é tornar a migration idempotente:</p>
+
+<div class="code"><pre data-lang="pascal">Sch := Db.Schema;
+
+if not Sch.HasTable('users') then
+begin
+  T := Sch.CreateTable('users');
+  T.Increments('id');
+  T.Str('email', 191).NotNull.Unique;
+  T.Timestamps;
+  T.Execute;
+end;
+
+if not Sch.HasColumn('users', 'nick') then
+  Sch.Table('users').Str('nick', 50).Execute;</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">create table `users` (`id` int unsigned not null auto_increment primary key, `email` varchar(191) not null, `created_at` timestamp not null default CURRENT_TIMESTAMP, `updated_at` timestamp not null default CURRENT_TIMESTAMP)
+alter table `users` add unique `users_email_unique`(`email`)
+alter table `users` add `nick` varchar(50) null</pre>
+  <p class="code-note">o primeiro <code>Execute</code> roda 2 comandos (statement + post), o segundo roda 1 — é isso que o retorno conta</p>
+</div>
+</div>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">DDL faz commit implícito no MySQL</span>
+    <p>
+      No MySQL cada comando de DDL encerra a transação aberta. Um plano com vários comandos
+      (create + índices, ou os quatro statements de um alter) <strong>não</strong> é atômico lá:
+      se o terceiro falhar, os dois primeiros já estão aplicados. Escreva o <code>down</code> da
+      <a href="#migrations">migration</a> supondo estado parcial. No PostgreSQL o DDL é
+      transacional e o plano inteiro cabe num <code>rollback</code>.
+    </p>
+  </div>
+</div>
+
+<div class="cards">
+  <a class="card" href="#indexes"><h4>Índices e chaves →</h4><p>O que vai no Post e como são nomeados.</p></a>
+  <a class="card" href="#migrations"><h4>Migrations →</h4><p>Up, down e o controle de versão do schema.</p></a>
+</div>
+</article>

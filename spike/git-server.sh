@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# git-server.sh — sobe um servidor git sobre HTTPS com cert auto-assinado no
-# proprio container, com a CA no trust store do sistema. Serve para provar o
-# fluxo real do `boss install` sem depender de publicar no GitHub
-# (o Boss sempre monta https://<nome>/..., nao aceita path local nem file://).
 set -eu
 
 HOST=${1:-gitlocal}
@@ -21,7 +17,6 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
   -subj "/CN=$HOST" \
   -addext "subjectAltName=DNS:$HOST,DNS:localhost,IP:127.0.0.1" 2>/dev/null
 
-# Trust store do sistema: o go-git (usado pelo Boss) le /etc/ssl/certs/ca-certificates.crt
 cp /etc/ssl/gitlocal/server.crt /usr/local/share/ca-certificates/gitlocal.crt
 update-ca-certificates >/dev/null 2>&1
 grep -q "$HOST" /etc/hosts || echo "127.0.0.1 $HOST" >> /etc/hosts
@@ -46,8 +41,6 @@ Listen 443
   </Directory>
 </VirtualHost>
 EOF
-# A porta 443 ja vem no ports.conf dentro de <IfModule ssl>; o Listen acima
-# duplicaria. Remove o nosso se o modulo ssl ja escuta 443.
 if grep -q "Listen 443" /etc/apache2/ports.conf; then
   sed -i '/^Listen 443$/d' /etc/apache2/sites-available/gitlocal.conf
 fi

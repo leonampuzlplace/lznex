@@ -1,20 +1,5 @@
 unit LzNex.Migrator;
 
-{ O runner de migrations. Semantica copiada do knex: batch, lock por UPDATE
-  condicional, comparacao por NOME (sem checksum) e rollback do ultimo batch.
-
-  Duas tabelas de controle, com nome vindo da config:
-    <migrations>        id auto, name varchar(255), batch int, migration_time
-    <migrations>_lock   index auto PK, is_locked int   (uma unica linha)
-
-  LOCK: "update <lock> set is_locked = 1 where is_locked = 0" e conferir que
-  afetou EXATAMENTE 1 linha. Zero linhas significa que outro processo pegou
-  primeiro. E portavel (nao usa advisory lock de dialeto nenhum) e atomico
-  porque o proprio UPDATE serializa no banco.
-
-  Quem falha ao PEGAR o lock nao pode libera-lo: o lock e do outro processo.
-  Qualquer outra falha libera, senao o lock fica preso para sempre. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -32,14 +17,13 @@ uses
   LzNex.Migration.Source.Sql;
 
 type
-  // Uma migration mais a fonte de onde veio.
+
   TLzNexMigrationEntry = record
     Migration: ILzNexMigration;
     Source: string;
   end;
   TLzNexMigrationEntries = array of TLzNexMigrationEntry;
 
-  // Uma linha da tabela de controle.
   TLzNexAppliedRow = record
     Name: string;
     Batch: Integer;
@@ -49,9 +33,7 @@ type
 
   TLzNexMigrator = class(TInterfacedObject, ILzNexMigrator)
   private
-    { Referencia FORTE, e seguro: a facade cria um migrator novo a cada acesso
-      a Db.Migrator e NAO guarda a instancia, entao nao ha ciclo de refcount.
-      Se algum dia a facade passar a cachear, isto tem que virar weak. }
+
     FDb: ILzNex;
     FSources: array of ILzNexMigrationSource;
     FSourceCount: Integer;
@@ -62,14 +44,12 @@ type
     function Db: ILzNex;
     function Log: ILzNexLogger;
 
-    // Todas as migrations de todas as fontes, ordenadas por Id.
     function AllEntries: TLzNexMigrationEntries;
     function AppliedRows: TLzNexAppliedRows;
     function IsApplied(const ARows: TLzNexAppliedRows; const AName: string): Boolean;
     function NextBatch: Integer;
     function MaxBatch: Integer;
 
-    // Linha na tabela sem migration correspondente em nenhuma fonte.
     procedure CheckCorruption(const AEntries: TLzNexMigrationEntries;
       const ARows: TLzNexAppliedRows);
 
@@ -99,25 +79,19 @@ type
     procedure Unlock;
     procedure EnsureTables;
 
-    // Os nomes resolvidos das tabelas de controle.
     function TableName: string;
     function LockTableName: string;
-    // Quantas fontes estao registradas.
+
     function SourceCount: Integer;
   end;
 
 const
-  // Devolvido por CurrentVersion quando nada foi aplicado.
+
   LZNEX_VERSION_NONE = 'none';
 
-// O migrator pronto para uso: le a config da facade e ja registra as duas
-// fontes (codigo e .sql no diretorio da config). Construtor barato de
-// proposito -- nada aqui vai ao banco; quem vai e EnsureTables.
 function NewMigrator(const ADb: ILzNex): ILzNexMigrator;
 
 implementation
-
-{ TLzNexMigrator }
 
 constructor TLzNexMigrator.Create(const ADb: ILzNex);
 var
@@ -213,8 +187,6 @@ begin
       Entry.Migration := Items[I];
       Entry.Source := FSources[S].SourceName;
 
-      { Ordenacao final e por Id ENTRE TODAS as fontes, nao por fonte.
-        Checagem antes de crescer o array: nada fica meio montado se levantar. }
       Slot := N;
       for J := 0 to N - 1 do
       begin
@@ -363,8 +335,7 @@ begin
       .Increments('index')
       .Int('is_locked')
       .Execute;
-    { A linha unica de lock: o UPDATE condicional precisa de uma linha
-      existente para poder afetar exatamente uma. }
+
     D.Table(FLockTable).Insert(Vals(['is_locked', 0]));
   end
   else if not D.Table(FLockTable).Exists then
@@ -406,8 +377,7 @@ begin
   L := Log;
   if L = nil then
     Exit;
-  { Nao finge atomicidade: em MySQL o DDL faz COMMIT IMPLICITO e o rollback
-    nao desfaz CREATE/ALTER/DROP, so o DML da mesma transacao. }
+
   L.LogWarning(
     'The ' + Db.Client.DialectName + ' dialect commits implicitly on DDL: ' +
     'if the migration fails midway, the rollback will NOT undo ' +
@@ -420,7 +390,7 @@ procedure TLzNexMigrator.RecordApplied(const ADb: ILzNex; const AName: string;
 var
   V: TLzNexNamedValues;
 begin
-  { `array of const` nao transporta record, logo o TDateTime entra na mao. }
+
   V := Vals(['name', AName, 'batch', ABatch]);
   SetLength(V, 3);
   V[2].Name := 'migration_time';
@@ -450,7 +420,7 @@ begin
 
   if not AMigration.UseTransaction then
   begin
-    { Sem transacao: a migration assumiu a responsabilidade. }
+
     if ADirection = mdUp then
     begin
       AMigration.Up(Db);
@@ -510,9 +480,7 @@ begin
         Inc(Result);
       end;
   except
-    { Qualquer falha que NAO seja a de pegar o lock libera o lock. A de pegar
-      levanta antes do try e nunca chega aqui -- liberar ali seria liberar o
-      lock do outro processo. }
+
     Unlock;
     raise;
   end;
@@ -655,7 +623,7 @@ begin
 
     Batch := MaxBatch;
     if Batch > 0 then
-      { Ordem inversa da aplicacao: a ultima aplicada volta primeiro. }
+
       for I := High(Rows) downto 0 do
         if Rows[I].Batch = Batch then
         begin
@@ -759,8 +727,7 @@ begin
   for I := 0 to High(Rows) do
   begin
     Id := MigrationIdOf(Rows[I].Name);
-    { Maior Id, nao a ultima linha: aplicar fora de ordem (migrate:up de uma
-      antiga) nao pode fazer a versao andar para tras. }
+
     if (Result = LZNEX_VERSION_NONE) or (Id > Result) then
       Result := Id;
   end;
@@ -779,8 +746,7 @@ begin
     Dir := Cfg.GetMigrationsDir
   else
     Dir := '';
-  { Opcional: projeto que so tem migration em Pascal nao tem o diretorio e
-    nao pode quebrar por isso. }
+
   if Trim(Dir) <> '' then
     Result.AddSource(TLzNexSqlMigrationSource.NewOptional(Dir));
 end;

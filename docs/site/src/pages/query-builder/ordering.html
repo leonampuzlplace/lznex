@@ -1,0 +1,111 @@
+<article>
+<h1>Agrupar, ordenar e paginar</h1>
+<p class="subtitle"><code>GroupBy</code>, <code>Having</code>, <code>OrderBy</code>, paginação e travamento de linha.</p>
+
+<h2 id="group">Group by e having</h2>
+<div class="code"><pre data-lang="pascal">Db.Table('orders').Select(['user_id']).GroupBy(['user_id']).Having('total', '>', 100)
+Db.Table('users').GroupBy(['dept']).GroupByRaw('year(??)', ['created_at'])
+Db.Table('users').HavingBetween('n', 1, 9)
+Db.Table('users').HavingRaw('exists (select 1)', [])
+Db.Table('users').HavingOpen.Having('a', '>', 1).OrHaving('b', '>', 2).HavingClose</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select `user_id` from `orders` group by `user_id` having `total` > ?
+select * from `users` group by `dept`, year(`created_at`)
+select * from `users` having `n` between ? and ?
+select * from `users` having exists (select 1)
+select * from `users` having (`a` > ? or `b` > ?)</pre>
+</div>
+</div>
+
+<p>
+  <code>Having</code> exige operador explícito — não há overload de dois argumentos, porque
+  <code>having</code> quase nunca é igualdade. Há também <code>HavingIn</code>,
+  <code>HavingNull</code> e <code>HavingNotNull</code>.
+</p>
+
+<h2 id="order">Order by</h2>
+<div class="code"><pre data-lang="pascal">Db.Table('t').OrderBy('name')                     // asc e o default
+Db.Table('t').OrderBy('name', odDesc)
+Db.Table('t').OrderByDesc('name')
+Db.Table('t').OrderBy('name').OrderBy('id', odDesc)
+Db.Table('users').OrderByRaw('field(??, ?)', ['s', 'a'])</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `t` order by `name` asc
+select * from `t` order by `name` desc
+select * from `t` order by `name` desc
+select * from `t` order by `name` asc, `id` desc
+select * from `users` order by field(`s`, ?) asc</pre>
+</div>
+</div>
+
+<h3 id="nulls">Posição dos NULL</h3>
+<p>
+  O terceiro overload aceita <code>nlFirst</code> ou <code>nlLast</code>. Onde o banco tem
+  <code>nulls first/last</code> nativo, sai nativo; onde não tem, o LzNex <strong>emula</strong>
+  ordenando antes pela flag de nulidade — o resultado é o mesmo, o texto não.
+</p>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="pascal">Db.Table('t').OrderBy('name', odAsc, nlLast)
+Db.Table('t').OrderBy('due', odDesc, nlFirst)</pre>
+    <div class="code-out">
+      <div class="code-label">SQL</div>
+      <pre data-lang="sql">select * from `t` order by (`name` is null) asc, `name` asc
+select * from `t` order by (`due` is null) desc, `due` desc</pre>
+    </div>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="pascal">Db.Table('t').OrderBy('name', odAsc, nlLast)
+Db.Table('t').OrderBy('name', odDesc, nlFirst)</pre>
+    <div class="code-out">
+      <div class="code-label">SQL</div>
+      <pre data-lang="sql">select * from "t" order by "name" asc nulls last
+select * from "t" order by "name" desc nulls first</pre>
+    </div>
+  </div>
+</div>
+
+<h2 id="paging">Paginação</h2>
+<div class="code"><pre data-lang="pascal">Db.Table('t').Limit(10).Offset(20)
+Db.Table('t').Page(3, 10)         // pagina 1-based: limit 10 offset 20</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `t` limit ? offset ?
+select * from `t` limit ? offset ?</pre>
+</div>
+</div>
+
+<p><code>Page</code> valida: página menor que 1 ou tamanho menor que 1 levanta <code>ELzNexBuilder</code>.</p>
+
+<h3 id="offset-alone">Offset sem Limit</h3>
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">select * from `t` limit 18446744073709551615 offset ?</pre>
+    <p class="code-note">o MySQL exige LIMIT junto do OFFSET; o teto é o máximo de 64 bits</p>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">select * from "t" offset ?</pre>
+    <p class="code-note">o Postgres aceita OFFSET sozinho: nada de limite artificial</p>
+  </div>
+</div>
+
+<h2 id="lock">Travamento de linha</h2>
+<div class="code"><pre data-lang="pascal">Db.Table('users').Where('id', 1).ForUpdate
+Db.Table('users').ForUpdate.SkipLocked
+Db.Table('users').ForShare.NoWait</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `users` where `id` = ? for update
+select * from `users` for update skip locked
+select * from `users` for share nowait</pre>
+</div>
+</div>
+
+<p>
+  Lock só faz sentido dentro de transação — fora dela o banco solta a trava no fim do comando.
+  Veja <a href="#transactions">Transações</a>.
+</p>
+</article>

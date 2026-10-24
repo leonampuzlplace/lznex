@@ -1,27 +1,5 @@
 unit LzNex.Query;
 
-{ TLzNexQuery: o query builder. SO acumula na TLzNexAst -- nao gera uma letra de
-  SQL. Quem gera e o compiler do dialeto, que recebe a AST pronta.
-
-  Tres decisoes que afastam este builder do knex, de proposito:
-
-  1. Nao existe flag destrutivo. O knex guarda estado em _bool()/_not() e o
-     proximo metodo consome; aqui o conector e a negacao sao PARAMETROS com
-     default, entao nao da para "vazar" um OR para a clausula seguinte.
-
-  2. Grupo de predicado usa PILHA (WhereOpen/WhereClose) em vez de callback: o
-     FPC 3.2.2 nao tem funcao anonima. Enquanto houver grupo aberto, todo
-     predicado entra no grupo do topo.
-
-  3. Todo operador passa por NormalizeOperator, cuja whitelist e fechada.
-
-  Posse: o builder e DONO do TLzNexAst e libera no destrutor. O metodo Ast
-  devolve a arvore SEM transferir posse.
-
-  Ciclo de refcount: a query guarda ILzNex (facade) e ILzNexTransaction como
-  INTERFACE. Isso e seguro porque a facade nao guarda queries -- se um dia
-  guardar, o refcount nunca zera e vaza. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -45,26 +23,23 @@ type
   TLzNexQuery = class(TInterfacedObject, ILzNexQuery, ILzNexJoin, ILzNexOnConflict)
   private
     FClient: ILzNexClient;
-    FDb: ILzNex;                    // nil = query so para montar SQL
-    FTrx: ILzNexTransaction;        // nil = fora de transacao
+    FDb: ILzNex;
+    FTrx: ILzNexTransaction;
     FAst: TLzNexAst;
-    // Pilhas de grupo. Nao sao donas: os grupos ja pertencem a AST.
+
     FWhereStack: TLzNexGroupStack;
     FHavingStack: TLzNexGroupStack;
-    // Join corrente. Referencia de CLASSE: a AST e a dona.
+
     FCurrentJoin: TLzNexJoinStmt;
 
-    // Coloca o statement no grupo aberto do topo, ou direto na AST.
     procedure Emit(const AStmt: TLzNexStatement);
-    // A pilha do grupo de predicado (where ou having).
+
     function StackOf(const AGroup: TLzNexStatementGroup): TLzNexGroupStack;
 
     procedure AddBasic(const AGroup: TLzNexStatementGroup; const ACol, AOp: string;
       const AValue: TLzNexValue; const ABool: TLzNexBoolOp = boAnd;
       const ANot: Boolean = False; const AAsColumn: Boolean = False);
-    // Lista VAZIA e aceita de proposito: o statement fica com Values vazio e o
-    // compiler decide pelo Negated -- "1 = 0" quando positivo, "1 = 1" quando
-    // negado. Assim a semantica do knex fica na AST, nao num if do builder.
+
     procedure AddIn(const AGroup: TLzNexStatementGroup; const ACol: string;
       const AValues: TLzNexValues; const ASub: IInterface = nil;
       const ABool: TLzNexBoolOp = boAnd; const ANot: Boolean = False);
@@ -85,25 +60,22 @@ type
       const ABool: TLzNexBoolOp = boAnd; const ANot: Boolean = False);
     procedure CloseGroup(const AGroup: TLzNexStatementGroup);
 
-    // Cria o join, guarda como corrente e devolve Self como ILzNexJoin.
     function StartJoin(const AType: TLzNexJoinType; const ATable: TLzNexValue;
       const AAlias: string): ILzNexJoin;
-    // O join corrente. Levanta se nao houver.
+
     function RequireJoin: TLzNexJoinStmt;
     procedure AddClause(const AKind: TLzNexJoinClauseKind;
       const ALeft: TLzNexValue; const AOp: string; const ARight: TLzNexValue;
       const ABool: TLzNexBoolOp = boAnd; const ANot: Boolean = False);
 
-    // A conexao a usar nos terminais. Levanta se a query nao esta ligada.
     function ActiveConnection: ILzNexConnection;
-    // Roda o SQL atual e devolve as linhas afetadas.
+
     function RunExecute: Int64;
   public
     constructor Create(const AClient: ILzNexClient; const ADb: ILzNex;
       const ATrx: ILzNexTransaction);
     destructor Destroy; override;
 
-    // --- fonte ---
     function Table(const AName: string): ILzNexQuery;
     function From(const AName: string): ILzNexQuery;
     function FromAs(const AName, AAlias: string): ILzNexQuery;
@@ -112,7 +84,6 @@ type
     function WithSchema(const ASchema: string): ILzNexQuery;
     function AsAlias(const AAlias: string): ILzNexQuery;
 
-    // --- colunas ---
     function Select(const AColumns: array of string): ILzNexQuery;
     function Column(const AColumn: string): ILzNexQuery;
     function SelectAs(const AColumn, AAlias: string): ILzNexQuery;
@@ -121,7 +92,6 @@ type
     function Distinct: ILzNexQuery;
     function DistinctOn(const AColumns: array of string): ILzNexQuery;
 
-    // --- where ---
     function Where(const AColumn: string; const AValue: TLzNexValue): ILzNexQuery; overload;
     function Where(const AColumn, AOp: string; const AValue: TLzNexValue): ILzNexQuery; overload;
     function WhereNot(const AColumn: string; const AValue: TLzNexValue): ILzNexQuery; overload;
@@ -165,7 +135,6 @@ type
     function WhereNotOpen: ILzNexQuery;
     function WhereClose: ILzNexQuery;
 
-    // --- join ---
     function Join(const ATable: string): ILzNexJoin;
     function JoinAs(const ATable, AAlias: string): ILzNexJoin;
     function InnerJoin(const ATable: string): ILzNexJoin;
@@ -178,7 +147,6 @@ type
     function JoinSub(const ASub: ILzNexQuery; const AAlias: string): ILzNexJoin;
     function JoinRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery;
 
-    // --- group / having / order ---
     function GroupBy(const AColumns: array of string): ILzNexQuery;
     function GroupByRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery;
 
@@ -199,7 +167,6 @@ type
     function OrderByDesc(const AColumn: string): ILzNexQuery;
     function OrderByRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery;
 
-    // --- paginacao e lock ---
     function Limit(const ACount: Int64): ILzNexQuery;
     function Offset(const ACount: Int64): ILzNexQuery;
     function Page(const APage, APerPage: Int64): ILzNexQuery;
@@ -208,7 +175,6 @@ type
     function SkipLocked: ILzNexQuery;
     function NoWait: ILzNexQuery;
 
-    // --- union / cte / hint ---
     function Union(const ASub: ILzNexQuery): ILzNexQuery;
     function UnionAll(const ASub: ILzNexQuery): ILzNexQuery;
     function Intersect(const ASub: ILzNexQuery): ILzNexQuery;
@@ -217,20 +183,16 @@ type
     function WithRecursive(const AAlias: string; const ASub: ILzNexQuery): ILzNexQuery;
     function HintComment(const AHint: string): ILzNexQuery;
 
-    // --- upsert ---
     function OnConflict(const AColumns: array of string): ILzNexOnConflict;
     function Returning(const AColumns: array of string): ILzNexQuery;
 
-    // --- limpeza / clone ---
     function Clear(const AGroup: TLzNexStatementGroup): ILzNexQuery;
     function Clone: ILzNexQuery;
     function Transacting(const ATrx: ILzNexTransaction): ILzNexQuery;
 
-    // --- compilacao ---
     function ToSQL: TLzNexFragment;
     function ToSQLString: string;
 
-    // --- terminais ---
     function Get: ILzNexResult;
     function First: ILzNexRow;
     function Value(const AColumn: string): TLzNexValue;
@@ -249,12 +211,10 @@ type
     function Delete: Int64;
     procedure Truncate;
 
-    // --- acesso interno ---
     function Ast: TLzNexAst;
     function Client: ILzNexClient;
     function OpenGroupCount: Integer;
 
-    // --- ILzNexJoin ---
     function OnColumns(const ALeft, AOp, ARight: string): ILzNexJoin;
     function OnValue(const AColumn, AOp: string; const AValue: TLzNexValue): ILzNexJoin;
     function AndOnColumns(const ALeft, AOp, ARight: string): ILzNexJoin;
@@ -268,28 +228,22 @@ type
     function OnRaw(const ASQL: string; const AArgs: array of const): ILzNexJoin;
     function Using(const AColumns: array of string): ILzNexJoin;
 
-    // --- ILzNexOnConflict ---
     function Ignore: ILzNexQuery;
     function Merge: ILzNexQuery; overload;
     function Merge(const AColumns: array of string): ILzNexQuery; overload;
     function MergeValues(const AValues: TLzNexNamedValues): ILzNexQuery;
   end;
 
-// Query solta, so para montar SQL. Sem conexao: os terminais levantam.
 function NewQuery(const AClient: ILzNexClient): ILzNexQuery;
 
-// Query ligada a facade (e opcionalmente a uma transacao). ATrx pode ser nil.
 function NewBoundQuery(const ADb: ILzNex; const ATrx: ILzNexTransaction): ILzNexQuery;
 
 implementation
 
-// Atalho para identificador.
 function Ident(const AName: string): TLzNexValue;
 begin
   Result := TLzNexValue.Identifier(AName);
 end;
-
-{ TLzNexQuery }
 
 constructor TLzNexQuery.Create(const AClient: ILzNexClient; const ADb: ILzNex;
   const ATrx: ILzNexTransaction);
@@ -337,8 +291,6 @@ begin
   end;
   FAst.Add(AStmt);
 end;
-
-{ --- fonte --- }
 
 function TLzNexQuery.Table(const AName: string): ILzNexQuery;
 begin
@@ -389,8 +341,6 @@ begin
   Result := Self as ILzNexQuery;
 end;
 
-{ --- colunas --- }
-
 function TLzNexQuery.Select(const AColumns: array of string): ILzNexQuery;
 var
   I: Integer;
@@ -425,8 +375,7 @@ function TLzNexQuery.SelectSub(const ASub: ILzNexQuery; const AAlias: string): I
 begin
   if ASub = nil then
     raise ELzNexBuilder.Create('SelectSub: subquery nil');
-  // TLzNexColumnStmt sempre nasce com Kind skColumn; o compiler reconhece a
-  // subquery pelo Expr.Kind = vkSubQuery.
+
   FAst.Add(TLzNexColumnStmt.Create(TLzNexValue.SubQuery(ASub), AAlias));
   Result := Self as ILzNexQuery;
 end;
@@ -455,8 +404,6 @@ begin
   Result := Self as ILzNexQuery;
 end;
 
-{ --- predicados: helpers --- }
-
 procedure TLzNexQuery.AddBasic(const AGroup: TLzNexStatementGroup;
   const ACol, AOp: string; const AValue: TLzNexValue; const ABool: TLzNexBoolOp;
   const ANot: Boolean; const AAsColumn: Boolean);
@@ -464,8 +411,7 @@ var
   S: TLzNexBasicStmt;
   Op: string;
 begin
-  // Normaliza em linha separada: assim a validacao nunca pode levantar depois
-  // da alocacao, sem depender da ordem de avaliacao de argumentos.
+
   Op := NormalizeOperator(AOp);
   S := TLzNexBasicStmt.Create(AGroup, Ident(ACol), Op, AValue);
   S.AsColumn := AAsColumn;
@@ -555,7 +501,7 @@ begin
   S := TLzNexGroupStmt.Create(AGroup);
   S.BoolOp := ABool;
   S.Negated := ANot;
-  Emit(S);                       // entra no grupo pai antes de virar o topo
+  Emit(S);
   StackOf(AGroup).Add(S);
 end;
 
@@ -570,8 +516,6 @@ begin
       'Every WhereClose/HavingClose needs a WhereOpen/HavingOpen before it.');
   Stack.Delete(Stack.Count - 1);
 end;
-
-{ --- where --- }
 
 function TLzNexQuery.Where(const AColumn: string; const AValue: TLzNexValue): ILzNexQuery;
 begin
@@ -781,8 +725,6 @@ begin
   Result := Self as ILzNexQuery;
 end;
 
-{ --- join --- }
-
 function TLzNexQuery.StartJoin(const AType: TLzNexJoinType; const ATable: TLzNexValue;
   const AAlias: string): ILzNexJoin;
 var
@@ -812,8 +754,7 @@ var
   Op: string;
 begin
   J := RequireJoin;
-  // Normaliza ANTES de alocar. A lista do join e a unica dona da clausula, logo
-  // levantar entre o Create e o Add deixaria o objeto sem dono -- vazamento.
+
   if AOp = '' then
     Op := ''
   else
@@ -888,13 +829,12 @@ var
   J: TLzNexJoinStmt;
   R: ILzNexRaw;
 begin
-  // Monta o raw ANTES do statement: ValueList levanta em tipo nao suportado, e
-  // nesse caso o join ainda nao existe para vazar.
+
   R := LzNexRaw(ASQL, AArgs);
   J := TLzNexJoinStmt.Create(jtRaw, TLzNexValue.Unset, '');
   J.Raw := R;
   FAst.Add(J);
-  // Join cru nao aceita On*: nao vira o join corrente.
+
   FCurrentJoin := nil;
   Result := Self as ILzNexQuery;
 end;
@@ -968,7 +908,7 @@ begin
   C := TLzNexJoinClause.Create;
   C.ClauseKind := jcBetween;
   C.Left := Ident(AColumn);
-  // Lo e Hi vao em Values[0] e Values[1]: TLzNexJoinClause nao tem campo proprio.
+
   SetLength(C.Values, 2);
   C.Values[0] := ALo;
   C.Values[1] := AHi;
@@ -983,7 +923,7 @@ var
   R: ILzNexRaw;
 begin
   J := RequireJoin;
-  // Mesmo motivo do JoinRaw: o raw primeiro, a clausula depois.
+
   R := LzNexRaw(ASQL, AArgs);
   C := TLzNexJoinClause.Create;
   C.ClauseKind := jcRaw;
@@ -1009,8 +949,6 @@ begin
   J.Clauses.Add(C);
   Result := Self as ILzNexJoin;
 end;
-
-{ --- group / having / order --- }
 
 function TLzNexQuery.GroupBy(const AColumns: array of string): ILzNexQuery;
 var
@@ -1115,8 +1053,6 @@ begin
   Result := Self as ILzNexQuery;
 end;
 
-{ --- paginacao e lock --- }
-
 function TLzNexQuery.Limit(const ACount: Int64): ILzNexQuery;
 begin
   if ACount < 0 then
@@ -1167,8 +1103,6 @@ begin
   FAst.Single.Wait := wtNoWait;
   Result := Self as ILzNexQuery;
 end;
-
-{ --- union / cte / hint --- }
 
 function TLzNexQuery.Union(const ASub: ILzNexQuery): ILzNexQuery;
 begin
@@ -1228,14 +1162,11 @@ begin
   Result := Self as ILzNexQuery;
 end;
 
-{ --- upsert --- }
-
 function TLzNexQuery.OnConflict(const AColumns: array of string): ILzNexOnConflict;
 var
   I: Integer;
 begin
-  // A propria query implementa ILzNexOnConflict: evita um segundo objeto com
-  // referencia para o pai, que e exatamente a forma de criar ciclo de refcount.
+
   SetLength(FAst.Single.ConflictTargets, Length(AColumns));
   for I := 0 to High(AColumns) do
     FAst.Single.ConflictTargets[I] := Ident(AColumns[I]);
@@ -1251,7 +1182,7 @@ end;
 
 function TLzNexQuery.Merge: ILzNexQuery;
 begin
-  // ConflictMerge vazio = atualiza todas as colunas do insert.
+
   FAst.Single.Conflict := caMerge;
   FAst.Single.ConflictMerge := nil;
   Result := Self as ILzNexQuery;
@@ -1262,7 +1193,7 @@ var
   I: Integer;
 begin
   FAst.Single.Conflict := caMerge;
-  // Value vkUnset significa "use o valor que o insert traz para esta coluna".
+
   SetLength(FAst.Single.ConflictMerge, Length(AColumns));
   for I := 0 to High(AColumns) do
   begin
@@ -1294,11 +1225,9 @@ begin
   Result := Self as ILzNexQuery;
 end;
 
-{ --- limpeza / clone --- }
-
 function TLzNexQuery.Clear(const AGroup: TLzNexStatementGroup): ILzNexQuery;
 begin
-  // Esvazia a pilha ANTES de liberar os statements: o ponteiro do topo morre com eles.
+
   if AGroup in [sgWhere, sgHaving] then
     StackOf(AGroup).Clear;
   if AGroup = sgJoin then
@@ -1318,8 +1247,6 @@ begin
       'otherwise the clone would inherit a stack pointing at the old tree.',
       [OpenGroupCount]);
 
-  // A copia vem primeiro e fica num local protegido: se o builder novo falhar,
-  // a arvore ja clonada nao fica orfa.
   Copied := FAst.Clone;
   try
     Q := TLzNexQuery.Create(FClient, FDb, FTrx);
@@ -1327,8 +1254,7 @@ begin
     Copied.Free;
     raise;
   end;
-  // Troca a AST nova pela copia profunda: o clone nao compartilha statement
-  // nenhum, logo mutar um nao afeta o outro.
+
   Q.FAst.Free;
   Q.FAst := Copied;
   Result := Q as ILzNexQuery;
@@ -1339,8 +1265,6 @@ begin
   FTrx := ATrx;
   Result := Self as ILzNexQuery;
 end;
-
-{ --- compilacao --- }
 
 function TLzNexQuery.ToSQL: TLzNexFragment;
 var
@@ -1372,7 +1296,7 @@ begin
   N := 0;
   SB := TStringBuilder.Create;
   try
-    // Interpolacao simples sobre '?': SO para log. Execucao sempre usa bind.
+
     for I := 1 to Length(Txt) do
       if (Txt[I] = '?') and (N < Binds.Count) then
       begin
@@ -1386,8 +1310,6 @@ begin
     SB.Free;
   end;
 end;
-
-{ --- terminais --- }
 
 function TLzNexQuery.ActiveConnection: ILzNexConnection;
 begin
@@ -1438,7 +1360,7 @@ function TLzNexQuery.Value(const AColumn: string): TLzNexValue;
 var
   Row: ILzNexRow;
 begin
-  // Troca a lista de colunas pela coluna pedida: o resultado e escalar.
+
   FAst.ClearGroup(sgColumns);
   Column(AColumn);
   Row := First;
@@ -1528,8 +1450,7 @@ begin
   FAst.Single.Method := qmInsert;
   SetLength(FAst.Single.InsertRows, 1);
   FAst.Single.InsertRows[0] := Copy(AValues);
-  // Mesma conexao para o insert e para o LastInsertId: em pool, duas chamadas
-  // a ActiveConnection poderiam cair em conexoes diferentes.
+
   Conn := ActiveConnection;
   Conn.Execute(ToSQL);
   Result := Conn.LastInsertId;
@@ -1587,11 +1508,9 @@ begin
   RunExecute;
 end;
 
-{ --- acesso interno --- }
-
 function TLzNexQuery.Ast: TLzNexAst;
 begin
-  // Sem transferir posse: o builder continua dono.
+
   Result := FAst;
 end;
 
@@ -1604,8 +1523,6 @@ function TLzNexQuery.OpenGroupCount: Integer;
 begin
   Result := FWhereStack.Count + FHavingStack.Count;
 end;
-
-{ fabricas de modulo }
 
 function NewQuery(const AClient: ILzNexClient): ILzNexQuery;
 begin

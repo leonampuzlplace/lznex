@@ -1,9 +1,5 @@
 unit LzNex.Bindings;
 
-{ Lista ordenada de parametros de uma query. Append-only de proposito: a ordem
-  dos binds TEM que ser a mesma ordem dos '?' no texto, e append-only torna isso
-  impossivel de violar por acidente. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -20,29 +16,25 @@ type
     FItems: TLzNexValues;
     FCount: Integer;
   public
-    // Lista vazia.
+
     class function Empty: TLzNexBindings; static;
-    // Lista com um unico valor.
+
     class function One(const AValue: TLzNexValue): TLzNexBindings; static;
-    // Lista a partir de um array de valores.
+
     class function FromValues(const AValues: TLzNexValues): TLzNexBindings; static;
 
-    // Acrescenta um valor no fim. Rejeita vkUnset: valor nao informado
-    // nunca pode virar bind (e o que pega Where('x', obj.campoInexistente)).
     procedure Add(const AValue: TLzNexValue);
-    // Acrescenta vários valores, preservando a ordem.
+
     procedure AddMany(const AValues: TLzNexValues);
-    // Concatena outra lista no fim. E assim que os binds de uma
-    // subquery entram na posicao textual correta.
+
     procedure Append(const AOther: TLzNexBindings);
 
-    // Quantidade de binds.
     function Count: Integer;
-    // Acesso por indice (0-based).
+
     function Items(const AIndex: Integer): TLzNexValue;
-    // Copia como array.
+
     function ToValues: TLzNexValues;
-    // "[1, 'x', NULL]" para mensagem de erro e log.
+
     function Describe: string;
   end;
 
@@ -79,7 +71,7 @@ begin
     if Length(FItems) = 0 then
       SetLength(FItems, 8)
     else
-      SetLength(FItems, Length(FItems) * 2);   // crescimento amortizado
+      SetLength(FItems, Length(FItems) * 2);
   end;
   FItems[FCount] := AValue;
   Inc(FCount);

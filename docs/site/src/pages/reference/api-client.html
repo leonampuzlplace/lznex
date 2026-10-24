@@ -1,0 +1,154 @@
+<article>
+<h1>Dialeto e compiladores</h1>
+<p class="subtitle">
+  O que um dialeto precisa responder e as duas interfaces que transformam árvore em texto.
+</p>
+
+<h2 id="ilznexclient">ILzNexClient</h2>
+<p>
+  O dialeto. Nenhum método aqui toca no banco: é tudo pergunta sobre como escrever SQL. O builder
+  e os compiladores consultam esta interface e nunca testam o nome do banco com <code>if</code> —
+  acrescentar um dialeto é implementar isto, não editar o compilador.
+</p>
+
+<h3 id="lexicon">Léxico</h3>
+<p>Como identificador, apelido, placeholder e valor de log são escritos.</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function DialectName: string</code></td><td>Nome do dialeto em minúsculas (<code>'mysql'</code>, <code>'postgresql'</code>). É a chave do registro e o que <code>LastInsertId</code> consulta para escolher a consulta certa.</td></tr>
+<tr><td><code>function ZeosProtocol: string</code></td><td>Protocolo da URL do Zeos. Separado do nome porque os dois não precisam coincidir.</td></tr>
+<tr><td><code>function WrapIdentifier(const AName: string): string</code></td><td>Envolve um nome simples. O caractere de quote dentro do nome é dobrado, o que fecha a porta para injeção via identificador; <code>*</code> e vazio passam intactos.</td></tr>
+<tr><td><code>function WrapQualified(const AName: string): string</code></td><td>Envolve um nome com pontos, parte por parte, e entende <code>' as '</code> no meio — <code>'a.id as x'</code> sai com os três pedaços tratados.</td></tr>
+<tr><td><code>function Alias(const AExpr, AAlias: string): string</code></td><td>Cola expressão e apelido. Apelido vazio devolve só a expressão.</td></tr>
+<tr><td><code>function Placeholder(const AIndex: Integer): string</code></td><td>Marcador de bind. Devolve <code>?</code> nos dois dialetos; o índice existe para um dialeto que numere os binds.</td></tr>
+<tr><td><code>function EscapeForLog(const AValue: TLzNexValue): string</code></td><td>Representação legível de um bind, só para log. Não serve para montar SQL — binário vira <code>&lt;n bytes&gt;</code> e valor não setado vira <code>&lt;unset&gt;</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="capabilities">Capacidades</h3>
+<p>
+  Seis perguntas booleanas. O compilador usa as respostas para emitir a forma nativa ou cair num
+  equivalente, e o migrator usa a última para avisar sobre DDL. Os valores de cada dialeto estão
+  em <a href="#dialects">dialetos</a>.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function SupportsReturning: Boolean</code></td><td>Se <code>returning</code> existe. Onde não existe, <code>Returning</code> no builder não tem efeito no SQL.</td></tr>
+<tr><td><code>function SupportsOnConflictWhere: Boolean</code></td><td>Se o tratamento de conflito aceita predicado próprio.</td></tr>
+<tr><td><code>function SupportsNullsOrdering: Boolean</code></td><td>Se <code>nulls first</code> / <code>nulls last</code> existe no <code>order by</code>.</td></tr>
+<tr><td><code>function SupportsDistinctOn: Boolean</code></td><td>Se <code>distinct on</code> existe.</td></tr>
+<tr><td><code>function SupportsSavepoints: Boolean</code></td><td>Se savepoint é suportado. <code>True</code> na base.</td></tr>
+<tr><td><code>function DdlIsTransactional: Boolean</code></td><td><code>False</code> quando DDL dá commit implícito. É o que faz o migrator emitir o aviso de que um rollback não vai desfazer o <code>create</code>/<code>alter</code>/<code>drop</code> já executado.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="compile-structure">Estrutura da compilação</h3>
+<p>
+  Em vez de cada verbo ter sua rotina de montagem, o compilador percorre a lista de componentes
+  que o dialeto declara para aquele verbo. Mudar a ordem do <code>limit</code> ou excluir um
+  componente é mexer nestes dois métodos, não no compilador.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Components(const AMethod: TLzNexQueryMethod): TLzNexComponents</code></td><td>Componentes que o verbo emite, <strong>na ordem do texto final</strong>. Um <code>select</code> vai de <code>cpHints</code> a <code>cpLock</code>; um <code>insert</code> só tem <code>cpFrom</code>.</td></tr>
+<tr><td><code>function InvalidComponents(const AMethod: TLzNexQueryMethod): TLzNexComponents</code></td><td>Componentes que, se estiverem preenchidos no builder, são erro para aquele verbo. É o que faz um <code>having</code> pendurado num <code>delete</code> levantar <code>ELzNexCompile</code> antes de virar SQL, em vez de ser silenciosamente ignorado.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="factories">Fábricas</h3>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function NewCompiler: ILzNexCompiler</code></td><td>Compilador de query do dialeto, já amarrado a este client.</td></tr>
+<tr><td><code>function NewSchemaCompiler: ILzNexSchemaCompiler</code></td><td>Compilador de DDL. Devolver <code>nil</code> aqui faz o schema levantar <code>ELzNexSchema</code> com o nome do dialeto.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="ilznexcompiler">ILzNexCompiler</h2>
+<p>
+  O compilador recebe a <strong>AST</strong>, não o builder: <code>Compile</code> toma um
+  <code>TLzNexAst</code> e devolve um <code>TLzNexFragment</code> — texto mais binds na ordem do
+  texto. A separação é deliberada e vale pelo que permite nos testes: dá para montar uma AST à mão
+  e compilar sem builder, e dá para exercitar o builder olhando só a AST, sem compilar. Nenhum dos
+  dois lados precisa de banco.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Compile(const AAst: TLzNexAst): TLzNexFragment</code></td><td>Compila a query inteira. Valida os componentes contra o verbo antes de emitir; AST <code>nil</code> ou verbo não suportado levantam <code>ELzNexCompile</code>.</td></tr>
+<tr><td><code>function CompilePredicates(const AGroup: TLzNexStatementGroup; const AItems: TLzNexStatementList): TLzNexFragment</code></td><td>Compila uma lista de predicados sem o <code>where</code>/<code>having</code> em volta, intercalando <code>and</code>/<code>or</code> conforme o conector de cada statement. É o que permite reusar a mesma rotina em <code>where</code>, <code>having</code>, <code>on</code> de join e grupo aninhado. Lista vazia devolve fragmento vazio.</td></tr>
+<tr><td><code>function Client: ILzNexClient</code></td><td>Dialeto deste compilador.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="ilznexschemacompiler">ILzNexSchemaCompiler</h2>
+<p>
+  O equivalente para DDL. Lê o builder pela parte de leitura de
+  <a href="#api-schema">ILzNexTable</a> e devolve fragmentos — inclusive para as operações que não
+  passam por builder nenhum, como <code>drop</code> e <code>truncate</code>.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function CompileTable(const ATable: ILzNexTable): TLzNexDdlPlan</code></td><td>Compila o builder inteiro. Decide entre create e alter pelo <code>TableMethod</code>; <code>nil</code> levanta.</td></tr>
+<tr><td><code>function ColumnTypeSQL(const AType: TLzNexColumnType; const AParam1, AParam2: Integer; const AItems: TLzNexValues): string</code></td><td>Tipo lógico → tipo do banco. Recebe os dois parâmetros do tipo e os itens do enum porque é o único ponto que precisa deles.</td></tr>
+<tr><td><code>function ModifierOrder: TLzNexColumnModifiers</code></td><td>Ordem em que os modificadores saem na definição da coluna. Cada dialeto tem a sua, e modificador fora da lista simplesmente não é emitido.</td></tr>
+<tr><td><code>function DropTableSQL(const ATable: string; const AIfExists: Boolean): TLzNexFragment</code></td><td><code>drop table</code>, com ou sem <code>if exists</code>.</td></tr>
+<tr><td><code>function RenameTableSQL(const AFrom, ATo: string): TLzNexFragment</code></td><td>Renomeia tabela.</td></tr>
+<tr><td><code>function TruncateTableSQL(const ATable: string): TLzNexFragment</code></td><td><code>truncate table</code>.</td></tr>
+<tr><td><code>function HasTableSQL(const ATable, ASchema: string): TLzNexFragment</code></td><td>Consulta de existência da tabela. Nome e schema vão como <strong>bind</strong>, não interpolados; schema vazio é omitido do predicado.</td></tr>
+<tr><td><code>function HasColumnSQL(const ATable, AColumn, ASchema: string): TLzNexFragment</code></td><td>O mesmo para coluna.</td></tr>
+<tr><td><code>function IndexName(const ATable: string; const AColumns: TLzNexValues; const AKind: TLzNexIndexKind): string</code></td><td>Nome derivado do índice: tabela, colunas e o sufixo do tipo, tudo em minúsculas e com <code>.</code> e <code>-</code> trocados por <code>_</code>. Um <code>ConstraintName</code> no builder tem precedência sobre isto.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="ilznexraw">ILzNexRaw</h2>
+<p>
+  SQL cru já com os argumentos capturados. O texto só é resolvido quando um dialeto aparece —
+  identificador precisa do quote certo, e isso o builder não sabe na hora da chamada. Veja
+  <a href="#raw-sql">SQL cru</a> para a gramática dos marcadores.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Build(const AClient: ILzNexClient): TLzNexFragment</code></td><td>Resolve o template contra o dialeto: devolve o texto com os placeholders no lugar e os binds na ordem em que aparecem.</td></tr>
+<tr><td><code>function Template: string</code></td><td>O texto como foi escrito, com os marcadores ainda crus. Útil em mensagem de erro e em teste.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="tlznexddlplan">TLzNexDdlPlan</h2>
+<p>
+  Um DDL raramente é um comando só: índice, comentário e renomeação podem precisar de statements
+  próprios, e alguns precisam vir antes ou depois do principal. O plano guarda os três grupos em
+  ordem.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>Pre: TLzNexFragments</code></td><td>O que roda antes do comando principal.</td></tr>
+<tr><td><code>Statements: TLzNexFragments</code></td><td>O comando principal — o <code>create table</code> ou os <code>alter table</code>.</td></tr>
+<tr><td><code>Post: TLzNexFragments</code></td><td>O que roda depois: índices, comentários e o que o dialeto não consegue colocar inline.</td></tr>
+<tr><td><code>function All: TLzNexFragments</code></td><td>Os três concatenados em ordem de execução. É exatamente o que <code>Execute</code> percorre.</td></tr>
+<tr><td><code>function Count: Integer</code></td><td>Total de comandos no plano, sem montar o array de <code>All</code>.</td></tr>
+</tbody>
+</table>
+</div>
+</article>

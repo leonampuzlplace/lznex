@@ -1,14 +1,8 @@
 #!/usr/bin/env python3
-"""Traduz as mensagens do CLI para ingles.
-
-Substituicao literal e exata, par a par: evita regex pegar texto parecido em
-comentario (que fica em pt-BR).
-"""
 import pathlib
 import sys
 
 PAIRS = [
-    # help
     ("'lznex -- migrations e seeds para Lazarus/FPC'",
      "'lznex -- migrations and seeds for Lazarus/FPC'"),
     ("'Uso: lznex <comando> [argumentos] [--flags]'",
@@ -40,7 +34,6 @@ PAIRS = [
      "'  --quiet                     only errors on output'"),
     ("'  --help                      esta ajuda'",
      "'  --help                      this help'"),
-    # comandos
     ("'nada a aplicar: ja esta na ultima versao'",
      "'nothing to run: already at the latest version'"),
     ("'%d migration(s) aplicada(s)'", "'%d migration(s) applied'"),
@@ -74,22 +67,18 @@ PAIRS = [
     ("'erro de lock: '", "'lock error: '"),
     ("'erro: '", "'error: '"),
     ("'erro inesperado ('", "'unexpected error ('"),
-    # stub gerado
     ("'  // ADb.Schema.CreateTable(''exemplo'')'",
      "'  // ADb.Schema.CreateTable(''example'')'"),
     ("'  //   .Str(''nome'', 120).NotNull'",
      "'  //   .Str(''name'', 120).NotNull'"),
     ("'  // ADb.Schema.DropTableIfExists(''exemplo'');'",
      "'  // ADb.Schema.DropTableIfExists(''example'');'"),
-    # .lpr
     ("'erro de configuracao: '", "'configuration error: '"),
     ("'Informe por '", "'Provide it through '"),
     ("' ou pelas variaveis LZNEX_HOST, '", "' or the LZNEX_HOST, '"),
     ("'erro ('", "'error ('"),
-    # seeds/sql stub
     ("'-- up: '", "'-- up: '"),
 ]
-
 
 def main(paths):
     for p in paths:
@@ -105,7 +94,6 @@ def main(paths):
         if count:
             path.write_text(text, encoding='utf-8')
             print(f'{path.name}: {count} strings traduzidas')
-
 
 if __name__ == '__main__':
     main(sys.argv[1:])

@@ -1,14 +1,8 @@
 #!/usr/bin/env python3
-"""Procura identificadores em portugues no codigo Pascal.
-
-Ignora comentarios (// ... , { ... }, (* ... *)) e literais de string, porque
-comentario em pt-BR e a regra e literal pode ser texto de mensagem.
-"""
 import re
 import sys
 import pathlib
 
-# Radicais portugueses que nao existem (ou nao significam o mesmo) em ingles.
 WORDS = [
     'acao', 'acentua', 'achou', 'ajuda', 'aninhad', 'antes', 'aplicad', 'apos',
     'arquivo', 'asercao', 'assercao', 'atualiza', 'aviso', 'banco', 'busca',
@@ -25,12 +19,9 @@ WORDS = [
 ]
 PAT = re.compile('|'.join(WORDS), re.IGNORECASE)
 
-# Identificador Pascal
 IDENT = re.compile(r'\b[A-Za-z_][A-Za-z0-9_]*\b')
 
-
 def strip_noise(line: str) -> str:
-    """Remove comentario de linha e literais de string."""
     line = re.sub(r"'[^']*'", "''", line)
     i = line.find('//')
     if i >= 0:
@@ -38,7 +29,6 @@ def strip_noise(line: str) -> str:
     line = re.sub(r'\{[^}]*\}', '', line)
     line = re.sub(r'\(\*.*?\*\)', '', line)
     return line
-
 
 def main(paths):
     in_block = False
@@ -50,7 +40,6 @@ def main(paths):
         hits = []
         in_block = False
         for n, raw in enumerate(path.read_text(encoding='utf-8', errors='replace').splitlines(), 1):
-            # comentario de bloco { } em varias linhas
             if in_block:
                 if '}' in raw:
                     in_block = False
@@ -75,7 +64,6 @@ def main(paths):
                 print(f'  {n:5d}  {ident:38s} | {ctx}')
             total += len(hits)
     print(f'\ntotal de ocorrencias: {total}')
-
 
 if __name__ == '__main__':
     main(sys.argv[1:])

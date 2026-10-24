@@ -1,24 +1,5 @@
 unit LzNex.Pool;
 
-{ Pool de conexoes proprio, seguro para uso concorrente.
-
-  Por que um pool proprio e nao o do Zeos: o provider FPC do Horse cria uma
-  thread por conexao HTTP, e IZConnection nao pode ser compartilhado entre
-  threads. O pool precisa, entao, de duas garantias que o Zeos nao da:
-
-  1) Emprestimo exclusivo com devolucao AUTOMATICA. Acquire devolve um wrapper
-     cujo destrutor chama Release. Nao existe "esquecer de devolver", porque nao
-     existe chamada de devolucao para esquecer.
-
-  2) Teto respeitado com espera limitada. Estourar o max e esperar mais que o
-     timeout levanta ELzNexPool dizendo o tamanho e quantas estao em uso -- que
-     e exatamente a informacao que falta quando a aplicacao trava sem explicacao.
-
-  Sobre ciclo de refcount: o wrapper segura o pool por INTERFACE de proposito.
-  Isso nao fecha ciclo porque o pool guarda as conexoes INTERNAS, nunca os
-  wrappers. O ganho e que o pool nao pode morrer antes do ultimo emprestimo
-  (ponteiro de classe pendurado seria a alternativa, e bem pior). }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -35,19 +16,13 @@ uses
   LzNex.Exceptions;
 
 const
-  // Espera entre tentativas quando o pool esta cheio.
+
   LZNEX_POOL_WAIT_STEP_MS = 5;
   LZNEX_POOL_DEFAULT_TIMEOUT_MS = 10000;
 
 type
   TLzNexPool = class;
 
-  // Cursor que segura o emprestimo do pool enquanto existir.
-  //
-  // Sem isto, `Pool.Acquire.Query(f)` devolveria a conexao ao pool antes de o
-  // cursor ser consumido, e o IZResultSet ficaria pendurado num
-  // IZPreparedStatement que outra thread poderia estar reexecutando. Com isto o
-  // emprestimo acaba no fim da vida do RESULTADO, nao da conexao.
   TLzNexLeasedResult = class(TInterfacedObject, ILzNexResult)
   private
     FLease: ILzNexConnection;
@@ -68,12 +43,10 @@ type
     procedure Close;
   end;
 
-  // Conexao emprestada. Delega tudo para a conexao real e, no
-  // destrutor, devolve ao pool.
   TLzNexPooledConnection = class(TInterfacedObject, ILzNexConnection)
   private
-    FPool: ILzNexPool;            // mantem o pool vivo; nao fecha ciclo
-    FOwner: TLzNexPool;           // acesso direto ao Release, sem cast
+    FPool: ILzNexPool;
+    FOwner: TLzNexPool;
     FInner: ILzNexConnection;
     function NeedInner: ILzNexConnection;
   public
@@ -111,8 +84,7 @@ type
     procedure PushIdle(const AConn: ILzNexConnection);
     function PopIdle: ILzNexConnection;
     function OpenNew: ILzNexConnection;
-    // Embrulha a conexao no wrapper de emprestimo. Se a construcao
-    // falhar, devolve a conexao em vez de perder o emprestimo.
+
     function Lend(const AConn: ILzNexConnection): ILzNexConnection;
   public
     constructor Create(const AClient: ILzNexClient;
@@ -125,27 +97,19 @@ type
     function InUse: Integer;
     procedure Shutdown;
 
-    // Devolve a conexao emprestada. Chamado pelo destrutor do
-    // wrapper -- nao e API de usuario final.
     procedure Release(const AConn: ILzNexConnection);
-    // Conexoes ociosas no momento. Existe para o teste provar que
-    // acquire/release repetidos nao abrem conexao nova toda vez.
+
     function IdleCount: Integer;
   end;
 
-// Cria o pool e aquece com AMin conexoes.
 function NewPool(const AClient: ILzNexClient;
   const AParams: TLzNexConnectionParams;
   const AMin, AMax, ATimeoutMs: Integer): ILzNexPool; overload;
 
-// Idem, lendo min/max/timeout e os dados de conexao da config.
-// E a porta de entrada que a facade usa.
 function NewPool(const AConfig: ILzNexConfig;
   const AClient: ILzNexClient): ILzNexPool; overload;
 
 implementation
-
-{ TLzNexLeasedResult }
 
 constructor TLzNexLeasedResult.Create(const ALease: ILzNexConnection;
   const AInner: ILzNexResult);
@@ -159,8 +123,7 @@ end;
 
 destructor TLzNexLeasedResult.Destroy;
 begin
-  // Ordem importa: fecha o cursor ANTES de a conexao voltar ao pool, senao
-  // outra thread poderia receber a conexao com o resultset ainda aberto.
+
   FInner := nil;
   FLease := nil;
   inherited Destroy;
@@ -219,8 +182,6 @@ begin
     FInner.Close;
 end;
 
-{ TLzNexPooledConnection }
-
 constructor TLzNexPooledConnection.Create(const APool: TLzNexPool;
   const AInner: ILzNexConnection);
 begin
@@ -241,8 +202,7 @@ begin
     try
       FOwner.Release(Inner);
     except
-      // Destrutor nunca levanta: perder uma conexao e ruim, derrubar a
-      // aplicacao durante a limpeza e pior.
+
     end;
   end;
   FPool := nil;
@@ -269,12 +229,11 @@ var
 begin
   Inner := NeedInner.Query(AFragment);
   try
-    // Self vai no cursor: assim `Pool.Acquire.Query(f)` nao devolve a conexao
-    // antes de alguem ler o resultado.
+
     Result := TLzNexLeasedResult.Create(Self as ILzNexConnection, Inner)
       as ILzNexResult;
   except
-    // Nada de cursor orfao com a conexao presa: fecha antes de propagar.
+
     Inner.Close;
     raise;
   end;
@@ -329,8 +288,7 @@ end;
 
 procedure TLzNexPooledConnection.Close;
 begin
-  // Fecha de verdade: o pool detecta na devolucao e descarta em vez de
-  // recolocar uma conexao fechada na lista de ociosas.
+
   if FInner <> nil then
     FInner.Close;
 end;
@@ -345,16 +303,13 @@ begin
   Result := NeedInner.Client;
 end;
 
-{ TLzNexPool }
-
 constructor TLzNexPool.Create(const AClient: ILzNexClient;
   const AParams: TLzNexConnectionParams; const AMin, AMax, ATimeoutMs: Integer);
 var
   I: Integer;
 begin
   inherited Create;
-  // O lock nasce antes de qualquer validacao: uma excecao no construtor faz o
-  // compilador chamar o destrutor, e o destrutor precisa do lock.
+
   FLock := TCriticalSection.Create;
 
   if AMax < 1 then
@@ -376,7 +331,6 @@ begin
   FInUse := 0;
   FShutdown := False;
 
-  // Aquece: falhar aqui e melhor que falhar na primeira requisicao HTTP.
   for I := 1 to FMin do
     PushIdle(OpenNew);
 end;
@@ -399,9 +353,7 @@ begin
   try
     Result := TLzNexPooledConnection.Create(Self, AConn) as ILzNexConnection;
   except
-    // Falhar aqui sem devolver vazaria a conexao E a vaga: FInUse ja foi
-    // incrementado. O construtor do wrapper so pendura FInner no fim, entao
-    // nunca ha dono duplo e Release nao desconta duas vezes.
+
     Release(AConn);
     raise;
   end;
@@ -444,9 +396,6 @@ begin
       if FShutdown then
         raise ELzNexPool.Create('Pool already shut down: Acquire after Shutdown');
 
-      // Pega a primeira ociosa que responder ao Ping. As mortas saem da lista
-      // aqui mesmo: validar na entrega e o que evita entregar conexao zumbi
-      // depois de o banco reiniciar.
       while FIdleCount > 0 do
       begin
         Conn := PopIdle;
@@ -461,8 +410,7 @@ begin
 
       if (Conn = nil) and (FInUse + FIdleCount < FMax) then
       begin
-        // Reserva a vaga antes de abrir: abrir dentro do lock bloquearia
-        // todas as outras threads pelo tempo do handshake com o banco.
+
         Inc(FInUse);
         Reserved := True;
       end;
@@ -478,8 +426,7 @@ begin
       try
         Conn := OpenNew;
       except
-        // Abrir falhou: a vaga reservada tem que ser liberada, senao uma base
-        // fora do ar esgota o pool em contagem sem ter nenhuma conexao viva.
+
         FLock.Acquire;
         try
           Dec(FInUse);
@@ -516,9 +463,6 @@ begin
     if FInUse > 0 then
       Dec(FInUse);
 
-    // Transacao aberta na devolucao significa que o chamador saiu de escopo sem
-    // fechar. Desfaz antes de reciclar, senao a proxima requisicao herdaria
-    // tabelas travadas.
     Keep := not FShutdown;
     if Keep then
     begin
@@ -528,8 +472,7 @@ begin
         else if AConn.InTransaction then
           AConn.Rollback;
       except
-        // Qualquer duvida sobre o estado da conexao: descarta. Reciclar uma
-        // conexao em estado desconhecido contamina a proxima requisicao.
+
         Keep := False;
       end;
     end;
@@ -545,7 +488,6 @@ begin
     FLock.Release;
   end;
 
-  // Fechar fora do lock: fechar faz I/O e nao precisa de exclusao.
   if Dead <> nil then
   begin
     try
@@ -593,7 +535,7 @@ begin
   Doomed := nil;
   if FLock = nil then
     Exit;
-  // Idempotente: a segunda chamada so encontra a lista vazia e sai.
+
   FLock.Acquire;
   try
     FShutdown := True;

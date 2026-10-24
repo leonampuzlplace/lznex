@@ -1,12 +1,5 @@
 unit Test.Postgres;
 
-{ Testes do dialeto PostgreSQL. Sem banco: so compilacao de SQL e de DDL,
-  comparando texto exato.
-
-  Quase toda assercao vem em par com o que o MySQL produziria para a MESMA
-  entrada. E esse contraste que mostra se a abstracao de dialeto esta de fato
-  no lugar certo: a arvore e o builder sao os mesmos, o texto muda. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -29,8 +22,7 @@ uses
   LzNex.Client.Postgres;
 
 type
-  // Base dos testes: um client de cada dialeto e uma AST descartavel para os
-  // verbos que o builder so expoe com conexao (insert/update/delete/truncate).
+
   TPostgresTestCase = class(TTestCase)
   protected
     FPg: ILzNexClient;
@@ -45,9 +37,8 @@ type
     function PgSchema: ILzNexSchema;
     function MySchema: ILzNexSchema;
 
-    // Recria a AST com a tabela informada.
     procedure FreshAst(const ATable: string);
-    // Compila a AST corrente no dialeto informado.
+
     function AstSQL(const AClient: ILzNexClient): TLzNexFragment;
 
     function BindsOf(const AFragment: TLzNexFragment): string;
@@ -56,7 +47,7 @@ type
       const AQuery: ILzNexQuery);
     procedure AssertAst(const AExpectedSQL, AExpectedBinds: string;
       const AClient: ILzNexClient);
-    // Confere que a AST corrente nao compila naquele dialeto.
+
     procedure AssertAstRaises(const AClient: ILzNexClient;
       const AMessagePart: string);
   end;
@@ -169,7 +160,6 @@ type
 
 implementation
 
-// Lista de identificadores, para Returning e ConflictTargets.
 function Idents(const ANames: array of string): TLzNexValues;
 var
   I: Integer;
@@ -187,7 +177,6 @@ begin
     AOp, AValue);
 end;
 
-// Primeiro comando do plano, ou um marcador legivel na falha.
 function Stmt(const APlan: TLzNexDdlPlan; const AIndex: Integer): string;
 begin
   if (AIndex < 0) or (AIndex > High(APlan.Statements)) then
@@ -203,8 +192,6 @@ begin
   else
     Result := APlan.Post[AIndex].Text;
 end;
-
-{ TPostgresTestCase }
 
 procedure TPostgresTestCase.SetUp;
 begin
@@ -309,8 +296,6 @@ begin
   end;
 end;
 
-{ TPostgresDialectTest }
-
 procedure TPostgresDialectTest.DialectIsRegisteredUnderBothNames;
 begin
   AssertTrue('postgresql', IsClientRegistered('postgresql'));
@@ -319,7 +304,7 @@ end;
 
 procedure TPostgresDialectTest.DialectNameIsPostgresql;
 begin
-  // O apelido 'postgres' entrega o mesmo dialeto.
+
   AssertEquals('postgresql', CreateClient('postgres').DialectName);
 end;
 
@@ -330,7 +315,7 @@ end;
 
 procedure TPostgresDialectTest.DdlIsTransactionalUnlikeMySQL;
 begin
-  // O migrator usa isso: no MySQL o DDL confirma a transacao implicitamente.
+
   AssertTrue('postgres', FPg.DdlIsTransactional);
   AssertFalse('mysql', FMy.DdlIsTransactional);
 end;
@@ -364,8 +349,6 @@ begin
   AssertTrue(FPg.SupportsSavepoints);
 end;
 
-{ TPostgresIdentifierTest }
-
 procedure TPostgresIdentifierTest.IdentifierUsesDoubleQuotes;
 begin
   AssertSQL('select * from "users"', PgQuery.Table('users'));
@@ -374,8 +357,7 @@ end;
 
 procedure TPostgresIdentifierTest.DoubleQuoteInsideNameIsDoubled;
 begin
-  // Dobrar a aspa e o escape padrao; a classe base faz isso com o QuoteChar
-  // do dialeto, entao nao ha codigo novo aqui para auditar.
+
   AssertEquals('"we""ird"', FPg.WrapIdentifier('we"ird'));
   AssertSQL('select "we""ird" from "t"',
     PgQuery.Table('t').Select(['we"ird']));
@@ -398,8 +380,6 @@ begin
   AssertEquals('*', FPg.WrapIdentifier('*'));
 end;
 
-{ TPostgresPagingTest }
-
 procedure TPostgresPagingTest.LimitAndOffsetAreAnsi;
 begin
   AssertQuery('select * from "t" limit ? offset ?', '10|20',
@@ -408,8 +388,7 @@ end;
 
 procedure TPostgresPagingTest.OffsetAloneNeedsNoLimitWorkaround;
 begin
-  // O Postgres aceita OFFSET sozinho, entao NAO ha o teto de 64 bits que o
-  // MySQL obriga a inventar.
+
   AssertQuery('select * from "t" offset ?', '20',
     PgQuery.Table('t').Offset(20));
 end;
@@ -435,8 +414,6 @@ begin
   FAst.Single.LimitValue := 5;
   AssertAst('delete from `users` limit ?', '5', FMy);
 end;
-
-{ TPostgresReturningTest }
 
 procedure TPostgresReturningTest.InsertReturning;
 begin
@@ -479,7 +456,7 @@ end;
 
 procedure TPostgresReturningTest.BuilderRefusesReturningOnMySQL;
 begin
-  // O builder tambem barra: a capacidade e consultada antes de montar a AST.
+
   AssertSQL('select * from "t"', PgQuery.Table('t').Returning(['id']));
   try
     MyQuery.Table('t').Returning(['id']);
@@ -488,8 +465,6 @@ begin
     on E: ELzNexCompile do ;
   end;
 end;
-
-{ TPostgresUpsertTest }
 
 procedure TPostgresUpsertTest.ConflictIgnoreWithTarget;
 begin
@@ -522,7 +497,7 @@ begin
   FAst.Single.InsertRows[0] := Vals(['name', 'ana']);
   FAst.Single.Conflict := caIgnore;
   FAst.Single.ConflictTargets := Idents(['email']);
-  // A coluna de conflito nao aparece: o MySQL resolve no verbo.
+
   AssertAst('insert ignore into `users` (`name`) values (?)', 'ana', FMy);
 end;
 
@@ -567,7 +542,7 @@ end;
 
 procedure TPostgresUpsertTest.ConflictMergeWithoutTargetRaises;
 begin
-  // No Postgres a coluna de conflito e obrigatoria no DO UPDATE.
+
   FreshAst('users');
   FAst.Single.Method := qmInsert;
   SetLength(FAst.Single.InsertRows, 1);
@@ -575,8 +550,6 @@ begin
   FAst.Single.Conflict := caMerge;
   AssertAstRaises(FPg, 'ON CONFLICT');
 end;
-
-{ TPostgresDistinctTest }
 
 procedure TPostgresDistinctTest.DistinctOnIsEmitted;
 begin
@@ -602,8 +575,6 @@ begin
     MyQuery.Table('users').Distinct.Select(['country']));
 end;
 
-{ TPostgresOrderTest }
-
 procedure TPostgresOrderTest.NullsLastIsNative;
 begin
   AssertSQL('select * from "t" order by "name" asc nulls last',
@@ -624,12 +595,10 @@ end;
 
 procedure TPostgresOrderTest.MySQLEmulatesNullsOrdering;
 begin
-  // Sem NULLS LAST nativo, a base ordena pela flag "(col is null)" primeiro.
+
   AssertSQL('select * from `t` order by (`name` is null) asc, `name` asc',
     MyQuery.Table('t').OrderBy('name', odAsc, nlLast));
 end;
-
-{ TPostgresTruncateTest }
 
 procedure TPostgresTruncateTest.TruncateRestartsIdentity;
 begin
@@ -647,15 +616,12 @@ end;
 
 procedure TPostgresTruncateTest.SchemaTruncateAlsoRestartsIdentity;
 begin
-  // O schema builder tem caminho proprio para truncate; as duas rotas tem que
-  // dizer a mesma coisa.
+
   AssertEquals('truncate "users" restart identity',
     FPg.NewSchemaCompiler.TruncateTableSQL('users').Text);
   AssertEquals('truncate `users`',
     FMy.NewSchemaCompiler.TruncateTableSQL('users').Text);
 end;
-
-{ TPostgresSchemaTest }
 
 procedure TPostgresSchemaTest.IncrementsIsSerialPrimaryKey;
 var
@@ -680,7 +646,7 @@ procedure TPostgresSchemaTest.BinaryIsBytea;
 var
   T: ILzNexTable;
 begin
-  // bytea nao tem tamanho: o 16 e descartado de proposito.
+
   T := PgSchema.CreateTable('files');
   T.Binary('payload', 16);
   AssertEquals('create table "files" ("payload" bytea null)', Stmt(T.ToSQL, 0));
@@ -749,8 +715,7 @@ end;
 
 procedure TPostgresSchemaTest.JsonbIsItsOwnType;
 begin
-  // ILzNexTable nao tem metodo Jsonb, entao o tipo e exercitado direto no
-  // compiler de DDL.
+
   AssertEquals('jsonb',
     FPg.NewSchemaCompiler.ColumnTypeSQL(ctJsonb, 0, 0, nil));
   AssertEquals('json',
@@ -791,9 +756,7 @@ procedure TPostgresSchemaTest.UnsignedIsIgnored;
 var
   T: ILzNexTable;
 begin
-  // Nao existe unsigned no Postgres. O modificador fica de fora da
-  // ModifierOrder, logo e ignorado em silencio: migration escrita para MySQL
-  // continua rodando.
+
   T := PgSchema.CreateTable('u');
   T.Int('n').Unsigned.NotNull;
   AssertEquals('create table "u" ("n" integer not null)', Stmt(T.ToSQL, 0));
@@ -928,14 +891,11 @@ begin
   AssertEquals('bindings', 'users|email', BindsOf(F));
 end;
 
-{ TPostgresAbstractionTest }
-
 procedure TPostgresAbstractionTest.SameQueryCompilesDifferentlyPerDialect;
 var
   PgSql, MySql: string;
 begin
-  // A MESMA cadeia de chamadas nos dois dialetos. Tres coisas divergem de uma
-  // vez: quoting, ordenacao de NULL e a necessidade do limit artificial.
+
   PgSql := PgQuery.Table('users').Select(['id', 'name'])
     .Where('active', True).OrderBy('name', odAsc, nlLast).Offset(5).ToSQL.Text;
   MySql := MyQuery.Table('users').Select(['id', 'name'])

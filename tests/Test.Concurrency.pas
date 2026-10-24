@@ -1,10 +1,5 @@
 unit Test.Concurrency;
 
-{ Concorrencia real: o provider FPC do Horse atende cada conexao HTTP numa
-  thread, entao o pacote precisa aguentar uso paralelo.
-
-  Pulados quando LZNEX_IT nao esta setado. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -70,8 +65,6 @@ begin
     .Pool(2, AMaxConnections));
 end;
 
-{ TConcurrencyTestCase }
-
 function TConcurrencyTestCase.SkipWithoutDatabase: Boolean;
 begin
   Result := GetEnvironmentVariable('LZNEX_IT') = '';
@@ -111,8 +104,7 @@ begin
 end;
 
 type
-  // Lote de operacoes misturadas, cada linha carimbada com o indice do worker,
-  // para depois se conferir que nada cruzou entre threads.
+
   TLoadWorker = class(TThread)
   private
     FDb: ILzNex;
@@ -161,8 +153,6 @@ begin
         .Update(Vals(['score', FIndex * 100 + Round_]));
       FDb.Table(LOAD_TABLE).Where('worker', FIndex).Count;
 
-      // Commit a cada 3 voltas, rollback nas demais: a contagem final so
-      // fecha se cada transacao tiver feito exatamente o que mandou.
       Trx := FDb.Transaction;
       try
         Trx.Table(LOAD_TABLE).Insert(
@@ -180,8 +170,6 @@ begin
       FErrorMessage := E.ClassName + ': ' + E.Message;
   end;
 end;
-
-{ TParallelLoadTest }
 
 procedure TParallelLoadTest.MixedOperationsDoNotInterleave;
 const
@@ -213,8 +201,6 @@ begin
       Workers[I].Free;
   end;
 
-  // Contagem exata: se algo tivesse cruzado entre threads, ou alguma transacao
-  // tivesse commitado por engano, a conta nao fecharia.
   CommittedPerWorker := ROUNDS div 3;
   TotalRows := FDb.Table(LOAD_TABLE).Count;
   AssertEquals('exact row count',
@@ -254,8 +240,7 @@ begin
 end;
 
 type
-  // Abre transacao, insere sem commitar e espera o sinal: serve para provar que
-  // outra conexao nao enxerga o dado nao commitado.
+
   TPendingTransactionWorker = class(TThread)
   private
     FDb: ILzNex;
@@ -342,8 +327,6 @@ begin
   end;
 end;
 
-{ TPoolLimitTest }
-
 procedure TPoolLimitTest.MoreThreadsThanConnectionsStillWorks;
 const
   WORKER_COUNT = 12;
@@ -354,7 +337,6 @@ var
 begin
   if SkipWithoutDatabase then Exit;
 
-  // Pool menor que o numero de threads: elas tem que se revezar, nao falhar.
   Db := ConnectWithPoolSize(3);
   try
     RecreateTable(Db);
@@ -389,10 +371,6 @@ var
 begin
   if SkipWithoutDatabase then Exit;
 
-  // No FPC 3.2.2 o temporario de interface so morre no fim do PROCEDIMENTO, e
-  // o cursor segura o emprestimo da conexao enquanto vive. Guardar varios
-  // ILzNexResult na mesma rotina consome varias conexoes ao mesmo tempo:
-  // comportamento esperado, que o usuario precisa conhecer.
   Db := ConnectWithPoolSize(4);
   try
     RecreateTable(Db);
@@ -406,7 +384,6 @@ begin
     SecondCursor := Db.Table(LOAD_TABLE).Get;
     AssertEquals('two cursors hold two connections', 2, Db.Pool.InUse);
 
-    // Soltar o cursor devolve a conexao sem esperar o fim do procedimento.
     FirstCursor := nil;
     AssertEquals('releasing the cursor returns the connection', 1, Db.Pool.InUse);
     SecondCursor := nil;

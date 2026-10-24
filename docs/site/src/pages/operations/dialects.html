@@ -1,0 +1,374 @@
+<article>
+<h1>Dialetos</h1>
+<p class="subtitle">
+  Toda diferença entre bancos está num só lugar: o <code>ILzNexClient</code>. O builder não
+  sabe em que banco está.
+</p>
+
+<h2 id="ilznexclient">O que o ILzNexClient concentra</h2>
+<p>
+  O query builder monta uma árvore e o compilador percorre essa árvore. Nenhum dos dois
+  pergunta "qual é o banco?" — eles perguntam ao cliente. É o cliente que responde como se
+  escreve um identificador, se o banco tem <code>returning</code>, quais seções entram em cada
+  verbo e qual compilador usar. Em quatro blocos:
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<thead><tr><th>Grupo</th><th>Métodos</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>léxico</strong></td>
+  <td>
+    <code>function WrapIdentifier(const AName: string): string</code><br>
+    <code>function WrapQualified(const AName: string): string</code><br>
+    <code>function Alias(const AExpr, AAlias: string): string</code><br>
+    <code>function Placeholder(const AIndex: Integer): string</code><br>
+    <code>function EscapeForLog(const AValue: TLzNexValue): string</code>
+  </td>
+</tr>
+<tr>
+  <td><strong>capacidades</strong></td>
+  <td>
+    <code>function SupportsReturning: Boolean</code><br>
+    <code>function SupportsOnConflictWhere: Boolean</code><br>
+    <code>function SupportsNullsOrdering: Boolean</code><br>
+    <code>function SupportsDistinctOn: Boolean</code><br>
+    <code>function SupportsSavepoints: Boolean</code><br>
+    <code>function DdlIsTransactional: Boolean</code>
+  </td>
+</tr>
+<tr>
+  <td><strong>estrutura da compilação</strong></td>
+  <td>
+    <code>function Components(const AMethod: TLzNexQueryMethod): TLzNexComponents</code><br>
+    <code>function InvalidComponents(const AMethod: TLzNexQueryMethod): TLzNexComponents</code>
+  </td>
+</tr>
+<tr>
+  <td><strong>identidade e fábricas</strong></td>
+  <td>
+    <code>function DialectName: string</code><br>
+    <code>function ZeosProtocol: string</code><br>
+    <code>function NewCompiler: ILzNexCompiler</code><br>
+    <code>function NewSchemaCompiler: ILzNexSchemaCompiler</code>
+  </td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  <code>TLzNexClientBase</code> implementa tudo isso com padrões ANSI; as duas fábricas são
+  abstratas. Um dialeto é uma classe que herda da base, sobrescreve o que difere e se registra.
+</p>
+
+<h2 id="capabilities">Capacidades</h2>
+<p>
+  As capacidades não são informativas: o compilador consulta cada uma e, quando o recurso não
+  existe, ou emula ou levanta <code>ELzNexCompile</code> dizendo o que fazer em vez disso.
+  Nunca gera SQL que o banco vai recusar.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Capacidade</th><th>MySQL</th><th>PostgreSQL</th><th>Efeito prático</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>SupportsReturning</code></td>
+  <td><span class="no">não</span></td>
+  <td><span class="yes">sim</span></td>
+  <td>
+    Em PostgreSQL, <code>Returning(['id'])</code> acrescenta <code>returning "id"</code> a
+    insert, update e delete. Em MySQL a chamada de <code>Returning</code> já levanta
+    <code>ELzNexCompile</code> — use <code>InsertGetId</code> (que lê
+    <code>LastInsertId</code> na mesma conexão) ou um select depois.
+  </td>
+</tr>
+<tr>
+  <td><code>SupportsOnConflictWhere</code></td>
+  <td><span class="no">não</span></td>
+  <td><span class="yes">sim</span></td>
+  <td>
+    Predicado no alvo do upsert (<code>on conflict (…) where …</code>). MySQL resolve conflito
+    com <code>insert ignore into</code> e <code>on duplicate key update</code>, formas que não
+    aceitam condição; o filtro tem de ir para a lógica da aplicação.
+  </td>
+</tr>
+<tr>
+  <td><code>SupportsNullsOrdering</code></td>
+  <td><span class="no">não</span></td>
+  <td><span class="yes">sim</span></td>
+  <td>
+    <code>nulls first</code> / <code>nulls last</code> nativos. Em MySQL o compilador
+    <strong>emula</strong>: emite uma chave de ordenação extra <code>(coluna is null)</code>
+    antes da coluna. O resultado é o mesmo, o texto não.
+  </td>
+</tr>
+<tr>
+  <td><code>SupportsDistinctOn</code></td>
+  <td><span class="no">não</span></td>
+  <td><span class="yes">sim</span></td>
+  <td>
+    <code>DistinctOn(['x'])</code> vira <code>distinct on ("x")</code>. Em MySQL levanta
+    <code>ELzNexCompile</code> mandando usar <code>Distinct</code> simples ou
+    <code>group by</code>, porque não há emulação honesta.
+  </td>
+</tr>
+<tr>
+  <td><code>SupportsSavepoints</code></td>
+  <td><span class="yes">sim</span></td>
+  <td><span class="yes">sim</span></td>
+  <td>
+    <code>Savepoint</code> aninha blocos dentro de uma transação. Num dialeto sem savepoint, a
+    chamada levantaria em vez de simular aninhamento que não existe.
+  </td>
+</tr>
+<tr>
+  <td><code>DdlIsTransactional</code></td>
+  <td><span class="no">não</span></td>
+  <td><span class="yes">sim</span></td>
+  <td>
+    Em PostgreSQL um <code>create table</code> dentro de transação desaparece no
+    <code>Rollback</code>. Em MySQL cada DDL faz <strong>commit implícito</strong>: uma migration
+    que falha no meio deixa as tabelas já criadas, e o <code>Down</code> é a única forma de
+    voltar.
+  </td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">DdlIsTransactional = não muda como você escreve migration</span>
+    <p>
+      Em MySQL não existe migration atômica. Escreva <code>Up</code> de forma que uma falha no
+      meio deixe um estado de que o <code>Down</code> consegue sair, e evite misturar DDL com
+      DML no mesmo passo: o commit implícito do DDL fecha a transação que o DML achava que
+      estava aberta.
+    </p>
+  </div>
+</div>
+
+<h2 id="lexicon">Léxico</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Aspecto</th><th>MySQL</th><th>PostgreSQL</th></tr></thead>
+<tbody>
+<tr>
+  <td>identificador</td>
+  <td><code>`users`</code></td>
+  <td><code>"users"</code></td>
+</tr>
+<tr>
+  <td>escape da própria aspa</td>
+  <td>duplica o acento grave: <code>a`b</code> → <code>`a``b`</code></td>
+  <td>duplica a aspa dupla: <code>a"b</code> → <code>"a""b"</code></td>
+</tr>
+<tr>
+  <td>nome qualificado</td>
+  <td>segmento por segmento: <code>`db`.`users`.`id`</code></td>
+  <td>segmento por segmento: <code>"db"."users"."id"</code></td>
+</tr>
+<tr>
+  <td>alias</td>
+  <td><code>`users` as `u`</code></td>
+  <td><code>"users" as "u"</code></td>
+</tr>
+<tr>
+  <td>placeholder</td>
+  <td><code>?</code>, posicional</td>
+  <td><code>?</code>, posicional</td>
+</tr>
+<tr>
+  <td><code>ZeosProtocol</code></td>
+  <td><code>mysql</code></td>
+  <td><code>postgresql</code></td>
+</tr>
+<tr>
+  <td><code>Client(…)</code> aceita</td>
+  <td><code>'mysql'</code>, <code>'mariadb'</code></td>
+  <td><code>'postgresql'</code>, <code>'postgres'</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  O <code>*</code> nunca é citado, e identificador vazio passa intacto. O placeholder é
+  <code>?</code> nos dois porque quem numera os parâmetros é o Zeos, não o LzNex — o dialeto que
+  precisasse de <code>$1</code>, <code>$2</code> sobrescreveria <code>Placeholder</code>, que já
+  recebe o índice. <code>EscapeForLog</code> é só para o log: produz SQL legível com os valores
+  interpolados, nunca o SQL que vai ao banco. Veja <a href="#logging">Log</a>.
+</p>
+
+<h2 id="same-chain">A mesma cadeia, dois dialetos</h2>
+<p>
+  Este é o teste <code>SameQueryCompilesDifferentlyPerDialect</code>: a mesma sequência de
+  chamadas, dois clientes, e três divergências aparecendo de uma vez.
+</p>
+
+<div class="code"><pre data-lang="pascal">Q.Table('users').Select(['id', 'name'])
+  .Where('active', True)
+  .OrderBy('name', odAsc, nlLast)
+  .Offset(5)
+  .ToSQL</pre></div>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">select `id`, `name` from `users` where `active` = ? order by (`name` is null) asc, `name` asc limit 18446744073709551615 offset ?</pre>
+    <p class="code-note">binds: True | 5</p>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">select "id", "name" from "users" where "active" = ? order by "name" asc nulls last offset ?</pre>
+    <p class="code-note">binds: True | 5</p>
+  </div>
+</div>
+
+<p>Três diferenças, três mecanismos distintos:</p>
+<ol>
+  <li>
+    <strong>Quoting</strong> — acento grave contra aspa dupla. Vem de uma única sobrescrita de
+    <code>QuoteChar</code>; nenhum método do compilador trata disso.
+  </li>
+  <li>
+    <strong>Ordenação de NULL</strong> — PostgreSQL diz <code>nulls last</code>; MySQL, que não
+    tem a cláusula, recebe a chave extra <code>(`name` is null) asc</code> antes da coluna. É
+    <code>SupportsNullsOrdering</code> escolhendo entre cláusula nativa e emulação.
+  </li>
+  <li>
+    <strong>Limite artificial</strong> — <code>Offset(5)</code> sozinho. MySQL não aceita
+    <code>offset</code> sem <code>limit</code>, então o compilador do dialeto injeta
+    <code>limit 18446744073709551615</code> (o maior <code>bigint unsigned</code>), que é a forma
+    canônica de dizer "sem limite". PostgreSQL aceita <code>offset</code> sozinho e não ganha
+    nada.
+  </li>
+</ol>
+
+<p>
+  O mesmo vale para DDL: <code>Increments</code> é <code>int unsigned not null auto_increment
+  primary key</code> em MySQL e <code>serial primary key</code> em PostgreSQL. Veja
+  <a href="#column-types">Tipos de coluna</a>.
+</p>
+
+<h2 id="new-dialect">Implementar um dialeto novo</h2>
+<p>
+  Um dialeto são duas classes — um <code>TLzNexClientBase</code> e um
+  <code>TLzNexSchemaCompilerBase</code> — mais, se o banco precisar, um
+  <code>TLzNexCompilerBase</code>. Na ordem em que vale atacar:
+</p>
+
+<ol>
+  <li>
+    <strong><code>DialectName</code> e <code>ZeosProtocol</code>.</strong> Os dois são
+    abstratos. <code>DialectName</code> é o que aparece nas mensagens de erro;
+    <code>ZeosProtocol</code> é o que entra na URL do Zeos e precisa casar com um driver
+    realmente registrado.
+  </li>
+  <li>
+    <strong><code>ColumnTypeSQL</code> e <code>ModifierOrder</code>, no compilador de schema.</strong>
+    <code>ColumnTypeSQL</code> traduz cada <code>TLzNexColumnType</code> para o tipo nativo;
+    <code>ModifierOrder</code> diz em que sequência os modificadores saem. A ordem importa: MySQL
+    exige <code>mdUnsigned, mdNullable, mdDefault, mdComment, mdCollate, mdAfter</code>;
+    PostgreSQL só reconhece <code>mdNullable, mdDefault</code> e ignora o resto.
+  </li>
+  <li>
+    <strong>As capacidades.</strong> Sobrescreva apenas as que diferem dos padrões da base —
+    que são conservadores: sem <code>returning</code>, sem <code>on conflict … where</code>, sem
+    ordenação de NULL, sem <code>distinct on</code>, com savepoint e com DDL transacional.
+  </li>
+  <li>
+    <strong><code>WrapIdentifier</code>, <code>Alias</code>, <code>Placeholder</code>.</strong>
+    Na prática, quase sempre basta sobrescrever o <code>QuoteChar</code> protegido: o
+    <code>WrapIdentifier</code> da base já cita e duplica a aspa interna sozinho. Sobrescreva os
+    métodos inteiros só se a forma do alias ou do placeholder for diferente.
+  </li>
+  <li>
+    <strong><code>Components</code> e <code>InvalidComponents</code>.</strong> Quais seções cada
+    verbo emite, e em que ordem; e quais são proibidas. Veja
+    <a href="#dialects/why-components-is-virtual">a seção abaixo</a>.
+  </li>
+  <li>
+    <strong>O resto do compilador de schema.</strong> Prefixos do <code>alter table</code>
+    (<code>AddColumnPrefix</code>, <code>ChangeColumnPrefix</code>,
+    <code>DropColumnPrefix</code> — a base usa <code>add column </code>,
+    <code>alter column </code>, <code>drop column </code>; MySQL encurta para
+    <code>add </code>, <code>modify </code>, <code>drop </code>), <code>IndexSQL</code> e
+    <code>DropIndexSQL</code>, <code>TableOptionsSQL</code> (vazio na base; MySQL emite
+    <code>engine</code>, <code>default character set</code>, <code>collate</code>,
+    <code>comment</code>) e <code>HasTableSQL</code>/<code>HasColumnSQL</code> se a consulta ao
+    catálogo não for a de <code>information_schema</code> da base.
+  </li>
+  <li>
+    <strong><code>RegisterClient</code> no <code>initialization</code>.</strong> Uma linha por
+    nome aceito.
+  </li>
+</ol>
+
+<div class="code"><pre data-lang="pascal">initialization
+  RegisterClient('postgresql', TLzNexPostgresClient);
+  RegisterClient('postgres', TLzNexPostgresClient);</pre></div>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">O registro só acontece se a unit for linkada</span>
+    <p>
+      <code>RegisterClient</code> roda no <code>initialization</code>, e o FPC não linka unit
+      que ninguém referencia. Se o dialeto não estiver no <code>uses</code> do programa,
+      <code>Connect</code> levanta <code>ELzNexConfig</code> dizendo que o dialeto não está
+      registrado e listando os disponíveis.
+    </p>
+  </div>
+</div>
+
+<h2 id="why-components-is-virtual">Por que Components é virtual</h2>
+<p>
+  <code>Components</code> devolve, para cada verbo, a lista ordenada de seções que o compilador
+  vai emitir. Para <code>select</code> é <code>cpHints, cpColumns, cpFrom, cpJoin, cpWhere,
+  cpGroup, cpHaving, cpUnion, cpOrder, cpLimit, cpOffset, cpLock</code>; para
+  <code>insert</code>, só <code>cpFrom</code>. O compilador não tem essa ordem escrita em
+  lugar nenhum — ele lê a lista e percorre.
+</p>
+<p>
+  <code>InvalidComponents</code> é o espelho: as seções <strong>proibidas</strong> naquele
+  verbo. Seção presente na árvore e proibida pelo dialeto levanta
+  <code>ELzNexCompile</code> na compilação, com mensagem dizendo a seção, o verbo e o dialeto.
+</p>
+<p>
+  Os dois são virtuais porque é aqui que mora a classe de diferença mais chata entre bancos: a
+  gramática do verbo. Um banco em que a ordem das seções difere, ou em que um verbo aceita algo
+  que os outros não aceitam, sobrescreve <strong>só isso</strong> — não precisa duplicar o
+  compilador para mudar uma linha de gramática.
+</p>
+<p>
+  O exemplo real é <code>delete … limit</code>. A base proíbe <code>cpLimit</code> em
+  <code>delete</code>, porque não é SQL padrão. MySQL aceita, então o cliente MySQL sobrescreve
+  <code>InvalidComponents</code> para <code>qmDelete</code> removendo <code>cpLimit</code> da
+  lista de proibidos — e nada mais:
+</p>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">delete from `users` limit ?</pre>
+    <p class="code-note">binds: 5</p>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="out">ELzNexCompile: Section "limit" is not valid in delete on dialect postgresql.
+Remove the clause or change the verb.</pre>
+  </div>
+</div>
+
+<p>
+  Note que o erro é <code>ELzNexCompile</code>, não <code>ELzNexBuilder</code>: a cadeia de
+  chamadas está coerente, o que falta é suporte no banco. Veja
+  <a href="#errors/builder-vs-compile">Erros</a> para a distinção.
+</p>
+
+<div class="cards">
+  <a class="card" href="#api-client"><h4>Referência do ILzNexClient →</h4><p>Assinaturas completas e os padrões da classe base.</p></a>
+  <a class="card" href="#column-types"><h4>Tipos de coluna →</h4><p>O que cada tipo vira em MySQL e em PostgreSQL.</p></a>
+</div>
+</article>

@@ -1,0 +1,532 @@
+<article>
+<h1>Migrations</h1>
+<p class="subtitle">
+  Histórico versionado do schema, em Pascal ou em <code>.sql</code>, com lock de processo
+  concorrente e rollback por batch.
+</p>
+
+<h2 id="model">O modelo</h2>
+<p>
+  Cada migration tem um <strong>Id</strong> (o timestamp) e um <strong>nome</strong> completo
+  (<code>&lt;id&gt;_&lt;descricao&gt;</code>). O Id ordena; o nome é o que vai para a tabela de
+  controle e o que decide se já rodou.
+</p>
+
+<div class="table-wrap">
+<table>
+<tbody>
+<tr><td><strong>batch</strong></td><td>Toda chamada de <code>Latest</code> grava as migrations que aplicou com o <strong>mesmo</strong> número de batch (o maior já gravado + 1). É isso que dá sentido a "desfazer o último deploy".</td></tr>
+<tr><td><strong>comparação por nome</strong></td><td>Aplicada ou não é uma busca de string na coluna <code>name</code>. Não há checksum do corpo da migration: editar uma migration já aplicada <strong>não</strong> é detectado, e o LzNex não vai reaplicá-la.</td></tr>
+<tr><td><strong>rollback</strong></td><td><code>Rollback</code> pega o maior batch e desfaz as linhas daquele batch na ordem inversa de aplicação. <code>RollbackAll</code> desfaz tudo, também de trás para frente.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">Sem checksum, por escolha</span>
+    <p>
+      Guardar e conferir um hash do corpo significaria quebrar o deploy por uma mudança de
+      espaço em branco, e o hash de uma migration em Pascal só existiria depois de compilada.
+      A regra é mais simples: migration aplicada é <strong>imutável</strong>. Mudou de ideia?
+      Nova migration.
+    </p>
+  </div>
+</div>
+
+<h2 id="sources">Duas fontes, um histórico</h2>
+<p>
+  O migrator junta as fontes, ordena <strong>tudo</strong> pelo Id e trata a lista como uma
+  só. Uma migration em Pascal de janeiro roda antes de uma <code>.sql</code> de fevereiro, e
+  as duas vão para a mesma tabela <code>migrations</code>. Id repetido entre fontes levanta
+  <code>ELzNexMigration</code> — se dois Ids são iguais, não existe ordem.
+</p>
+
+<div class="cards">
+  <a class="card" href="#migrations/pascal"><h4>Pascal →</h4><p>Uma classe com <code>Up</code>/<code>Down</code>. Usa o schema builder, tem tipo e é compilada. Precisa de rebuild.</p></a>
+  <a class="card" href="#migrations/sql"><h4>.sql →</h4><p>Um par <code>up</code>/<code>down</code> no disco, lido em tempo de execução. Sem rebuild, sem portabilidade entre dialetos.</p></a>
+</div>
+
+<p>
+  A fonte <code>.sql</code> sai do diretório de <code>migrations.directory</code> na config e é
+  <strong>opcional</strong>: diretório ausente não é erro, fica só a fonte de código. Veja
+  <a href="#configuration">configuração</a>.
+</p>
+
+<h2 id="pascal">Migration em Pascal</h2>
+
+<div class="code"><pre data-lang="sh">lznex migrate:make create_users</pre>
+<div class="code-out">
+  <div class="code-label">saída</div>
+  <pre data-lang="out">created: database/migrations/M20261024120000_create_users.pas
+
+WARNING: add "M20261024120000_create_users" to the `uses` clause of the migrations aggregator.
+A unit nobody references is not linked by FPC, so its initialization
+never runs and the migration never registers itself.</pre>
+</div>
+</div>
+
+<p>O arquivo gerado, já preenchido:</p>
+
+<div class="code"><pre data-lang="pascal">unit M20261024120000_create_users;
+
+{$MODE DELPHI}{$H+}
+
+interface
+
+uses
+  LzNex.Intf,
+  LzNex.Migration;
+
+type
+  TCreateUsers = class(TLzNexMigration)
+  public
+    class function Id: string; override;
+    class function MigrationName: string; override;
+    procedure Up(const ADb: ILzNex); override;
+    procedure Down(const ADb: ILzNex); override;
+  end;
+
+implementation
+
+class function TCreateUsers.Id: string;
+begin
+  Result := '20261024120000';
+end;
+
+class function TCreateUsers.MigrationName: string;
+begin
+  Result := '20261024120000_create_users';
+end;
+
+procedure TCreateUsers.Up(const ADb: ILzNex);
+begin
+  ADb.Schema.CreateTable('users')
+    .Increments('id')
+    .Str('email', 191).NotNull.Unique
+    .Str('name', 120).NotNull
+    .Bool('active').Default_(True)
+    .Json('meta').Nullable
+    .Timestamps
+    .Engine('InnoDB')
+    .Charset('utf8mb4')
+    .Execute;
+end;
+
+procedure TCreateUsers.Down(const ADb: ILzNex);
+begin
+  ADb.Schema.DropTableIfExists('users');
+end;
+
+initialization
+  RegisterMigration(TCreateUsers);
+
+end.</pre></div>
+
+<p>
+  O <code>ADb</code> que chega em <code>Up</code> e <code>Down</code> é a facade inteira: dá
+  <a href="#schema">schema</a>, <a href="#query-builder">query builder</a> e SQL cru. Migration
+  de dados (preencher uma coluna nova a partir da antiga) é escrita igual ao resto do código.
+</p>
+
+<h3 id="class-methods">Id e MigrationName são métodos de classe</h3>
+<p>
+  Repare no <code>class function</code>. O registry precisa <strong>ordenar</strong> a lista e
+  <strong>detectar Id duplicado</strong> no momento do <code>RegisterMigration</code>, que roda
+  no <code>initialization</code> da unit — antes de existir qualquer banco. Sendo métodos de
+  classe, isso é feito sem instanciar nada. A instância só nasce quando o migrator vai de fato
+  aplicar a migration.
+</p>
+
+<div class="code"><pre data-lang="pascal">// no initialization: ordena e valida sem criar objeto
+RegisterMigration(TCreateUsers);
+
+// na hora de aplicar: ai sim instancia
+Mig := CreateMigration(TCreateUsers);
+Mig.Up(Db);</pre></div>
+
+<p>
+  <code>Id</code> tem default: é o prefixo do nome até o primeiro <code>_</code>. Sobrescrever
+  <code>MigrationName</code> é obrigatório — a base levanta <code>ELzNexMigration</code> pedindo
+  o formato <code>&lt;YYYYMMDDHHMMSS&gt;_&lt;description&gt;</code>; sobrescrever <code>Id</code>
+  é opcional (o stub faz por clareza).
+</p>
+
+<div class="code"><pre data-lang="pascal">// so MigrationName sobrescrito: Id vem do prefixo
+class function TAddPhone.MigrationName: string;
+begin
+  Result := '20261025090000_add_phone';
+end;
+// TAddPhone.Id = '20261025090000'</pre></div>
+
+<h3 id="usetransaction">UseTransaction</h3>
+<p>
+  Default <code>True</code>: o migrator abre uma <a href="#transactions">transação</a>, roda
+  <code>Up</code> (ou <code>Down</code>) e grava a linha de controle <strong>dentro</strong>
+  dela, então um erro no meio não deixa a tabela de controle mentindo. Devolver
+  <code>False</code> roda sem transação — o caminho para DDL que o banco não aceita em
+  transação, como <code>create index</code> concorrente.
+</p>
+
+<div class="code"><pre data-lang="pascal">function TAddBigIndex.UseTransaction: Boolean;
+begin
+  Result := False;
+end;</pre></div>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Unit que ninguém usa não é linkada</span>
+    <p>
+      O FPC descarta unit que nenhum <code>uses</code> alcança. O
+      <code>initialization</code> dela nunca roda, o <code>RegisterMigration</code> nunca
+      acontece e a migration simplesmente <strong>não existe</strong> — sem erro, sem aviso,
+      só uma migration que não aparece no <code>migrate:status</code>. Por isso existe uma unit
+      agregadora, e toda migration nova entra no <code>uses</code> dela:
+    </p>
+  </div>
+</div>
+
+<div class="code"><pre data-lang="pascal">unit Migrations.All;
+
+{$MODE DELPHI}{$H+}
+
+interface
+
+uses
+  M20261024120000_create_users;
+
+implementation
+
+end.</pre>
+  <p class="code-note">database/Migrations.All.pas — e o programa (ou o binário do CLI) dá <code>uses Migrations.All</code></p>
+</div>
+
+<p>
+  O pior caso dessa armadilha é a unit sair do agregador <strong>depois</strong> de a migration
+  ter sido aplicada: a linha continua na tabela de controle sem fonte correspondente, e aí o
+  migrator levanta — veja <a href="#migrations/pitfalls">corrupção do histórico</a>.
+</p>
+
+<h3 id="duplicate-id">Id duplicado levanta no registro</h3>
+<div class="code"><pre data-lang="pascal">RegisterMigration(TCreateUsers);   // 20261024120000_create_users
+RegisterMigration(TOutraCoisa);    // 20261024120000_outra_coisa
+// ELzNexMigration: Duplicate migration id: "20261024120000".
+//   already registered: 20261024120000_create_users (TCreateUsers)
+//   trying to register: 20261024120000_outra_coisa (TOutraCoisa)</pre>
+<p class="code-note">a duplicata não entra no registry; a mensagem nomeia as duas classes</p>
+</div>
+
+<h2 id="sql">Migration em .sql</h2>
+
+<div class="code"><pre data-lang="sh">lznex migrate:make add_phone --sql</pre>
+<div class="code-out">
+  <div class="code-label">saída</div>
+  <pre data-lang="out">created: database/migrations/20261025090000_add_phone.up.sql
+created: database/migrations/20261025090000_add_phone.down.sql
+.sql migrations are read at runtime: no rebuild needed.</pre>
+</div>
+</div>
+
+<h3 id="naming">A convenção de nome é o contrato</h3>
+<p>
+  O descobridor varre o diretório e só olha arquivos terminados em <code>.up.sql</code>. O nome
+  da migration é o que sobra depois de tirar esse sufixo, e o Id é o prefixo até o primeiro
+  <code>_</code>. Qualquer outro arquivo no diretório (um <code>leiame.txt</code>, por exemplo)
+  é ignorado.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Arquivo</th><th>Papel</th></tr></thead>
+<tbody>
+<tr><td><code>20261025090000_add_phone.up.sql</code></td><td><strong>Obrigatório.</strong> Define a migration. Sem ele não há migration nenhuma — o <code>.down.sql</code> sozinho é invisível.</td></tr>
+<tr><td><code>20261025090000_add_phone.down.sql</code></td><td><strong>Opcional.</strong> Sem ele a migration é irreversível: <code>Down</code> levanta <code>ELzNexMigration</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="code"><pre data-lang="sql">-- 20261025090000_add_phone.up.sql
+alter table `users` add `phone` varchar(20) null after `name`;</pre></div>
+
+<div class="code"><pre data-lang="sql">-- 20261025090000_add_phone.down.sql
+alter table `users` drop `phone`;</pre></div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">Irreversível levanta; down vazio é pior</span>
+    <p>
+      Faltando o <code>.down.sql</code>, o <code>Down</code> não roda nada e levanta dizendo
+      qual arquivo criar. A alternativa — aceitar um <code>.down.sql</code> vazio — daria um
+      rollback que <strong>reporta sucesso</strong>, apaga a linha da tabela de controle e não
+      desfez nada. Falhar alto é o comportamento honesto.
+    </p>
+  </div>
+</div>
+
+<h3 id="splitter">Um arquivo, vários comandos</h3>
+<p>
+  O arquivo é quebrado em comandos pelo <code>;</code>, mas o splitter entende o texto em volta:
+  ponto e vírgula dentro de literal (<code>'</code>, <code>"</code>, <code>`</code>), dentro de
+  <code>--</code>, de <code>#</code> ou de <code>/* */</code> não separa nada. Cada comando vai
+  ao banco sozinho, e o erro diz qual deles falhou (<em>statement 2 of 4</em>) com o SQL inteiro
+  anexado.
+</p>
+
+<div class="code"><pre data-lang="sql">create table a (
+  id int,
+  nota varchar(50) default 'ponto; e virgula'
+);
+
+/* bloco; com ; dentro */
+insert into a (id, nota) values (1, 'a;b');
+# comentario de cerquilha;
+update a set nota = 'c' where id = 1;
+;</pre>
+  <p class="code-note">3 comandos: o <code>create</code>, o <code>insert</code> e o <code>update</code> — o <code>;</code> solto do fim não gera comando vazio</p>
+</div>
+
+<p>
+  Literal aberto sem par, ou <code>/*</code> sem <code>*/</code>, levanta
+  <code>ELzNexMigration</code> e <strong>nada</strong> é executado: sem saber onde um comando
+  termina, não há palpite seguro.
+</p>
+
+<h4>A marca nosplit</h4>
+<p>
+  Corpo de <code>procedure</code>, <code>function</code> ou <code>trigger</code> tem
+  <code>;</code> interno que pertence ao corpo, não ao script. Com a marca
+  <code>lznex:nosplit</code> em qualquer lugar do arquivo (num comentário, por convenção na
+  primeira linha), o arquivo vai ao banco <strong>inteiro</strong>, como um único comando.
+</p>
+
+<div class="code"><pre data-lang="sql">-- lznex:nosplit
+create procedure p() begin select 1; select 2; end</pre>
+  <p class="code-note">1 comando. É tudo ou nada: a marca vale para o arquivo todo, então deixe um objeto por arquivo.</p>
+</div>
+
+<h2 id="commands">Comandos</h2>
+
+<div class="code"><pre data-lang="sh">lznex migrate:latest                  # roda toda pendente, num batch novo
+lznex migrate:rollback                # desfaz o ultimo batch
+lznex migrate:rollback --all          # desfaz tudo
+lznex migrate:up                      # roda a proxima pendente
+lznex migrate:up 20261025090000_add_phone
+lznex migrate:down                    # desfaz a ultima aplicada
+lznex migrate:down 20261025090000_add_phone
+lznex migrate:to 20261025090000_add_phone
+lznex migrate:status
+lznex migrate:version
+lznex migrate:unlock
+lznex migrate:make create_users [--sql]</pre></div>
+
+<div class="code"><pre data-lang="sh">lznex migrate:status</pre>
+<div class="code-out">
+  <div class="code-label">saída</div>
+  <pre data-lang="out">  state    batch source migration
+  -------  ----- ------ ---------
+    ok        1  code   20261024120000_create_users
+  pending      -  sql    20261025090000_add_phone
+
+1 applied, 1 pending. Current version: 20261024120000</pre>
+</div>
+</div>
+
+<p>
+  A coluna <code>source</code> é <code>code</code> ou <code>sql</code>, e deixa visível que as
+  duas fontes vivem na mesma fila. Mais sobre flags e exit codes em <a href="#cli">CLI</a>.
+</p>
+
+<h2 id="from-code">Pelo código</h2>
+<p>
+  O CLI não faz nada que o código não faça: <code>Db.Migrator</code> devolve um
+  <code>ILzNexMigrator</code> já com a fonte de código e, se a config apontar diretório, a fonte
+  <code>.sql</code>. É o caminho normal para subir o banco no começo de uma suíte de testes.
+</p>
+
+<div class="code"><pre data-lang="pascal">Db.Migrator.EnsureTables;          // cria migrations e migrations_lock se faltarem
+Db.Migrator.Latest;                // devolve quantas aplicou
+
+Writeln(Db.Migrator.CurrentVersion);   // 20261025090000, ou 'none'
+
+List := Db.Migrator.Status;
+for I := 0 to High(List) do
+  Writeln(List[I].Name, ' ', List[I].Source, ' ', List[I].Applied);</pre></div>
+
+<p>
+  <code>EnsureTables</code> é idempotente e lembra que já conferiu, então chamar no começo não
+  custa um round-trip por operação. Os métodos que mexem no histórico chamam sozinhos.
+</p>
+
+<h2 id="api">ILzNexMigrator</h2>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function AddSource(const ASource: ILzNexMigrationSource): ILzNexMigrator</code></td><td>Acrescenta uma fonte e devolve o próprio migrator. Sem nenhuma fonte, qualquer operação levanta.</td></tr>
+<tr><td><code>function Latest: Integer</code></td><td>Aplica todas as pendentes num batch novo. Devolve quantas.</td></tr>
+<tr><td><code>function Rollback: Integer</code></td><td>Desfaz o último batch, na ordem inversa. Devolve quantas.</td></tr>
+<tr><td><code>function RollbackAll: Integer</code></td><td>Desfaz tudo que está aplicado, de trás para frente.</td></tr>
+<tr><td><code>function Up(const AName: string = ''): Integer</code></td><td>Sem nome: a próxima pendente. Com nome: aquela. Nome já aplicado ou inexistente levanta.</td></tr>
+<tr><td><code>function Down(const AName: string = ''): Integer</code></td><td>Sem nome: a última aplicada. Com nome: aquela. Nome não aplicado levanta.</td></tr>
+<tr><td><code>function MigrateTo(const AName: string): Integer</code></td><td>Aplica as pendentes até a indicada, inclusive, todas no mesmo batch.</td></tr>
+<tr><td><code>function Status: TLzNexMigrationStatusList</code></td><td>Uma entrada por migration conhecida, com <code>Name</code>, <code>Source</code>, <code>Applied</code>, <code>Batch</code> e <code>AppliedAt</code>.</td></tr>
+<tr><td><code>function Pending: TLzNexMigrationArray</code></td><td>Só as não aplicadas, em ordem de Id.</td></tr>
+<tr><td><code>function CurrentVersion: string</code></td><td>O maior Id aplicado, ou <code>'none'</code>.</td></tr>
+<tr><td><code>procedure Unlock</code></td><td>Zera o lock à força. Para quando um processo morreu segurando.</td></tr>
+<tr><td><code>procedure EnsureTables</code></td><td>Cria as duas tabelas de controle se não existirem. Idempotente.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Do lado da migration, o contrato é curto:</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Id: string</code></td><td>O timestamp. Define a ordem.</td></tr>
+<tr><td><code>function Name: string</code></td><td>O nome completo. É o que vai para a tabela de controle.</td></tr>
+<tr><td><code>function UseTransaction: Boolean</code></td><td>Se o migrator embrulha <code>Up</code>/<code>Down</code> em transação.</td></tr>
+<tr><td><code>procedure Up(const ADb: ILzNex)</code></td><td>Aplica.</td></tr>
+<tr><td><code>procedure Down(const ADb: ILzNex)</code></td><td>Desfaz.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="control-tables">As duas tabelas de controle</h2>
+<p>
+  O nome da primeira vem de <code>migrations.table</code> na config (default
+  <code>migrations</code>); a segunda é sempre esse nome mais o sufixo <code>_lock</code>.
+</p>
+
+<div class="code"><pre data-lang="pascal">Db.Schema.CreateTable('migrations')
+  .Increments('id')
+  .Str('name', 255)
+  .Int('batch')
+  .Timestamp('migration_time')
+  .Execute;
+
+Db.Schema.CreateTable('migrations_lock')
+  .Increments('index')
+  .Int('is_locked')
+  .Execute;
+
+Db.Table('migrations_lock').Insert(Vals(['is_locked', 0]));</pre>
+  <p class="code-note">é literalmente o que <code>EnsureTables</code> roda</p>
+</div>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Tabela</th><th>Colunas</th></tr></thead>
+<tbody>
+<tr><td><code>migrations</code></td><td><code>id</code> (auto), <code>name</code> varchar(255), <code>batch</code> int, <code>migration_time</code> timestamp. Uma linha por migration aplicada; o rollback <strong>apaga</strong> a linha.</td></tr>
+<tr><td><code>migrations_lock</code></td><td><code>index</code> (auto), <code>is_locked</code> int. <strong>Uma única linha</strong>, criada com <code>0</code> junto com a tabela.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="lock">O lock é um UPDATE condicional</h3>
+<p>
+  Antes de mexer no histórico, o migrator roda um único comando e olha quantas linhas ele
+  afetou:
+</p>
+
+<div class="code"><pre data-lang="pascal">Db.Table('migrations_lock').Where('is_locked', 0).Update(Vals(['is_locked', 1]));</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">update `migrations_lock` set `is_locked` = ? where `is_locked` = ?</pre>
+  <p class="code-note">binds: 1 | 0 — pegou o lock se, e só se, afetou exatamente 1 linha</p>
+</div>
+</div>
+
+<p>
+  Afetar <strong>exatamente 1</strong> é o teste inteiro. Quem chegou primeiro virou o
+  <code>0</code> em <code>1</code> e levou; quem chegou depois não casa o <code>where</code>,
+  afeta 0 linhas e levanta <code>ELzNexMigrationLock</code>. Não há leitura seguida de escrita,
+  logo não há janela entre checar e marcar: o próprio banco serializa o <code>update</code>.
+  E como é só <code>update</code> com <code>where</code>, funciona igual em qualquer banco —
+  sem <code>get_lock</code>, sem advisory lock, sem nada específico de dialeto.
+</p>
+
+<div class="code"><pre data-lang="pascal">Db.Table('migrations_lock').Update(Vals(['is_locked', 0]));</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">update `migrations_lock` set `is_locked` = ?</pre>
+  <p class="code-note">binds: 0 — o que <code>Unlock</code> e o <code>migrate:unlock</code> fazem</p>
+</div>
+</div>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Quem falha ao pegar o lock não o solta</span>
+    <p>
+      O <code>Unlock</code> só é chamado por quem <strong>conseguiu</strong> o lock — no fim do
+      trabalho ou no <code>except</code> do próprio trabalho. O processo que perdeu a disputa sai
+      pela exceção <em>antes</em> disso e não encosta no lock, senão liberaria o lock de outro
+      processo que está migrando agora. No CLI essa disputa tem exit code próprio:
+    </p>
+  </div>
+</div>
+
+<div class="code"><pre data-lang="sh">lznex migrate:latest; echo $?</pre>
+<div class="code-out">
+  <div class="code-label">saída</div>
+  <pre data-lang="out">lock error: The migrations table is already locked (migrations_lock affected 0 rows, expected 1).
+Another process is migrating right now, or a previous process died holding the lock. If you are sure no migration is running, run "migrate:unlock".
+3</pre>
+  <p class="code-note">exit 3 só para o lock; 1 para erro de migration, 2 para uso errado do comando</p>
+</div>
+</div>
+
+<p>
+  Exit code 3 existe para o script de deploy distinguir "outro nó já está migrando, pode seguir"
+  de "a migration quebrou, pare tudo". Lock preso por processo morto só sai com
+  <code>migrate:unlock</code>, de propósito: não há timeout que consiga adivinhar se o outro
+  processo morreu ou está num <code>alter table</code> de duas horas.
+</p>
+
+<h2 id="pitfalls">Dois jeitos de se machucar</h2>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">No MySQL, DDL não é transacional</span>
+    <p>
+      <code>create</code>, <code>alter</code> e <code>drop</code> fazem commit implícito: a
+      transação que o migrator abriu termina ali, e o rollback depois disso
+      <strong>não desfaz</strong> o DDL já executado — pode até deixar a linha da tabela de
+      controle fora de sincronia com o schema. Quando o dialeto é assim, o migrator loga um
+      aviso. Escreva a migration como <strong>um passo estrutural só</strong> e deixe-a
+      <strong>reentrante</strong> (<code>DropTableIfExists</code> em vez de
+      <code>DropTable</code>, checar <code>HasColumn</code> antes de adicionar), para que rodar
+      de novo depois de um erro no meio funcione. PostgreSQL faz DDL dentro de transação e não
+      tem esse problema.
+    </p>
+  </div>
+</div>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Linha aplicada sem migration é corrupção</span>
+    <p>
+      Toda operação compara a tabela de controle com as fontes. Linha em
+      <code>migrations</code> cujo <code>name</code> não existe em nenhuma fonte faz o migrator
+      levantar <code>ELzNexMigration</code> listando as órfãs — e não roda nada. Ele não pode
+      seguir: não existe <code>Down</code> para desfazer aquilo, e ignorar silenciosamente
+      daria um <code>rollback</code> que pula migrations. As três causas são sempre as mesmas:
+      arquivo renomeado depois de aplicado, arquivo apagado, ou a unit tirada do
+      <code>uses</code> agregador. Restaure a migration, ou apague a linha na mão.
+    </p>
+  </div>
+</div>
+
+<p>
+  Seguindo: <a href="#seeds">seeds</a> para popular dados,
+  <a href="#transactions">transações</a> para o que o migrator usa por baixo, e
+  <a href="#errors">erros</a> para a hierarquia de exceções.
+</p>
+</article>

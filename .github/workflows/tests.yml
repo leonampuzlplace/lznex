@@ -1,0 +1,110 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - master
+      - production
+  pull_request:
+    branches:
+      - master
+      - production
+
+permissions:
+  contents: write
+
+jobs:
+  # O stage "builder" do Dockerfile ja instala FPC, Lazarus e Boss, resolve o
+  # Zeos e compila o CLI e os testes nos dois build modes. Rodar por ele mantem
+  # o CI identico ao `docker compose run --rm tests` local.
+  build:
+    name: Compilar e testar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compilar (stage builder)
+        run: docker build --target builder -t lznex-builder:ci .
+
+      - name: Testes unitarios
+        # HEAPTRC derruba o processo com exit 203 se sobrar bloco nao liberado,
+        # entao o gate de vazamento vale aqui tambem.
+        run: |
+          docker run --rm -e HEAPTRC=haltonnotreleased \
+            lznex-builder:ci ./bin/lznex-tests-debug
+
+      - name: CLI responde
+        run: docker run --rm lznex-builder:ci ./bin/lznex --help
+
+      - name: Documentacao monta e valida
+        run: python3 docs/site/src/build.py --check
+
+  # Check unico, para o ruleset da branch exigir um nome so.
+  tests:
+    name: tests
+    needs: build
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.build.result }}" = "success"
+
+  # Entrega em production com CI verde vira versao sozinha. A versao nao e
+  # escrita a mao: sai da ultima tag, e o boss.json e sincronizado com ela —
+  # e o boss.json que o Boss le ao instalar o pacote.
+  release:
+    name: Release
+    needs: tests
+    if: github.ref == 'refs/heads/production' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    # Serializa pushes seguidos; dois jobs simultaneos calculariam a mesma tag.
+    concurrency:
+      group: release
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: bump
+        name: Calcular a proxima tag
+        run: |
+          last=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+          if [ -z "$last" ]; then
+            next="v1.0.0"
+          else
+            IFS=. read -r maj min pat <<< "${last#v}"
+            next="v$maj.$min.$((pat + 1))"
+          fi
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+          echo "version=${next#v}" >> "$GITHUB_OUTPUT"
+
+      # O Boss resolve a dependencia pela tag do git, mas le o manifesto do
+      # pacote: manter os dois em desacordo confunde quem instala.
+      - name: Sincronizar boss.json com a tag
+        run: |
+          python3 - "${{ steps.bump.outputs.version }}" <<'PY'
+          import json, pathlib, sys, re
+          p = pathlib.Path('boss.json')
+          raw = p.read_text(encoding='utf-8')
+          new = re.sub(r'("version"\s*:\s*")[^"]*(")', r'\g<1>%s\2' % sys.argv[1], raw, count=1)
+          p.write_text(new, encoding='utf-8')
+          json.loads(new)   # recusa escrever JSON quebrado
+          PY
+          git diff --quiet boss.json && exit 0
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Versao ${{ steps.bump.outputs.version }} [skip ci]"
+          git push origin HEAD:production
+
+      # Sempre patch. Para subir minor/major, crie a tag na mao uma vez
+      # (git tag v1.1.0 && git push origin v1.1.0) — o calculo segue dela.
+      - name: Criar tag e release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.bump.outputs.tag }}" \
+            --target "$(git rev-parse HEAD)" \
+            --title "${{ steps.bump.outputs.tag }}" \
+            --generate-notes

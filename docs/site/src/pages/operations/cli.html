@@ -1,0 +1,308 @@
+<article>
+<h1>CLI</h1>
+<p class="subtitle">
+  O binário <code>lznex</code> roda migrations e seeds. Por dentro é só um dispatcher sobre
+  <code>ILzNexMigrator</code> e <code>ILzNexSeeder</code>.
+</p>
+
+<h2 id="what-it-is">O que é o binário</h2>
+<p>
+  <code>tools/LzNexCli.lpi</code> compila o <code>lznex</code>. Ele não tem lógica de migração
+  nenhuma: lê os argumentos, chama o método correspondente de
+  <a href="#api-migrations"><code>ILzNexMigrator</code></a> ou <code>ILzNexSeeder</code>, imprime o
+  resultado e devolve um exit code. Toda a decisão de o que aplicar, em que ordem e sob qual
+  lock está no migrator, que é o mesmo usado por programa.
+</p>
+<p>
+  O dispatcher vive em <code>LzNex.Cli</code>, uma unit separada do <code>.lpr</code>, por duas
+  razões práticas:
+</p>
+<ul>
+  <li>
+    <strong>testável</strong> — <code>TLzNexCli.Run(ACommand, AArgs)</code> recebe comando e
+    argumentos como parâmetros, não via <code>ParamStr</code>. Dá para exercitar cada comando e
+    conferir o exit code sem lançar processo;
+  </li>
+  <li>
+    <strong>embutível</strong> — a sua aplicação pode expor os mesmos comandos (um modo
+    <code>--migrate</code>, um endpoint administrativo) instanciando
+    <code>TLzNexCli.Create(Db)</code>. <code>RunFromCommandLine</code> é só o atalho que lê
+    <code>ParamStr</code> e chama <code>Run</code>.
+  </li>
+</ul>
+
+<div class="code"><pre data-lang="pascal">Cli := TLzNexCli.Create(Db);
+try
+  ExitCode := Cli.Run('migrate:latest', []);
+finally
+  Cli.Free;
+end;</pre></div>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">O binário é por projeto, não global</span>
+    <p>
+      O <code>uses</code> do <code>.lpr</code> inclui o agregador de migrations
+      (<code>Migrations.All</code>) e a unit do dialeto. Migration em Pascal só existe no
+      binário se a unit dela foi <strong>linkada</strong>; logo, cada projeto compila o seu
+      <code>lznex</code>. Migrations em <code>.sql</code> são lidas em tempo de execução e não
+      pedem rebuild.
+    </p>
+  </div>
+</div>
+
+<h2 id="commands">Comandos</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Comando</th><th>Alias</th><th>O que faz</th></tr></thead>
+<tbody>
+<tr><td><code>migrate:latest</code></td><td>—</td><td>Aplica todas as pendentes num lote novo.</td></tr>
+<tr><td><code>migrate:rollback [--all]</code></td><td>—</td><td>Desfaz o último lote; com <code>--all</code>, desfaz tudo.</td></tr>
+<tr><td><code>migrate:up [nome]</code></td><td>—</td><td>Aplica a próxima pendente, ou a indicada.</td></tr>
+<tr><td><code>migrate:down [nome]</code></td><td>—</td><td>Desfaz a última aplicada, ou a indicada.</td></tr>
+<tr><td><code>migrate:to &lt;nome&gt;</code></td><td>—</td><td>Aplica as pendentes até a indicada, inclusive.</td></tr>
+<tr><td><code>migrate:status</code></td><td><code>migrate:list</code></td><td>Lista aplicadas e pendentes.</td></tr>
+<tr><td><code>migrate:version</code></td><td><code>migrate:currentversion</code></td><td>Imprime a versão atual e nada mais.</td></tr>
+<tr><td><code>migrate:unlock</code></td><td>—</td><td>Libera o lock deixado por um processo que morreu.</td></tr>
+<tr><td><code>migrate:make &lt;desc&gt; [--sql]</code></td><td>—</td><td>Cria a migration: unit Pascal, ou o par <code>.up.sql</code>/<code>.down.sql</code>.</td></tr>
+<tr><td><code>seed:run [--only=nome]</code></td><td>—</td><td>Roda os seeds; com <code>--only</code>, roda só um.</td></tr>
+<tr><td><code>seed:make &lt;desc&gt;</code></td><td>—</td><td>Cria um seed <code>.sql</code>.</td></tr>
+<tr><td><code>help</code></td><td>sem comando</td><td>Imprime a ajuda.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  O comando é comparado em minúsculas, com <code>Trim</code>. Comando desconhecido imprime a
+  ajuda e sai com <code>2</code>. Antes de qualquer comando de migração, o CLI chama
+  <code>EnsureTables</code> — a tabela de histórico e a de lock são criadas na primeira
+  execução.
+</p>
+
+<h3 id="flags">Flags gerais</h3>
+<div class="table-wrap">
+<table>
+<tbody>
+<tr><td><code>--quiet</code></td><td>Só erros na saída. O relatório de sucesso é suprimido; mensagens de erro continuam saindo.</td></tr>
+<tr><td><code>--help</code></td><td>Imprime a ajuda e sai, em qualquer posição e com qualquer comando.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  Argumentos posicionais e flags não se misturam: qualquer token começando com <code>--</code> é
+  ignorado na contagem de posição. <code>lznex migrate:up --quiet create_users</code> e
+  <code>lznex migrate:up create_users --quiet</code> são a mesma coisa.
+</p>
+
+<h2 id="status">A saída do migrate:status</h2>
+<div class="code"><pre data-lang="sh">lznex migrate:status</pre>
+<div class="code-out">
+  <div class="code-label">saída</div>
+  <pre data-lang="out">  state    batch source migration
+  -------  ----- ------ ---------
+    ok        1  code   20260210091500_create_users
+    ok        1  sql    20260211143000_seed_roles
+    ok        2  code   20260218120000_add_users_email_index
+  pending      -  sql    20260224143012_create_orders
+
+3 applied, 1 pending. Current version: 20260218120000</pre>
+</div>
+</div>
+
+<p>
+  Quatro colunas: <code>state</code> é <code>ok</code> ou <code>pending</code>;
+  <code>batch</code> é o número do lote em que a migration foi aplicada, ou <code>-</code> se
+  ainda não foi; <code>source</code> é <code>code</code> (unit Pascal registrada) ou
+  <code>sql</code> (par de arquivos no diretório); <code>migration</code> é o nome completo.
+  A linha final resume e imprime a versão atual, que é <code>none</code> quando nada foi
+  aplicado.
+</p>
+
+<p>
+  <code>migrate:version</code> imprime <strong>só</strong> a versão — é o formato para consumir
+  em script:
+</p>
+
+<div class="code"><pre data-lang="sh">VERSION=$(lznex migrate:version --quiet 2&gt;/dev/null)</pre></div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">Migration aplicada que não existe em nenhuma fonte é erro</span>
+    <p>
+      A comparação é por <strong>nome</strong>. Se um arquivo foi renomeado ou apagado depois de
+      aplicado, ou se a unit saiu do <code>uses</code> do agregador e não foi linkada, o status
+      levanta <code>ELzNexMigration</code> listando o que ficou órfão, em vez de fingir que o
+      histórico está limpo.
+    </p>
+  </div>
+</div>
+
+<h2 id="exit-codes">Exit codes</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Código</th><th>Quando</th></tr></thead>
+<tbody>
+<tr><td><code>0</code></td><td>Sucesso. Inclui "nada a fazer": já estar na última versão não é erro.</td></tr>
+<tr><td><code>1</code></td><td>Erro do LzNex (<code>ELzNex</code> e descendentes) ou exceção inesperada. A mensagem sai como <code>error: …</code> ou <code>unexpected error (Classe): …</code>.</td></tr>
+<tr><td><code>2</code></td><td>Uso inválido: comando desconhecido, ou argumento obrigatório ausente (<code>migrate:to</code> sem nome, <code>migrate:make</code> sem descrição). Também é o código de erro de configuração na abertura do banco.</td></tr>
+<tr><td><code>3</code></td><td>Disputa de lock: <code>ELzNexMigrationLock</code>. Sai como <code>lock error: …</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  O lock tem código próprio porque não é a mesma coisa que uma migration quebrada.
+  <code>3</code> significa "outro processo está migrando agora" — em deploy com várias
+  instâncias subindo em paralelo, isso é o comportamento <strong>correto</strong>: uma aplica, as
+  outras recuam. Com código próprio o script decide sozinho se espera e tenta de novo, ou se
+  segue em frente, sem precisar casar texto de mensagem. Já <code>1</code> é o caso em que a
+  migration realmente falhou e a intervenção é humana.
+</p>
+
+<div class="code"><pre data-lang="sh">lznex migrate:latest
+case $? in
+  0) echo "ok" ;;
+  3) echo "outro processo esta migrando; seguindo" ;;
+  *) echo "falhou"; exit 1 ;;
+esac</pre></div>
+
+<p>
+  Se o lock ficou preso porque o processo morreu no meio (sinal, OOM, container derrubado),
+  <code>migrate:unlock</code> libera. Ele não roda <code>EnsureTables</code> e não aplica nada:
+  só apaga o lock e imprime <code>lock released</code>.
+</p>
+
+<h2 id="migration-name">Como o nome da migration é gerado</h2>
+<p>
+  O nome é <code>&lt;carimbo&gt;_&lt;slug&gt;</code>. O carimbo tem 14 dígitos no formato
+  <code>YYYYMMDDHHMMSS</code> e é <strong>UTC</strong>, não hora local. Isso é de propósito: o
+  nome é a chave de ordenação do histórico, e dois desenvolvedores em fusos diferentes criando
+  migrations no mesmo minuto precisam gerar carimbos que ordenem igual em qualquer máquina. Com
+  hora local, a ordem de aplicação dependeria de onde o arquivo nasceu.
+</p>
+<p>
+  A descrição passa por <code>Slugify</code>: caixa baixa, só <code>a-z0-9</code>, qualquer
+  outro byte vira <code>_</code>, sequências de <code>_</code> colapsam em um e os
+  <code>_</code> do fim são removidos. O resultado é snake_case ASCII — o que cabe como nome de
+  unit Pascal e de arquivo em qualquer sistema de arquivos. Descrição que esvazia depois do
+  processo vira <code>migration</code>.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Comando</th><th>Arquivo gerado</th></tr></thead>
+<tbody>
+<tr><td><code>lznex migrate:make create_users</code></td><td><code>M20260224143012_create_users.pas</code></td></tr>
+<tr><td><code>lznex migrate:make "create users"</code></td><td><code>M20260224143012_create_users.pas</code></td></tr>
+<tr><td><code>lznex migrate:make "add index: users.email"</code></td><td><code>M20260224143012_add_index_users_email.pas</code></td></tr>
+<tr><td><code>lznex migrate:make CreateUsers</code></td><td><code>M20260224143012_createusers.pas</code></td></tr>
+<tr><td><code>lznex migrate:make "criar índice"</code></td><td><code>M20260224143012_criar_ndice.pas</code></td></tr>
+<tr><td><code>lznex migrate:make create_orders --sql</code></td><td><code>20260224143012_create_orders.up.sql</code> e <code>.down.sql</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Acento é descartado, não transliterado</span>
+    <p>
+      <code>Slugify</code> trabalha byte a byte e só mantém <code>a-z0-9</code>: em
+      <code>índice</code> os bytes do <code>í</code> caem fora e sobra <code>ndice</code>.
+      <code>CreateUsers</code> também não ganha <code>_</code> — não há quebra de camelCase.
+      Escreva a descrição já em snake_case ASCII e o nome sai exatamente como você escreveu.
+    </p>
+  </div>
+</div>
+
+<p>
+  Note o prefixo <code>M</code> no arquivo Pascal: a unit se chama
+  <code>M20260224143012_create_users</code> porque identificador Pascal não pode começar com
+  dígito. O par <code>.sql</code> não tem esse problema e fica com o carimbo na frente.
+</p>
+
+<div class="code"><pre data-lang="sh">lznex migrate:make create_orders</pre>
+<div class="code-out">
+  <div class="code-label">saída</div>
+  <pre data-lang="out">created: database/migrations/M20260224143012_create_orders.pas
+
+WARNING: add "M20260224143012_create_orders" to the `uses` clause of the migrations aggregator.
+A unit nobody references is not linked by FPC, so its initialization
+never runs and the migration never registers itself.</pre>
+</div>
+</div>
+
+<div class="code"><pre data-lang="sh">lznex migrate:make create_orders --sql</pre>
+<div class="code-out">
+  <div class="code-label">saída</div>
+  <pre data-lang="out">created: database/migrations/20260224143012_create_orders.up.sql
+created: database/migrations/20260224143012_create_orders.down.sql
+.sql migrations are read at runtime: no rebuild needed.</pre>
+</div>
+</div>
+
+<p>
+  O aviso do caminho Pascal não é decorativo: o registro da migration acontece no
+  <code>initialization</code> da unit, e o FPC não linka unit que ninguém referencia. Sem
+  entrada no agregador a migration simplesmente não existe para o migrator — e a falha é
+  silenciosa. Veja <a href="#migrations">Migrations</a>.
+</p>
+
+<h2 id="config">Configuração do CLI</h2>
+<p>
+  O binário procura <code>database/lznex.json</code> no diretório corrente. Se o arquivo existe,
+  conecta com ele; se não existe, cai para configuração só por variáveis de ambiente. Dois
+  envelopes mudam esse comportamento:
+</p>
+
+<div class="table-wrap">
+<table>
+<tbody>
+<tr><td><code>LZNEX_CONFIG</code></td><td>Caminho do JSON, no lugar de <code>database/lznex.json</code>.</td></tr>
+<tr><td><code>LZNEX_ENV</code></td><td>Qual bloco de ambiente do JSON usar (<code>development</code> se nada for dito).</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  As variáveis <code>LZNEX_*</code> de conexão sobrescrevem o que vier do JSON — útil para
+  apontar o mesmo binário a outro banco sem editar arquivo:
+</p>
+
+<div class="code"><pre data-lang="sh"># tudo por ambiente, sem arquivo nenhum
+LZNEX_CLIENT=mysql \
+LZNEX_HOST=db.internal LZNEX_DATABASE=app \
+LZNEX_USER=root LZNEX_PASSWORD=secret \
+LZNEX_LIBRARY=/usr/lib/x86_64-linux-gnu/libmariadb.so.3 \
+  lznex migrate:latest
+
+# JSON do projeto, bloco de producao
+LZNEX_ENV=production lznex migrate:status
+
+# JSON em outro lugar, e so a senha por ambiente
+LZNEX_CONFIG=/etc/app/lznex.json LZNEX_PASSWORD=$DB_PASS lznex migrate:latest
+
+# apontar o diretorio das migrations .sql sem tocar no JSON
+LZNEX_MIGRATIONS_DIR=db/migrations lznex migrate:status</pre></div>
+
+<p>
+  Falta de configuração aparece na abertura do banco, antes de qualquer comando, com exit
+  <code>2</code>:
+</p>
+
+<div class="code"><pre data-lang="out">configuration error: &lt;mensagem&gt;
+Provide it through database/lznex.json or the LZNEX_HOST, LZNEX_DATABASE, LZNEX_USER, LZNEX_PASSWORD.</pre></div>
+
+<p>
+  A lista completa das chaves do JSON e das variáveis está em
+  <a href="#configuration">Configuração</a>.
+</p>
+
+<div class="cards">
+  <a class="card" href="#migrations"><h4>Migrations →</h4><p>Lote, lock, histórico e as duas fontes (Pascal e <code>.sql</code>).</p></a>
+  <a class="card" href="#seeds"><h4>Seeds →</h4><p>Como o <code>seed:run</code> encontra e ordena os arquivos.</p></a>
+</div>
+</article>

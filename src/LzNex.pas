@@ -1,19 +1,5 @@
 unit LzNex;
 
-{ Facade do LzNex: o unico `uses` obrigatorio para quem consome a biblioteca.
-
-  Exemplo:
-
-    uses LzNex, LzNex.Client.MySQL;   // a unit do dialeto se registra sozinha
-
-    Db := Connect(NewConfig
-      .Client('mysql').Host('mysql').Database('app')
-      .User('root').Password('secret')
-      .LibraryLocation('/usr/lib/x86_64-linux-gnu/libmariadb.so.3'));
-
-    Rows := Db.Table('users').Where('active', True).OrderBy('name').Limit(10).Get;
-}
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -38,8 +24,7 @@ uses
   LzNex.Seed;
 
 type
-  // Reexporta os tipos que o consumidor usa no dia a dia, para `uses LzNex`
-  // bastar na maioria dos casos.
+
   TLzNexValue = LzNex.Value.TLzNexValue;
   TLzNexValues = LzNex.Value.TLzNexValues;
   TLzNexNamedValue = LzNex.Value.TLzNexNamedValue;
@@ -56,7 +41,6 @@ type
   ILzNexConfig = LzNex.Intf.ILzNexConfig;
   ILzNexMigrator = LzNex.Intf.ILzNexMigrator;
 
-  // Facade concreta. Dona do pool; o dialeto vem do registry pelo nome.
   TLzNexDb = class(TInterfacedObject, ILzNex)
   private
     FConfig: ILzNexConfig;
@@ -85,14 +69,10 @@ type
     procedure Shutdown;
   end;
 
-// Abre o pool e devolve a facade. Levanta se a config for invalida ou se o
-// dialeto nao estiver registrado (falta dar `uses` na unit dele).
 function Connect(const AConfig: ILzNexConfig): ILzNex;
 
-// Config vazia com os defaults, para encadear.
 function NewConfig: ILzNexConfig;
 
-// Config a partir de um arquivo JSON, no ambiente informado.
 function ConnectFromFile(const APath, AEnv: string): ILzNex;
 
 implementation
@@ -139,9 +119,7 @@ end;
 
 function TLzNexDb.Schema: ILzNexSchema;
 begin
-  // Criado a cada chamada, NUNCA cacheado: o schema guarda esta facade para
-  // poder executar, e cachear fecharia o ciclo Db -> Schema -> Db, cujo
-  // refcount nunca chega a zero. Mesma razao para Migrator e Seeder.
+
   Result := NewSchema(Self, FClient);
 end;
 
@@ -152,7 +130,7 @@ end;
 
 function TLzNexDb.Transaction(const AIsolation: TLzNexIsolation): ILzNexTransaction;
 begin
-  // A conexao sai do pool e fica presa na transacao ate commit/rollback.
+
   Result := NewTransaction(Self, FPool.Acquire, AIsolation);
 end;
 
@@ -193,8 +171,7 @@ end;
 
 function TLzNexDb.Connection: ILzNexConnection;
 begin
-  // Uma conexao por chamada, devolvida ao pool quando a interface sai de escopo.
-  // E o que permite o Horse (que e multi-thread no FPC) atender em paralelo.
+
   Result := FPool.Acquire;
 end;
 

@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# boss-probe.sh — mede empiricamente o que o Boss faz ao instalar o Zeos:
-#   fase 1: Zeos SEM boss.json  -> quantos paths entram no OtherUnitFiles?
-#   fase 2: Zeos COM boss.json (simula o fork) -> cai para os 4 do mainsrc?
 set -u
 cd /work/boss-test
 
@@ -43,7 +40,6 @@ JSON
 echo "boss.json escrito em modules/$MOD/"
 echo
 
-# Zera o OtherUnitFiles para ver o que o Boss escreve do zero.
 sed -i 's#<OtherUnitFiles Value="[^"]*"/>##' Probe.lpi
 boss install 2>&1 | tail -12
 echo

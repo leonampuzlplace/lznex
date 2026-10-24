@@ -1,12 +1,5 @@
 unit LzNex.Value;
 
-{ TLzNexValue: record com tag que representa qualquer valor que entra numa query.
-  Substitui o duck typing do knex (isRawInstance / instanceof) por discriminante
-  explicito, e evita Variant no caminho quente.
-
-  Os `class operator Implicit` permitem escrever Where('id', 1) e Where('nome', 'x')
-  sem conversao manual. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -25,44 +18,41 @@ type
     FFloat: Double;
     FCurrency: Currency;
     FDateTime: TDateTime;
-    FStr: string;          // string, identifier e o texto do raw
+    FStr: string;
     FBytes: TBytes;
-    FRef: IInterface;      // ILzNexRaw ou ILzNexQuery -- IInterface evita ciclo de units
+    FRef: IInterface;
   public
-    // --- construtores nomeados ---
 
-    // Valor nao informado. Em INSERT vira DEFAULT; em WHERE e erro.
     class function Unset: TLzNexValue; static;
-    // NULL explicito.
+
     class function Null: TLzNexValue; static;
-    // Booleano.
+
     class function FromBoolean(const AValue: Boolean): TLzNexValue; static;
-    // Inteiro de 32 bits.
+
     class function FromInteger(const AValue: Integer): TLzNexValue; static;
-    // Inteiro de 64 bits.
+
     class function FromInt64(const AValue: Int64): TLzNexValue; static;
-    // Ponto flutuante.
+
     class function FromFloat(const AValue: Double): TLzNexValue; static;
-    // Monetario (escala fixa, evita erro de arredondamento).
+
     class function FromCurrency(const AValue: Currency): TLzNexValue; static;
-    // Texto.
+
     class function FromString(const AValue: string): TLzNexValue; static;
-    // Binario (BLOB).
+
     class function FromBytes(const AValue: TBytes): TLzNexValue; static;
-    // Somente data.
+
     class function FromDate(const AValue: TDateTime): TLzNexValue; static;
-    // Somente hora.
+
     class function FromTime(const AValue: TDateTime): TLzNexValue; static;
-    // Data e hora.
+
     class function FromDateTime(const AValue: TDateTime): TLzNexValue; static;
-    // Nome de coluna/tabela. NAO gera bind: vai quotado no SQL.
+
     class function Identifier(const AName: string): TLzNexValue; static;
-    // Fragmento de SQL cru (um ILzNexRaw). Nao gera bind por si.
+
     class function Raw(const ARaw: IInterface): TLzNexValue; static;
-    // Subconsulta (um ILzNexQuery). Os binds dela entram na posicao certa.
+
     class function SubQuery(const AQuery: IInterface): TLzNexValue; static;
 
-    // --- conversao implicita, para a API fluente ficar curta ---
     class operator Implicit(const AValue: Boolean): TLzNexValue;
     class operator Implicit(const AValue: Integer): TLzNexValue;
     class operator Implicit(const AValue: Int64): TLzNexValue;
@@ -70,19 +60,14 @@ type
     class operator Implicit(const AValue: Currency): TLzNexValue;
     class operator Implicit(const AValue: string): TLzNexValue;
 
-    // --- consulta ---
-
-    // A tag do valor.
     property Kind: TLzNexValueKind read FKind;
-    // True se o valor nunca foi informado.
+
     function IsUnset: Boolean;
-    // True se e NULL explicito.
+
     function IsNull: Boolean;
-    // True se o valor deve virar um placeholder com bind.
-    // Identifier, Raw, SubQuery e Unset nao sao bindaveis.
+
     function IsBindable: Boolean;
 
-    // AsBoolean / AsInt64 / ... — leitura tipada. Levanta se a tag nao bate.
     function AsBoolean: Boolean;
     function AsInt64: Int64;
     function AsFloat: Double;
@@ -90,43 +75,31 @@ type
     function AsString: string;
     function AsBytes: TBytes;
     function AsDateTime: TDateTime;
-    // A interface guardada (Raw ou SubQuery). nil nos outros casos.
+
     function Ref: IInterface;
-    // O texto bruto de Identifier/String/Raw, sem checar a tag.
+
     function Text: string;
 
-    // Descricao curta para mensagem de erro e log.
     function Describe: string;
   end;
 
   TLzNexValues = array of TLzNexValue;
 
-  // Par coluna/valor, usado em INSERT e UPDATE.
-  // Preserva a ORDEM de insercao (o knex ordena alfabeticamente, o que surpreende).
   TLzNexNamedValue = record
     Name: string;
     Value: TLzNexValue;
   end;
   TLzNexNamedValues = array of TLzNexNamedValue;
 
-// Converte ['col', valor, 'col2', valor2] em pares nomeados.
-// Aceita so primitivos: `array of const` nao transporta record (restricao do FPC).
 function Vals(const AArgs: array of const): TLzNexNamedValues;
 
-// Normaliza um elemento de `array of const` para TLzNexValue.
-// Trata as armadilhas do TVarRec: vtExtended/vtInt64/vtCurrency guardam PONTEIRO,
-// vtAnsiString precisa de cast, e Cardinal > MaxInt chega como vtInteger negativo.
 function ValueOf(const AArg: TVarRec): TLzNexValue;
 
-// Converte [1, 2, 'x'] numa lista de valores (para WhereIn, Insert).
 function ValueList(const AArgs: array of const): TLzNexValues;
 
-// Converte um array de string em valores.
 function StringsToValues(const AItems: array of string): TLzNexValues;
 
 implementation
-
-{ TLzNexValue }
 
 class function TLzNexValue.Unset: TLzNexValue;
 begin
@@ -348,8 +321,7 @@ begin
       Result := FBytes;
     vkString:
       begin
-        // FStr ja guarda os bytes UTF-8; copia crua evita conversao
-        // AnsiString->UnicodeString que o TEncoding forcaria.
+
         SetLength(Result, Length(FStr));
         if Length(FStr) > 0 then
           Move(FStr[1], Result[0], Length(FStr));
@@ -404,8 +376,6 @@ begin
   end;
 end;
 
-{ helpers de modulo }
-
 function ValueOf(const AArg: TVarRec): TLzNexValue;
 begin
   case AArg.VType of
@@ -418,17 +388,17 @@ begin
     vtWideChar:
       Result := TLzNexValue.FromString(string(AArg.VWideChar));
     vtExtended:
-      Result := TLzNexValue.FromFloat(AArg.VExtended^);       // ponteiro
+      Result := TLzNexValue.FromFloat(AArg.VExtended^);
     vtCurrency:
-      Result := TLzNexValue.FromCurrency(AArg.VCurrency^);    // ponteiro
+      Result := TLzNexValue.FromCurrency(AArg.VCurrency^);
     vtInt64:
-      Result := TLzNexValue.FromInt64(AArg.VInt64^);          // ponteiro
+      Result := TLzNexValue.FromInt64(AArg.VInt64^);
     vtQWord:
-      Result := TLzNexValue.FromInt64(Int64(AArg.VQWord^));   // ponteiro
+      Result := TLzNexValue.FromInt64(Int64(AArg.VQWord^));
     vtString:
-      Result := TLzNexValue.FromString(string(AArg.VString^)); // PShortString
+      Result := TLzNexValue.FromString(string(AArg.VString^));
     vtAnsiString:
-      Result := TLzNexValue.FromString(string(AnsiString(AArg.VAnsiString))); // cast
+      Result := TLzNexValue.FromString(string(AnsiString(AArg.VAnsiString)));
     vtUnicodeString:
       Result := TLzNexValue.FromString(string(UnicodeString(AArg.VUnicodeString)));
     vtWideString:
@@ -455,7 +425,7 @@ function ValueList(const AArgs: array of const): TLzNexValues;
 var
   I: Integer;
 begin
-  Result := nil;   // Result e tratado como parametro var no FPC: inicializar sempre
+  Result := nil;
   SetLength(Result, Length(AArgs));
   for I := 0 to High(AArgs) do
     Result[I] := ValueOf(AArgs[I]);

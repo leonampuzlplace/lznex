@@ -1,12 +1,5 @@
 unit LzNex.Fragment;
 
-{ TLzNexFragment: texto de SQL e seus binds ANDANDO JUNTOS.
-
-  Essa e a correcao estrutural do knex. La os binds vao num array mutavel
-  compartilhado, e a ordem de emissao textual tem que coincidir com a ordem de
-  push -- o que obrigou o dialeto PostgreSQL a um comentario avisando do perigo
-  de reordenar. Aqui nao ha como reordenar texto sem levar os binds junto. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -23,40 +16,32 @@ type
     FText: string;
     FBindings: TLzNexBindings;
   public
-    // Fragmento vazio. Fragmento vazio e omitido na juncao.
+
     class function Empty: TLzNexFragment; static;
-    // Texto sem nenhum bind (keyword, identificador ja quotado).
+
     class function Lit(const AText: string): TLzNexFragment; static;
-    // Um placeholder '?' com o bind correspondente.
+
     class function Param(const AValue: TLzNexValue): TLzNexFragment; static;
-    // Texto com uma lista de binds ja montada.
+
     class function Make(const AText: string; const ABindings: TLzNexBindings): TLzNexFragment; static;
 
-    // O SQL do fragmento.
     function Text: string;
-    // Os binds, na ordem dos '?' do texto.
+
     function Bindings: TLzNexBindings;
-    // True se nao ha texto.
+
     function IsEmpty: Boolean;
 
-    // Junta outro fragmento no fim, com separador. Texto e binds
-    // andam juntos, entao a ordem posicional nunca se perde.
     function Concat(const AOther: TLzNexFragment; const ASep: string = ' '): TLzNexFragment;
-    // Envolve o texto (ex.: parenteses), preservando os binds.
+
     function Wrap(const ABefore, AAfter: string): TLzNexFragment;
-    // Prefixa o texto (ex.: 'where '), preservando os binds.
+
     function Prefix(const APrefix: string): TLzNexFragment;
   end;
 
   TLzNexFragments = array of TLzNexFragment;
 
-// Junta fragmentos com separador, omitindo os vazios.
-// A ordem dos binds e a ordem dos fragmentos na lista -- e o chamador que
-// decide a ordem, nao um efeito colateral.
 function JoinFragments(const AItems: TLzNexFragments; const ASep: string = ' '): TLzNexFragment;
 
-// "?, ?, ?" com um bind por valor. Valor nao bindavel
-// (identificador, raw, subquery) nao e aceito aqui.
 function PlaceholderList(const AValues: TLzNexValues): TLzNexFragment;
 
 implementation

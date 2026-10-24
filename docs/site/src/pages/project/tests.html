@@ -1,0 +1,216 @@
+<article>
+<h1>Testes e Docker</h1>
+<p class="subtitle">
+  Tudo roda em container: a suíte sem banco, a suíte com MySQL de verdade, o CLI e a API
+  de exemplo. O <code>docker-compose.yml</code> do repositório é a única configuração
+  necessária.
+</p>
+
+<h2 id="commands">Os quatro comandos</h2>
+<div class="code"><pre data-lang="sh">docker compose run --rm tests          # unitários, sem banco
+docker compose run --rm tests-it       # integração + concorrência (MySQL real)
+docker compose run --rm cli migrate:latest
+docker compose up -d api &amp;&amp; curl localhost:9000/health</pre></div>
+
+<p>
+  <code>tests</code> e <code>tests-it</code> rodam o <strong>mesmo</strong> binário
+  (<code>./bin/lznex-tests-debug</code>, build mode <code>Debug</code>). A diferença é a
+  variável <code>LZNEX_IT</code>: sem ela, <code>Test.Integration</code> e
+  <code>Test.Concurrency</code> chamam <code>Ignore</code> e os casos aparecem como
+  ignorados — não como falha. Só <code>tests-it</code> define
+  <code>LZNEX_IT=1</code> e declara <code>depends_on: mysql (service_healthy)</code>.
+</p>
+
+<h3 id="services">Serviços do compose</h3>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Serviço</th><th>O que é</th></tr></thead>
+<tbody>
+<tr><td><code>mysql</code></td><td><code>mysql:8.4</code> com <code>utf8mb4</code> / <code>utf8mb4_0900_ai_ci</code>, publicado em <code>3307:3306</code> para não colidir com um MySQL local. Healthcheck por <code>mysqladmin ping</code>; dados no volume <code>mysql-data</code>.</td></tr>
+<tr><td><code>tests</code></td><td>Estágio <code>builder</code> do Dockerfile, <code>working_dir: /src</code>. Só <code>HEAPTRC=haltonnotreleased</code> no ambiente — nenhuma variável de banco, nenhum <code>depends_on</code>.</td></tr>
+<tr><td><code>tests-it</code></td><td>Mesma imagem, mais as variáveis <code>LZNEX_*</code> e <code>DB_*</code>, <code>LZNEX_IT=1</code> e <code>HEAPTRC=haltonnotreleased</code>. Espera o healthcheck do MySQL antes de subir.</td></tr>
+<tr><td><code>cli</code></td><td>Imagem <code>runtime</code> (só <code>libmariadb3</code>), <code>entrypoint</code> no binário <code>lznex</code>. Monta <code>./database</code> em <code>/home/lznex/database:ro</code>, então as migrations e seeds do host valem dentro do container.</td></tr>
+<tr><td><code>api</code></td><td>Exemplo Horse de <code>example/api/Dockerfile</code>, porta <code>9000</code>, <code>restart: unless-stopped</code> e healthcheck por <code>curl /health</code>.</td></tr>
+<tr><td><code>spike</code></td><td>Container de bancada: monta o repositório em <code>/work</code> e fica em <code>sleep infinity</code>. Serve para compilar sonda por sonda à mão.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  Os serviços que falam com o banco compartilham o mesmo bloco de ambiente (a âncora
+  <code>x-db-env</code> no topo do compose):
+</p>
+
+<div class="code"><pre data-lang="sh">LZNEX_CLIENT=mysql
+LZNEX_HOST=mysql
+LZNEX_PORT=3306
+LZNEX_DATABASE=lznex
+LZNEX_USER=root
+LZNEX_PASSWORD=secret
+LZNEX_LIBRARY=/usr/lib/x86_64-linux-gnu/libmariadb.so.3</pre>
+<p class="code-note">
+  <code>LZNEX_LIBRARY</code> está ali porque a imagem é Ubuntu 26.04, onde só existe
+  <code>libmariadb.so.3</code> — veja <a href="#troubleshooting">Troubleshooting</a>.
+</p>
+</div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">O host do banco é <code>mysql</code>, não <code>localhost</code></span>
+    <p>
+      Dentro da rede do compose o banco responde pelo nome do serviço. Da sua máquina, é
+      <code>localhost:3307</code>. Rodar a suíte de integração fora do container exige
+      apontar <code>DB_HOST</code>/<code>DB_PORT</code> para essa porta publicada.
+    </p>
+  </div>
+</div>
+
+<h2 id="observed-output">Saída observada</h2>
+<p>Última execução completa, com MySQL real, exatamente como saiu:</p>
+
+<div class="code"><pre data-lang="out">Number of run tests: 146      core 19 | query 38 | security 4 | dialect 5
+Number of errors:    0        postgres 66 | integration 9 | concurrency 5
+Number of failures:  0
+
+sondas: 870 asserções em 7 binários, todas verdes
+heaptrc: 0 unfreed memory blocks (467.958 alocados, 467.958 liberados)
+API: {"status":"ok","dialect":"mysql"}</pre>
+<p class="code-note">
+  146 = 19 + 38 + 4 + 5 + 66 + 9 + 5. Os 66 de <code>postgres</code> são todos por texto
+  de SQL — nenhum banco Postgres participou.
+</p>
+</div>
+
+<h2 id="test-layout">Organização dos testes</h2>
+<p>
+  Duas camadas: a suíte FPCUnit (um binário, <code>tests/LzNexTests.lpr</code>) e as
+  sondas, programas <code>.lpr</code> independentes que compilam e rodam sozinhos. A
+  sonda existe para isolar um subsistema sem arrastar o resto do framework de teste —
+  quando o linker do FPC reclama, dá para saber de qual unit veio.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Arquivo</th><th>Cobre</th></tr></thead>
+<tbody>
+<tr><td><code>Test.Core</code></td><td><code>TLzNexValue</code> (conversão implícita, <code>Unset</code> não bindável, precisão de <code>Int64</code>), <code>Vals</code>/<code>ValueList</code>, ordem dos bindings e composição de fragmentos.</td></tr>
+<tr><td><code>Test.Query</code></td><td>Select e alias, where e operadores, grupos de predicado, join, ordenação e paginação, SQL cru, clone. Registra também as áreas <code>security</code> (operador fora da lista, valor nunca interpolado, backtick escapado) e <code>dialect</code>.</td></tr>
+<tr><td><code>Test.Postgres</code></td><td>O dialeto PostgreSQL <strong>por texto</strong>: identificador com aspas duplas, <code>limit</code>/<code>offset</code> ANSI, <code>returning</code>, <code>on conflict</code>, <code>distinct on</code>, <code>nulls first/last</code>, <code>truncate</code> e o DDL. Quase todo caso compara com o MySQL para a mesma entrada, e os dois lados são asserções — inclusive o que o MySQL tem que <strong>recusar</strong>.</td></tr>
+<tr><td><code>Test.Integration</code></td><td>MySQL real: <code>InsertGetId</code> (id próprio, ids crescentes, dentro de transação commitada e revertida), CRUD completo e ida-e-volta de UTF-8.</td></tr>
+<tr><td><code>Test.Concurrency</code></td><td>Carga paralela: operações mistas que não se misturam, pool que devolve toda conexão, transações isoladas entre threads, mais threads que conexões e cursor aberto segurando o empréstimo.</td></tr>
+<tr><td><code>Test.Helper</code></td><td>Base das suítes unitárias: <code>AssertSQL</code>, <code>AssertBindings</code> e <code>AssertQuery</code>, que comparam texto gerado e lista de binds de uma vez.</td></tr>
+<tr><td><code>Probe*.lpr</code></td><td><code>ProbeValue</code> (valor), <code>ProbeAst</code> (AST), <code>ProbeQuery</code> (builder), <code>ProbeCompiler</code> (compilador de query), <code>ProbeSchema</code> (DDL), <code>ProbeMigration</code> (migrator e seeder), <code>ProbeEndToEnd</code> (fachada até o SQL) e <code>ProbeZeos</code> (conexão, pool e transação contra o Zeos).</td></tr>
+<tr><td><code>DiagPool.lpr</code></td><td>Diagnóstico, não teste: imprime <code>InUse</code> e <code>Size</code> do pool a cada passo. Serve para ver uma conexão presa.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="leak-gate">Gate de vazamento</h2>
+<p>
+  <code>scripts/run-tests.sh</code> coleta <code>bin/Probe*</code> e
+  <code>bin/Test*</code>, exporta <code>HEAPTRC=haltonnotreleased</code> (default do
+  script) e roda um por um. Como os binários são compilados com <code>-gh</code>, o
+  heaptrc aborta o processo com <strong>exit 203</strong> se sobrar bloco não liberado.
+  Resultado: um único critério — <code>exit != 0</code> — cobre asserção quebrada
+  <em>e</em> memória não liberada.
+</p>
+
+<div class="code"><pre data-lang="sh">bash scripts/run-tests.sh                    # tudo em bin/
+bash scripts/run-tests.sh bin/ProbeCompiler  # um binário só</pre>
+<div class="code-out">
+  <div class="code-label">saída</div>
+  <pre data-lang="out">run-tests: HEAPTRC=haltonnotreleased
+run-tests: 8 binario(s)
+
+  PASS  ProbeAst                     [gh]
+  PASS  ProbeCompiler                [gh]
+  LEAK  ProbeSchema                  exit=203
+          24 unfreed memory blocks
+
+run-tests: pass=7 fail=0 leak=1
+run-tests: FALHOU
+  - ProbeSchema (vazamento)</pre>
+  <p class="code-note">
+    formato do relatório, com um binário vazando — na última execução registrada foram
+    todos <code>PASS</code>
+  </p>
+</div>
+</div>
+
+<p>
+  A coluna entre colchetes não é enfeite: o script procura a string
+  <code>Heap dump by heaptrc unit</code> dentro do binário. Não achando, marca
+  <code>SEM -gh</code> e avisa que o gate <strong>não vale</strong> para aquele binário.
+  É o que impede um verde falso.
+</p>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">O <code>-gh</code> tem que ir em <code>CustomOptions</code></span>
+    <p>
+      A tag <code>&lt;UseHeaptrc Value="True"/&gt;</code> do <code>.lpi</code> é
+      <strong>ignorada</strong> pelo <code>lazbuild</code>: o binário sai sem heaptrc, o
+      processo nunca retorna 203 e o gate fica inerte — passando sempre, inclusive com
+      vazamento. Por isso o build mode <code>Debug</code> de
+      <code>tests/LzNexTests.lpi</code> traz
+      <code>&lt;CustomOptions Value="-dUseCThreads -gh -gl"/&gt;</code>. Ao criar um novo
+      <code>.lpi</code> de teste, copie essa linha; conferir é só rodar o script e ver se
+      a marca <code>[gh]</code> aparece.
+    </p>
+  </div>
+</div>
+
+<h2 id="cli-and-api">CLI e API no compose</h2>
+<p>
+  O serviço <code>cli</code> usa a imagem <code>runtime</code>, que é Ubuntu enxuto com
+  <code>libmariadb3</code> e o binário em <code>/usr/local/bin/lznex</code>. Qualquer
+  subcomando vai depois do nome do serviço:
+</p>
+
+<div class="code"><pre data-lang="sh">docker compose run --rm cli migrate:status
+docker compose run --rm cli migrate:latest
+docker compose run --rm cli seed:run --only=users
+docker compose run --rm cli migrate:rollback --all</pre></div>
+
+<p>
+  A API de exemplo expõe <code>GET /health</code> (ping no banco) e
+  <code>GET /users</code> (20 primeiras linhas). O <code>/health</code> é o teste de fumaça
+  mais barato que existe aqui: se ele responde, a cadeia
+  config → pool → Zeos → <code>libmariadb</code> está inteira.
+</p>
+
+<div class="code"><pre data-lang="sh">docker compose up -d api
+curl -s localhost:9000/health</pre>
+<div class="code-out">
+  <div class="code-label">saída</div>
+  <pre data-lang="out">{"status":"ok","dialect":"mysql"}</pre>
+</div>
+</div>
+
+<h2 id="build">O que o build faz</h2>
+<p>
+  O estágio <code>builder</code> instala <code>fpc</code>, <code>lcl-utils</code>,
+  <code>lazarus-src</code> e <code>libmariadb3</code>, baixa o Boss e resolve o ZeosLib.
+  Enquanto a coordenada for o placeholder <code>github.com/CHANGEME/zeoslib</code>, ele
+  clona o espelho direto em <code>modules/&lt;host&gt;_&lt;org&gt;_&lt;repo&gt;</code>,
+  reproduzindo à mão o layout que o Boss produziria; com uma coordenada real, chama
+  <code>scripts/boss-install.sh</code>. Esse script existe porque o Boss imprime ruído de
+  Delphi (<code>rsvars.bat</code>, <code>no Delphi installation</code>) e pode sair com
+  código diferente de zero mesmo tendo instalado: o sucesso é decidido pela linha
+  <code>Installation completed successfully</code>, não pelo exit code.
+</p>
+
+<p>
+  Depois, <code>lazbuild</code> compila <code>tools/LzNexCli.lpi</code> e
+  <code>tests/LzNexTests.lpi</code> nos dois build modes. O
+  <code>lazarus-src</code> entra mesmo sem nenhum uso de LCL — sem ele o
+  <code>lazbuild</code> para com <code>directory lcl not found</code>.
+</p>
+
+<div class="cards">
+  <a class="card" href="#limitations"><h4>Limitações →</h4><p>O que não está provado e por quê.</p></a>
+  <a class="card" href="#troubleshooting"><h4>Troubleshooting →</h4><p>Sintoma, causa e correção.</p></a>
+</div>
+</article>

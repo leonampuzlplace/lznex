@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Verificacao completa: compila tudo, roda tudo, e mede vazamento em cada
-# binario. Exit codes lidos sem pipe no meio (pipe troca $? pelo status do
-# ultimo comando do pipe).
 set -u
 cd /work
 
@@ -43,10 +40,6 @@ check_leak() {
   fi
   env $env_it HEAPTRC=haltonnotreleased "./.build/$tag/$name" > /dev/null 2> "/tmp/$name.leak"
   local code=$?
-  # Criterio correto: exit != 0 (o heaptrc derruba com haltonnotreleased) ou
-  # contagem de blocos nao liberados > 0. Presenca de stderr NAO serve:
-  # em programa multi-thread o heaptrc imprime o resumo mesmo sem vazamento,
-  # porque o contador de "True heap size" estoura.
   local unfreed
   unfreed=$(grep -oE '^[0-9]+ unfreed memory blocks' "/tmp/$name.leak" \
             | grep -oE '^[0-9]+' | head -1)

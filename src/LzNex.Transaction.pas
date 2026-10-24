@@ -1,43 +1,5 @@
 unit LzNex.Transaction;
 
-{ ILzNexTransaction: facade com a conexao fixada, igual ao trx do knex.
-
-  ILzNexTransaction herda ILzNex, entao a transacao tem que responder a API
-  inteira da facade. O que depende de fabrica (Table, From, Query, Raw, Schema,
-  Migrator, Seeder) e DELEGADO para a facade pai, recebida no construtor; o que
-  depende da conexao (Execute, Fetch, Connection) roda na conexao fixada.
-
-  Nas queries a delegacao vem seguida de Transacting(Self): sem isso a query
-  sairia executando numa conexao qualquer do pool, e o INSERT ficaria fora da
-  transacao -- que e o bug mais caro possivel nessa camada.
-
-  GARANTIA CENTRAL: o destrutor faz ROLLBACK se nao houve commit. Com isso nunca
-  sobra transacao aberta nem conexao emprestada. O destrutor nunca levanta.
-
-  CICLO DE VIDA DO EMPRESTIMO: Commit e Rollback soltam a conexao na hora, nao
-  no destrutor. Uma transacao concluida nao tem motivo para continuar segurando
-  uma conexao do pool, e esperar o destrutor nao funciona na pratica: no FPC
-  3.2.2 o temporario de interface do resultado de Db.Transaction so e liberado
-  no fim do PROCEDIMENTO, entao `Trx := nil` NAO destroi o objeto. Com N threads
-  e pool max N isso prendia uma conexao por thread e travava tudo ate o timeout
-  do Acquire. Soltando no Commit/Rollback, a devolucao deixa de depender da hora
-  em que o objeto morre.
-
-  Consequencia: depois de concluida, a transacao nao tem mais conexao. Qualquer
-  operacao que precise dela (Table/From/Query/Execute/Fetch/Connection) levanta
-  ELzNexTransaction em vez de, calada, pegar outra conexao do pool -- o que
-  executaria FORA da transacao sem ninguem perceber.
-
-  Num savepoint quem solta o emprestimo continua sendo a transacao RAIZ: o
-  savepoint tambem larga a propria referencia ao concluir, mas a raiz segue
-  segurando a conexao, logo o emprestimo so volta ao pool quando a raiz conclui.
-  Completar a raiz com savepoint ainda aberto e erro de uso e levanta.
-
-  SOBRE CICLO: a transacao guarda a facade (ILzNex) por interface. A facade NAO
-  pode guardar a transacao, senao o refcount nunca zera. Um savepoint guarda o
-  pai por interface tambem, e de proposito: forca o filho a morrer antes do pai,
-  que e a ordem LIFO que o savepoint do banco exige. O pai nao guarda o filho. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -56,37 +18,33 @@ uses
 type
   TLzNexTransaction = class(TInterfacedObject, ILzNex, ILzNexTransaction)
   private
-    FDb: ILzNex;                  // facade pai; a facade nao guarda isto de volta
-    FParent: ILzNexTransaction;   // so em savepoint; garante destruicao LIFO
+    FDb: ILzNex;
+    FParent: ILzNexTransaction;
     FConn: ILzNexConnection;
     FLevel: Integer;
     FCompleted: Boolean;
     function NeedDb: ILzNex;
     function NeedConn: ILzNexConnection;
     procedure NeedOpen(const AWhat: string);
-    // Recusa concluir enquanto houver savepoint aberto por baixo. O nivel vem
-    // da conexao (unica fonte que o pai e o filho compartilham), entao nao
-    // preciso guardar referencia ao filho -- o que fecharia ciclo.
+
     procedure NeedNoOpenSavepoint(const AWhat: string);
-    // Marca concluida e solta o emprestimo da conexao.
+
     procedure Finish;
     procedure ApplyIsolation(const AIsolation: TLzNexIsolation);
     function Logger: ILzNexLogger;
-    // Monta o fragmento de um SQL cru usando a fabrica Raw da facade pai.
+
     function RawFragment(const ASQL: string; const AArgs: array of const): TLzNexFragment;
   public
     constructor Create(const ADb: ILzNex; const AConn: ILzNexConnection;
       const AIsolation: TLzNexIsolation; const AParent: ILzNexTransaction);
     destructor Destroy; override;
 
-    // --- ILzNexTransaction ---
     procedure Commit;
     procedure Rollback;
     function Savepoint: ILzNexTransaction;
     function IsCompleted: Boolean;
     function Level: Integer;
 
-    // --- ILzNex: delegado para a facade, mas amarrado a esta transacao ---
     function Table(const AName: string): ILzNexQuery;
     function From(const AName: string): ILzNexQuery;
     function Query: ILzNexQuery;
@@ -106,8 +64,6 @@ type
     procedure Shutdown;
   end;
 
-// Abre uma transacao na conexao informada. ADb e a facade pai, que
-// atende o que a transacao nao sabe fazer sozinha.
 function NewTransaction(const ADb: ILzNex; const AConn: ILzNexConnection;
   const AIsolation: TLzNexIsolation): ILzNexTransaction;
 
@@ -125,14 +81,10 @@ begin
   FParent := AParent;
   FConn := AConn;
 
-  // Comeca marcada como concluida: se ApplyIsolation ou StartTransaction
-  // levantarem, o destrutor (que o compilador chama quando o construtor
-  // levanta) nao vai tentar desfazer uma transacao que nunca abriu. A conexao
-  // ainda e soltada no destrutor, entao o emprestimo do pool volta igual.
   FCompleted := True;
 
   ApplyIsolation(AIsolation);
-  // O Zeos devolve 1 na raiz e >1 quando abre savepoint aninhado.
+
   FLevel := FConn.StartTransaction;
   FCompleted := False;
 end;
@@ -149,8 +101,7 @@ begin
     except
       on E: Exception do
       begin
-        // Destrutor nao levanta nunca: quem esta saindo de escopo, muitas vezes
-        // ja esta tratando outra excecao, e levantar aqui a substituiria.
+
         Log := nil;
         try
           Log := Logger;
@@ -167,8 +118,6 @@ begin
     end;
   end;
 
-  // Rede de seguranca: numa transacao concluida o Commit/Rollback ja soltou a
-  // conexao, entao aqui FConn so ainda aponta para algo no caso abandonado.
   FConn := nil;
   FParent := nil;
   FDb := nil;
@@ -218,12 +167,9 @@ end;
 
 procedure TLzNexTransaction.Finish;
 begin
-  // A ordem importa: marcar antes de soltar, para o destrutor nao tentar
-  // desfazer uma transacao que ja acabou.
+
   FCompleted := True;
-  // E aqui que o emprestimo volta ao pool, sem esperar o destrutor. Num
-  // savepoint isto solta apenas a referencia dele; a raiz continua com a sua,
-  // entao a conexao so e devolvida de fato quando a raiz conclui.
+
   FConn := nil;
 end;
 
@@ -233,7 +179,7 @@ var
 begin
   if AIsolation = ilDefault then
     Exit;
-  // Savepoint nao tem isolamento proprio: quem manda e a transacao raiz.
+
   if FParent <> nil then
     Exit;
 
@@ -274,8 +220,6 @@ begin
   Result := R.Build(Client);
 end;
 
-{ ILzNexTransaction }
-
 procedure TLzNexTransaction.Commit;
 begin
   NeedOpen('Commit');
@@ -283,9 +227,7 @@ begin
   try
     FConn.Commit;
   finally
-    // Mesmo se o commit falhou: para esta facade a transacao acabou, e a
-    // conexao tem que voltar ao pool em vez de ficar presa ate o fim da
-    // rotina. O pool desfaz na devolucao o que tiver sobrado aberto.
+
     Finish;
   end;
 end;
@@ -304,8 +246,7 @@ end;
 function TLzNexTransaction.Savepoint: ILzNexTransaction;
 begin
   NeedOpen('Savepoint');
-  // O filho guarda este objeto por interface: assim o pai nao pode ser
-  // destruido antes, e o savepoint do banco e desfeito na ordem certa.
+
   Result := TLzNexTransaction.Create(FDb, NeedConn, ilDefault,
     Self as ILzNexTransaction) as ILzNexTransaction;
 end;
@@ -320,12 +261,9 @@ begin
   Result := FLevel;
 end;
 
-{ ILzNex }
-
 function TLzNexTransaction.Table(const AName: string): ILzNexQuery;
 begin
-  // Sem este guarda a query sairia do pool por conta propria e executaria FORA
-  // da transacao, em silencio -- o bug mais caro possivel nesta camada.
+
   NeedOpen('Table');
   Result := NeedDb.Table(AName);
   if Result <> nil then
@@ -356,14 +294,13 @@ end;
 
 function TLzNexTransaction.Schema: ILzNexSchema;
 begin
-  // DDL no MySQL faz commit implicito (Client.DdlIsTransactional = False), logo
-  // nao ha o que amarrar a transacao: vai na facade mesmo.
+
   Result := NeedDb.Schema;
 end;
 
 function TLzNexTransaction.Transaction: ILzNexTransaction;
 begin
-  // Abrir transacao dentro de transacao e savepoint, igual ao knex.
+
   Result := Savepoint;
 end;
 
@@ -422,8 +359,7 @@ end;
 
 function TLzNexTransaction.Connection: ILzNexConnection;
 begin
-  // Devolver nil aqui so adiaria o estouro para um access violation la na
-  // frente; melhor dizer o que aconteceu.
+
   if FCompleted then
     raise ELzNexTransaction.Create(
       'Connection on a transaction already completed: Commit/Rollback returned ' +
@@ -438,8 +374,7 @@ end;
 
 procedure TLzNexTransaction.Shutdown;
 begin
-  // Derrubar o pool a partir de uma transacao fecharia conexoes de outras
-  // threads. Quem encerra a biblioteca e a facade, nunca um emprestimo dela.
+
   raise ELzNexTransaction.Create(
     'Shutdown on a transaction. End the transaction (Commit/Rollback) and call ' +
     'Shutdown on the facade.');

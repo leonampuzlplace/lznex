@@ -1,0 +1,61 @@
+<article>
+<h1>Executar e ler</h1>
+<p class="subtitle">Os terminais de leitura. Cada um executa e devolve algo pronto para usar.</p>
+
+<div class="table-wrap">
+<table class="api">
+<thead><tr><th>Terminal</th><th>O que faz</th></tr></thead>
+<tbody>
+<tr><td><code>function Get: ILzNexResult</code></td><td>Executa o select e devolve o cursor forward-only.</td></tr>
+<tr><td><code>function First: ILzNexRow</code></td><td>Primeira linha materializada, ou <code>nil</code>. Acrescenta <code>limit 1</code> se não houver limite.</td></tr>
+<tr><td><code>function Value(const AColumn: string): TLzNexValue</code></td><td>Troca a lista de colunas pela informada e devolve o escalar da primeira linha. Sem linha: <code>Null</code>.</td></tr>
+<tr><td><code>function Scalar: TLzNexValue</code></td><td>Primeira coluna da primeira linha, sem mexer no select.</td></tr>
+<tr><td><code>function Pluck(const AColumn: string): TLzNexValues</code></td><td>Uma coluna de todas as linhas, como array.</td></tr>
+<tr><td><code>function Exists: Boolean</code></td><td><code>limit 1</code> + existe linha?</td></tr>
+<tr><td><code>function Count: Int64</code></td><td><code>count(*)</code> já convertido.</td></tr>
+<tr><td><code>function Aggregate(const AAgg: TLzNexAggregate; const AColumn: string): TLzNexValue</code></td><td><code>agCount</code>, <code>agMin</code>, <code>agMax</code>, <code>agSum</code>, <code>agAvg</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="code"><pre data-lang="pascal">Rows  := Db.Table('users').Where('active', True).Get;
+Row   := Db.Table('users').Where('id', 7).First;
+Name  := Db.Table('users').Where('id', 7).Value('name').AsString;
+Total := Db.Table('users').Where('active', True).Count;
+Ids   := Db.Table('users').Pluck('id');
+Media := Db.Table('orders').Aggregate(agAvg, 'total').AsFloat;
+if Db.Table('users').Where('email', 'l@x.com').Exists then ...</pre>
+<div class="code-out">
+  <div class="code-label">SQL de cada um</div>
+  <pre data-lang="sql">select * from `users` where `active` = ?
+select * from `users` where `id` = ? limit ?
+select `name` from `users` where `id` = ? limit ?
+select count(*) from `users` where `active` = ? limit ?
+select `id` from `users`
+select avg(`total`) from `orders` limit ?
+select * from `users` where `email` = ? limit ?</pre>
+</div>
+</div>
+
+<p>
+  O <code>limit ?</code> em <code>First</code>, <code>Value</code>, <code>Count</code> e
+  <code>Aggregate</code> não é desperdício: todos leem uma linha só, e o limite evita que o
+  banco materialize o resto.
+</p>
+
+<h2 id="aggregates">Agregados</h2>
+<p>Agregado com <code>distinct</code> e alias sai assim:</p>
+<div class="code"><pre data-lang="sql">select count(distinct `email`) as `c`, sum(`total`) as `t` from `users`</pre></div>
+
+<p>
+  Agregado sem coluna vira <code>count(*)</code>. <code>Count</code> é atalho para
+  <code>Aggregate(agCount, '*').AsInt64</code>.
+</p>
+
+<h2 id="consuming">Consumir o resultado</h2>
+<div class="code"><pre data-lang="pascal">Rows := Db.Table('users').Select(['id', 'name']).Get;
+while Rows.Next do
+  Writeln(Rows.Field('id').AsInt64, ' ', Rows.Field('name').AsString);</pre></div>
+
+<p>Detalhes de cursor, linha materializada e JSON em <a href="#results">Resultados</a>.</p>
+</article>

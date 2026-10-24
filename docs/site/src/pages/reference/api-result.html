@@ -1,0 +1,106 @@
+<article>
+<h1>Resultados</h1>
+<p class="subtitle">
+  <code>ILzNexResult</code> é o cursor que o banco devolve; <code>ILzNexRow</code> é uma linha já
+  copiada para a memória.
+</p>
+
+<p>
+  A diferença entre os dois é quem é dono dos dados. O cursor lê a linha corrente direto do driver
+  — avança para frente e nunca volta. A linha é um retrato: copiada no momento em que você pede, ela
+  continua válida depois de o cursor avançar ou fechar.
+</p>
+
+<h2 id="result">ILzNexResult</h2>
+<p>
+  Cursor forward-only. <code>Next</code> posiciona na próxima linha e devolve <code>False</code>
+  quando acaba — ler coluna antes do primeiro <code>Next</code> levanta
+  <code>ELzNexQuery</code> dizendo exatamente isso.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Next: Boolean</code></td><td>Avança uma linha. <code>False</code> no fim (e também se o cursor já estiver fechado).</td></tr>
+<tr><td><code>function Field(const AName: string): TLzNexValue</code></td><td>Coluna da linha corrente, por nome.</td></tr>
+<tr><td><code>function FieldAt(const AIndex: Integer): TLzNexValue</code></td><td>Coluna por posição, base 0. Fora da faixa levanta.</td></tr>
+<tr><td><code>function FieldCount: Integer</code></td><td>Quantas colunas o resultado tem. Pode ser lido antes do primeiro <code>Next</code>.</td></tr>
+<tr><td><code>function FieldName(const AIndex: Integer): string</code></td><td>Nome da coluna na posição. É o <em>label</em> do driver: com alias, vem o alias.</td></tr>
+<tr><td><code>function CurrentRow: ILzNexRow</code></td><td>Copia a linha corrente para um <code>ILzNexRow</code> independente do cursor.</td></tr>
+<tr><td><code>function ToRows: TLzNexRowArray</code></td><td>Consome o resto do cursor em um array de linhas.</td></tr>
+<tr><td><code>function ToJSON: string</code></td><td>Consome o resto do cursor em um array JSON. <code>NULL</code> vira <code>null</code>, bytes viram base64.</td></tr>
+<tr><td><code>procedure Close</code></td><td>Fecha o cursor e libera o empréstimo da conexão. Idempotente.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  <code>ToRows</code> e <code>ToJSON</code> partem da posição atual e <strong>incluem</strong> a
+  linha corrente: se você já chamou <code>Next</code>, aquela linha entra no resultado; se não, eles
+  mesmos avançam. Os dois esvaziam o cursor — um <code>Next</code> depois deles devolve
+  <code>False</code>.
+</p>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">O cursor segura uma vaga do pool</span>
+    <p>
+      O <code>ILzNexResult</code> carrega o empréstimo da conexão: enquanto ele vive, a conexão não
+      volta para o pool. Isso é necessário — ler a próxima linha é conversa com o servidor, não
+      leitura de buffer local — mas significa que um cursor guardado em campo de objeto de vida
+      longa tira uma conexão do pool até lá. A devolução acontece no <code>Close</code> ou quando a
+      última referência ao resultado sai de escopo.
+    </p>
+    <p>
+      Em laço curto, não há o que fazer. Em código que vai segurar os dados, materialize e solte:
+      <code>ToRows</code> (ou <code>First</code> no builder, que já fecha o cursor antes de
+      devolver a linha).
+    </p>
+  </div>
+</div>
+
+<h2 id="row">ILzNexRow</h2>
+<p>
+  Linha materializada, sem vínculo com conexão nem com o cursor de origem. É o que
+  <code>First</code> e <code>ToRows</code> devolvem.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Field(const AName: string): TLzNexValue</code></td><td>Coluna por nome. Levanta se não existir.</td></tr>
+<tr><td><code>function TryField(const AName: string; out AValue: TLzNexValue): Boolean</code></td><td>Não levanta: devolve <code>False</code> e deixa <code>AValue</code> como <code>Unset</code>.</td></tr>
+<tr><td><code>function FieldAt(const AIndex: Integer): TLzNexValue</code></td><td>Coluna por posição, base 0. Fora da faixa levanta.</td></tr>
+<tr><td><code>function Has(const AName: string): Boolean</code></td><td>A coluna existe nesta linha?</td></tr>
+<tr><td><code>function FieldCount: Integer</code></td><td>Quantas colunas a linha tem.</td></tr>
+<tr><td><code>function FieldName(const AIndex: Integer): string</code></td><td>Nome da coluna na posição.</td></tr>
+<tr><td><code>function ToJSON: string</code></td><td>Um objeto JSON com as colunas da linha.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">Field levanta e diz quais colunas existem</span>
+    <p>
+      Coluna inexistente em <code>Field</code> levanta <code>ELzNexQuery</code> com a lista das
+      colunas que o resultado tem — o erro mais comum é alias esquecido ou errado, e a lista
+      resolve na primeira leitura da mensagem, sem precisar imprimir o SQL. Quando a ausência é
+      esperada (select que varia, coluna opcional), use <code>TryField</code> ou
+      <code>Has</code>, que não levantam.
+    </p>
+    <p>
+      A busca por nome tenta primeiro o nome <strong>exato</strong> e só depois ignora a caixa:
+      <code>Field('ID')</code> acha <code>id</code>, mas se houver <code>id</code> e
+      <code>ID</code> no mesmo resultado, cada um é achado pelo seu nome exato.
+    </p>
+  </div>
+</div>
+
+<p>
+  <code>TLzNexValue</code> — <code>AsString</code>, <code>AsInt64</code>, <code>IsNull</code> e os
+  demais acessores — está em <a href="#values">Valores</a>.
+</p>
+</article>

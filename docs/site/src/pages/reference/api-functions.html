@@ -1,0 +1,292 @@
+<article>
+<h1>Funções de módulo</h1>
+<p class="subtitle">
+  Toda função e procedimento público do LzNex, com a unit de origem. São as portas de entrada:
+  interface só se obtém por uma destas.
+</p>
+
+<h2 id="index">Índice completo</h2>
+<p>
+  A biblioteca não exporta construtor de classe — tudo que devolve interface é uma função
+  <code>New*</code> ou <code>Create*</code> na unit correspondente. A coluna da direita é o que
+  você precisa pôr no <code>uses</code>.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<thead><tr><th>Assinatura</th><th>Unit</th></tr></thead>
+<tbody>
+
+<tr><td><code>function Connect(const AConfig: ILzNexConfig): ILzNex</code></td><td><code>LzNex</code></td></tr>
+<tr><td><code>function NewConfig: ILzNexConfig</code></td><td><code>LzNex</code></td></tr>
+<tr><td><code>function ConnectFromFile(const APath, AEnv: string): ILzNex</code></td><td><code>LzNex</code></td></tr>
+
+<tr><td><code>function Vals(const AArgs: array of const): TLzNexNamedValues</code></td><td><code>LzNex.Value</code></td></tr>
+<tr><td><code>function ValueOf(const AArg: TVarRec): TLzNexValue</code></td><td><code>LzNex.Value</code></td></tr>
+<tr><td><code>function ValueList(const AArgs: array of const): TLzNexValues</code></td><td><code>LzNex.Value</code></td></tr>
+<tr><td><code>function StringsToValues(const AItems: array of string): TLzNexValues</code></td><td><code>LzNex.Value</code></td></tr>
+
+<tr><td><code>function LzNexRaw(const ASQL: string; const AArgs: array of const): ILzNexRaw</code></td><td><code>LzNex.Raw</code></td></tr>
+<tr><td><code>function LzNexRawValues(const ASQL: string; const AValues: TLzNexValues): ILzNexRaw</code></td><td><code>LzNex.Raw</code></td></tr>
+<tr><td><code>function LzNexRawNamed(const ASQL: string; const ANamed: TLzNexNamedValues): ILzNexRaw</code></td><td><code>LzNex.Raw</code></td></tr>
+
+<tr><td><code>procedure RegisterClient(const AName: string; const AClass: TLzNexClientClass)</code></td><td><code>LzNex.Client</code></td></tr>
+<tr><td><code>function CreateClient(const AName: string): ILzNexClient</code></td><td><code>LzNex.Client</code></td></tr>
+<tr><td><code>function IsClientRegistered(const AName: string): Boolean</code></td><td><code>LzNex.Client</code></td></tr>
+<tr><td><code>function RegisteredClients: string</code></td><td><code>LzNex.Client</code></td></tr>
+<tr><td><code>function NormalizeOperator(const AOp: string): string</code></td><td><code>LzNex.Client</code></td></tr>
+<tr><td><code>function SplitQualified(const AName: string): TLzNexStringArray</code></td><td><code>LzNex.Client</code></td></tr>
+<tr><td><code>function FindAliasSeparator(const AName: string): Integer</code></td><td><code>LzNex.Client</code></td></tr>
+
+<tr><td><code>function LoadConfigFile(const APath, AEnv: string): ILzNexConfig</code></td><td><code>LzNex.Config</code></td></tr>
+<tr><td><code>function LoadConfigJSON(const AJSON, AEnv: string): ILzNexConfig</code></td><td><code>LzNex.Config</code></td></tr>
+<tr><td><code>function ApplyOverrides(const AConfig: ILzNexConfig; const AValues: TLzNexNamedValues): ILzNexConfig</code></td><td><code>LzNex.Config</code></td></tr>
+<tr><td><code>function ApplyEnvOverrides(const AConfig: ILzNexConfig): ILzNexConfig</code></td><td><code>LzNex.Config</code></td></tr>
+<tr><td><code>function EnvOverrideNames: TLzNexStringArray</code></td><td><code>LzNex.Config</code></td></tr>
+<tr><td><code>class function TLzNexConfig.New: ILzNexConfig</code></td><td><code>LzNex.Config</code></td></tr>
+<tr><td><code>class function TLzNexConsoleLogger.New(const ALogQueries: Boolean = True): ILzNexLogger</code></td><td><code>LzNex.Config</code></td></tr>
+
+<tr><td><code>procedure RegisterMigration(const AClass: TLzNexMigrationClass)</code></td><td><code>LzNex.Migration</code></td></tr>
+<tr><td><code>function RegisteredMigrationCount: Integer</code></td><td><code>LzNex.Migration</code></td></tr>
+<tr><td><code>function RegisteredMigrationAt(const AIndex: Integer): TLzNexMigrationClass</code></td><td><code>LzNex.Migration</code></td></tr>
+<tr><td><code>function RegisteredMigrations: TLzNexMigrationClassArray</code></td><td><code>LzNex.Migration</code></td></tr>
+<tr><td><code>function FindMigrationClass(const AName: string): TLzNexMigrationClass</code></td><td><code>LzNex.Migration</code></td></tr>
+<tr><td><code>procedure ClearMigrations</code></td><td><code>LzNex.Migration</code></td></tr>
+<tr><td><code>function CreateMigration(const AClass: TLzNexMigrationClass): ILzNexMigration</code></td><td><code>LzNex.Migration</code></td></tr>
+<tr><td><code>function MigrationIdOf(const AName: string): string</code></td><td><code>LzNex.Migration</code></td></tr>
+
+<tr><td><code>procedure RegisterSeed(const AClass: TLzNexSeedClass)</code></td><td><code>LzNex.Seed</code></td></tr>
+<tr><td><code>function RegisteredSeedCount: Integer</code></td><td><code>LzNex.Seed</code></td></tr>
+<tr><td><code>function RegisteredSeeds: TLzNexSeedClassArray</code></td><td><code>LzNex.Seed</code></td></tr>
+<tr><td><code>function FindSeedClass(const AName: string): TLzNexSeedClass</code></td><td><code>LzNex.Seed</code></td></tr>
+<tr><td><code>procedure ClearSeeds</code></td><td><code>LzNex.Seed</code></td></tr>
+<tr><td><code>function NewSeeder(const ADb: ILzNex): ILzNexSeeder</code></td><td><code>LzNex.Seed</code></td></tr>
+
+<tr><td><code>function MigrationTimestamp: string</code></td><td><code>LzNex.Cli</code></td></tr>
+<tr><td><code>function MigrationFileName(const ADescription: string; const ASql: Boolean): string</code></td><td><code>LzNex.Cli</code></td></tr>
+<tr><td><code>function Slugify(const AText: string): string</code></td><td><code>LzNex.Cli</code></td></tr>
+
+<tr><td><code>function NewQuery(const AClient: ILzNexClient): ILzNexQuery</code></td><td><code>LzNex.Query</code></td></tr>
+<tr><td><code>function NewBoundQuery(const ADb: ILzNex; const ATrx: ILzNexTransaction): ILzNexQuery</code></td><td><code>LzNex.Query</code></td></tr>
+
+<tr><td><code>function NewSchema(const ADb: ILzNex; const AClient: ILzNexClient): ILzNexSchema</code></td><td><code>LzNex.Schema</code></td></tr>
+
+<tr><td><code>function NewPool(const AClient: ILzNexClient; const AParams: TLzNexConnectionParams; const AMin, AMax, ATimeoutMs: Integer): ILzNexPool; overload</code></td><td><code>LzNex.Pool</code></td></tr>
+<tr><td><code>function NewPool(const AConfig: ILzNexConfig; const AClient: ILzNexClient): ILzNexPool; overload</code></td><td><code>LzNex.Pool</code></td></tr>
+
+<tr><td><code>function NewConnection(const AClient: ILzNexClient; const AParams: TLzNexConnectionParams): ILzNexConnection; overload</code></td><td><code>LzNex.Connection</code></td></tr>
+<tr><td><code>function NewConnection(const AConfig: ILzNexConfig; const AClient: ILzNexClient): ILzNexConnection; overload</code></td><td><code>LzNex.Connection</code></td></tr>
+
+<tr><td><code>function NewTransaction(const ADb: ILzNex; const AConn: ILzNexConnection; const AIsolation: TLzNexIsolation): ILzNexTransaction</code></td><td><code>LzNex.Transaction</code></td></tr>
+
+<tr><td><code>function NewMigrator(const ADb: ILzNex): ILzNexMigrator</code></td><td><code>LzNex.Migrator</code></td></tr>
+
+<tr><td><code>function NewResult(const ARS: IZResultSet; const AOwner: IInterface): ILzNexResult</code></td><td><code>LzNex.Result</code></td></tr>
+<tr><td><code>function LzNexKindOfSQLType(const AType: TZSQLType): TLzNexValueKind</code></td><td><code>LzNex.Result</code></td></tr>
+<tr><td><code>function LzNexJSONQuote(const AText: string): string</code></td><td><code>LzNex.Result</code></td></tr>
+<tr><td><code>function LzNexJSONValue(const AValue: TLzNexValue): string</code></td><td><code>LzNex.Result</code></td></tr>
+<tr><td><code>function LzNexJSONObject(const ANames: TLzNexStringArray; const AValues: TLzNexValues): string</code></td><td><code>LzNex.Result</code></td></tr>
+
+<tr><td><code>function NewMySQLSchemaCompiler(const AClient: ILzNexClient): ILzNexSchemaCompiler</code></td><td><code>LzNex.Schema.MySQL</code></td></tr>
+<tr><td><code>function NewPostgresSchemaCompiler(const AClient: ILzNexClient): ILzNexSchemaCompiler</code></td><td><code>LzNex.Schema.Postgres</code></td></tr>
+
+<tr><td><code>function JoinFragments(const AItems: TLzNexFragments; const ASep: string = ' '): TLzNexFragment</code></td><td><code>LzNex.Fragment</code></td></tr>
+<tr><td><code>function PlaceholderList(const AValues: TLzNexValues): TLzNexFragment</code></td><td><code>LzNex.Fragment</code></td></tr>
+
+</tbody>
+</table>
+</div>
+
+<h2 id="facade">Fachada e configuração</h2>
+<p>
+  <code>Connect</code> valida a configuração, resolve o dialeto por nome e abre o pool —
+  <code>AConfig = nil</code> levanta <code>ELzNexConfig</code>.
+  <code>ConnectFromFile</code> é só <code>Connect(LoadConfigFile(APath, AEnv))</code>, e é o
+  caminho que o CLI usa. <code>NewConfig</code> e <code>TLzNexConfig.New</code> devolvem a
+  mesma coisa; a primeira existe para quem tem apenas <code>LzNex</code> no <code>uses</code>.
+  <code>TLzNexConsoleLogger.New</code> é o logger de console pronto; com
+  <code>ALogQueries = False</code> ele emite só erro, aviso e info.
+</p>
+<p>
+  <code>ApplyOverrides</code> recebe pares nome/valor e aplica os que reconhece
+  (<code>CLIENT</code>, <code>HOST</code>, <code>PORT</code>, <code>DATABASE</code>,
+  <code>USER</code>, <code>PASSWORD</code>, <code>CHARSET</code>, <code>LIBRARY</code>,
+  <code>POOL_MIN</code>, <code>POOL_MAX</code>, <code>ACQUIRE_TIMEOUT</code>,
+  <code>MIGRATIONS_TABLE</code>, <code>MIGRATIONS_DIR</code>, <code>SEEDS_DIR</code>);
+  qualquer outra chave vira uma prop de conexão em caixa baixa. Valor vazio é ignorado, e não
+  sobrescreve o que já estava lá. <code>EnvOverrideNames</code> devolve as 14 variáveis de
+  ambiente equivalentes, todas com o prefixo <code>LZNEX_</code>, e é o que
+  <code>ApplyEnvOverrides</code> percorre.
+</p>
+<p>
+  <code>LoadConfigJSON</code> já chama <code>ApplyEnvOverrides</code> no fim, e
+  <code>LoadConfigFile</code> delega a ele — então arquivo carregado <strong>já</strong> veio
+  com as variáveis de ambiente aplicadas. Chamar <code>ApplyEnvOverrides</code> à mão só é
+  necessário sobre uma configuração montada em código.
+</p>
+
+<h2 id="dialect">Registro de dialeto</h2>
+<p>
+  <code>CreateClient</code> procura o nome num dicionário em caixa baixa e com <code>Trim</code>,
+  e levanta <code>ELzNexConfig</code> listando os nomes disponíveis quando não acha. Os nomes
+  são registrados no <code>initialization</code> da unit do dialeto:
+  <code>LzNex.Client.MySQL</code> registra <code>mysql</code> e <code>mariadb</code>,
+  <code>LzNex.Client.Postgres</code> registra <code>postgresql</code> e <code>postgres</code>.
+</p>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">O linker do FPC descarta a unit não referenciada</span>
+    <p>
+      Se a unit do dialeto não aparece no <code>uses</code> de ninguém, o
+      <code>initialization</code> dela nunca roda e <code>CreateClient('mysql')</code> falha
+      com "dialect is not registered" — mesmo que o arquivo esteja no projeto. Inclua
+      <code>LzNex.Client.MySQL</code> (ou <code>.Postgres</code>) explicitamente no programa
+      principal. <code>RegisteredClients</code> devolve <code>&lt;none&gt;</code> quando nenhuma
+      foi linkada, o que é o sintoma mais direto.
+    </p>
+  </div>
+</div>
+
+<h2 id="text-helpers">Auxiliares de texto</h2>
+<p>
+  <code>NormalizeOperator</code> baixa a caixa, apara e colapsa espaços repetidos antes de
+  conferir contra <a href="#api-enums/operators"><code>LZNEX_OPERATORS</code></a>; fora da
+  lista, levanta <code>ELzNexBuilder</code>. <code>SplitQualified</code> quebra
+  <code>'db.schema.col'</code> pelos pontos e apara cada parte.
+  <code>FindAliasSeparator</code> devolve a posição (base 1) do <code>' as '</code> — em
+  qualquer caixa — ou <code>0</code> se não houver, e é como <code>'users as u'</code> numa
+  string só é reconhecido.
+</p>
+<p>
+  <code>MigrationIdOf</code> extrai o id de um nome de migração: tudo antes do primeiro
+  <code>_</code>. Sem <code>_</code>, ou com <code>_</code> na primeira posição, o nome inteiro
+  é o id. <code>MigrationTimestamp</code> produz <code>yyyymmddhhnnss</code> em
+  <strong>UTC</strong> — não em hora local, para que máquinas em fusos diferentes gerem ids
+  ordenáveis entre si. <code>Slugify</code> baixa a caixa, troca todo caractere fora de
+  <code>a-z0-9</code> por <code>_</code> sem repetir underscore, apara os do fim, e devolve
+  <code>'migration'</code> se nada sobrou.
+</p>
+
+<div class="code"><pre data-lang="pascal">Slugify('Create Users Table!');      // create_users_table
+Slugify('  ---  ');                  // migration
+MigrationFileName('add index', False);  // M20260224183000_add_index.pas
+MigrationFileName('add index', True);   // 20260224183000_add_index.up.sql</pre>
+<div class="code-out">
+  <p class="code-note">
+    O nome Pascal é <code>'M' + timestamp + '_' + slug + '.pas'</code>; o SQL é
+    <code>timestamp + '_' + slug + '.up.sql'</code>, e o par <code>.down.sql</code> é criado
+    junto pelo CLI.
+  </p>
+</div>
+</div>
+
+<h2 id="registries">Registros globais</h2>
+<p>
+  Migrações e seeds se registram em variáveis globais pelo <code>initialization</code> da
+  própria unit, o mesmo mecanismo dos dialetos — e com a mesma armadilha de linker.
+  <code>RegisteredMigrationCount</code>/<code>At</code> dão acesso indexado,
+  <code>RegisteredMigrations</code> devolve o array inteiro, e
+  <code>FindMigrationClass</code> casa por <code>MigrationName</code> exato (devolve
+  <code>nil</code> se não achar, não levanta).
+</p>
+<p>
+  <code>ClearMigrations</code> e <code>ClearSeeds</code> existem para teste: zeram o registro
+  global entre casos, para que um não veja o que o outro registrou. Em produção não há motivo
+  para chamá-las.
+</p>
+
+<h2 id="result">Resultado e JSON</h2>
+<p>
+  <code>NewResult</code> embrulha um <code>IZResultSet</code> do Zeos; o parâmetro
+  <code>AOwner</code> é guardado só para manter vivo quem precisa continuar vivo (statement,
+  conexão) enquanto o cursor estiver aberto — é o que evita o resultado sobreviver à conexão
+  que o produziu. <code>LzNexKindOfSQLType</code> mapeia o tipo SQL do Zeos para o
+  <code>TLzNexValueKind</code> correspondente, e é o que o leitor de coluna consulta uma vez por
+  consulta, não por linha.
+</p>
+<p>
+  Os três <code>LzNexJSON*</code> são a serialização usada por
+  <code>ILzNexResult.ToJSON</code> e <code>ILzNexRow.ToJSON</code>:
+  <code>LzNexJSONQuote</code> escapa uma string, <code>LzNexJSONValue</code> converte um valor
+  e <code>LzNexJSONObject</code> monta o objeto a partir de nomes e valores paralelos. No
+  <code>LzNexJSONValue</code>: <code>vkNull</code> e <code>vkUnset</code> viram
+  <code>null</code>, booleano vira <code>true</code>/<code>false</code>, número sai sem quotes,
+  <code>vkBytes</code> sai em base64, data e hora saem como string
+  (<code>yyyy-mm-dd</code>, <code>hh:nn:ss</code>, e datetime em
+  <code>yyyy-mm-ddThh:nn:ss</code>).
+</p>
+
+<h2 id="without-a-database">Montar SQL sem banco nenhum</h2>
+<p>
+  <code>NewQuery</code> precisa de um <code>ILzNexClient</code>, e <code>NewSchema</code> aceita
+  <code>nil</code> no lugar do <code>ILzNex</code>. Com isso dá para gerar e inspecionar SQL
+  sem abrir conexão, sem pool e sem servidor rodando — é exatamente assim que as suítes do
+  projeto comparam o SQL por texto exato.
+</p>
+
+<div class="code"><pre data-lang="pascal">uses
+  LzNex.Types, LzNex.Value, LzNex.Fragment, LzNex.Intf,
+  LzNex.Client, LzNex.Query, LzNex.Schema,
+  LzNex.Client.MySQL;          // sem esta linha, CreateClient('mysql') falha
+
+var
+  Cli: ILzNexClient;
+  F: TLzNexFragment;
+  T: ILzNexTable;
+begin
+  Cli := CreateClient('mysql');
+
+  F := NewQuery(Cli)
+         .Table('users')
+         .Where('id', 1)
+         .ToSQL;
+
+  Writeln(F.Text);                     // select * from `users` where `id` = ?
+  Writeln(F.Bindings.Count);           // 1
+  Writeln(F.Bindings.Describe);        // [integer(1)]
+
+  T := NewSchema(nil, Cli).CreateTable('users');
+  T.Increments;
+  T.Str('email', 191).NotNull;
+
+  Writeln(T.ToSQL.Statements[0].Text);
+  // create table `users` (`id` int unsigned not null auto_increment primary key, `email` varchar(191) not null)
+end.</pre></div>
+
+<p>
+  Trocar <code>'mysql'</code> por <code>'postgresql'</code> (e incluir
+  <code>LzNex.Client.Postgres</code>) muda o SQL dos dois sem mudar o código do builder:
+</p>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">select * from `users` where `id` = ?
+create table `users` (`id` int unsigned not null auto_increment primary key, `email` varchar(191) not null)</pre>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">select * from "users" where "id" = ?
+create table "users" ("id" serial primary key, "email" varchar(191) not null)</pre>
+  </div>
+</div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">Montar sim, executar não</span>
+    <p>
+      Com <code>NewSchema(nil, Cli)</code>, <code>ILzNexTable.ToSQL</code> funciona mas
+      <code>Execute</code> não tem onde rodar. Mesma coisa para a query: <code>ToSQL</code> é
+      puro, enquanto <code>Get</code>, <code>First</code> e <code>Insert</code> precisam de um
+      <code>ILzNex</code> de verdade — use <code>NewBoundQuery</code> ou
+      <code>Db.Table(...)</code> quando a intenção for executar.
+    </p>
+  </div>
+</div>
+
+<div class="cards">
+  <a class="card" href="#api-types"><h4>Value, Fragment e Bindings →</h4><p>Os records que essas funções trocam entre si.</p></a>
+  <a class="card" href="#tests"><h4>Testes →</h4><p>Como a suíte compara SQL por texto exato.</p></a>
+</div>
+</article>

@@ -1,0 +1,247 @@
+<article>
+<h1>Limitações</h1>
+<p class="subtitle">
+  O que não funciona, o que funciona mas não está provado contra um banco de verdade, e o
+  porquê de cada caso. Lista honesta: se não está aqui e quebrou, é bug.
+</p>
+
+<h2 id="overview">Panorama</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Assunto</th><th>Implementado</th><th>Provado em banco real</th></tr></thead>
+<tbody>
+<tr><td>MySQL — query, DDL, migrations, pool, transações</td><td><span class="yes">sim</span></td><td><span class="yes">sim</span></td></tr>
+<tr><td>PostgreSQL — SQL e DDL</td><td><span class="yes">sim</span></td><td><span class="no">não</span></td></tr>
+<tr><td>PostgreSQL — <code>Change</code> de coluna</td><td><span class="no">não</span></td><td><span class="no">não</span></td></tr>
+<tr><td><code>on conflict ... where</code></td><td><span class="no">não</span></td><td><span class="no">não</span></td></tr>
+<tr><td>Enum nativo do PostgreSQL</td><td><span class="no">não</span></td><td><span class="no">não</span></td></tr>
+<tr><td>Seed em <code>.sql</code></td><td><span class="no">não</span></td><td><span class="no">não</span></td></tr>
+<tr><td><code>jsonb</code> por método de coluna</td><td><span class="no">não</span></td><td><span class="no">não</span></td></tr>
+<tr><td>DDL transacional no MySQL</td><td><span class="no">não</span></td><td>—</td></tr>
+<tr><td>Firebird</td><td><span class="no">não</span></td><td><span class="no">não</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="postgres-untested">PostgreSQL nunca rodou contra um banco</h2>
+<p>
+  O dialeto PostgreSQL está escrito e testado — 66 casos em
+  <code>tests/Test.Postgres.pas</code>, a maioria comparando o texto gerado com o do MySQL
+  para a mesma entrada. Mas a comparação é <strong>por texto</strong>: o compose só tem
+  MySQL, então conexão, pool e migrator nunca abriram socket com um Postgres.
+</p>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">select * from `t` limit ? offset ?</pre>
+    <p class="code-note">conferido contra o banco</p>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">select * from "t" limit ? offset ?</pre>
+    <p class="code-note">conferido contra a string esperada, não contra o banco</p>
+  </div>
+</div>
+
+<p>
+  Na prática: o SQL que sai é o que se espera, e aspas duplas, <code>returning</code>,
+  <code>distinct on</code>, <code>nulls first/last</code> e <code>on conflict</code> têm
+  asserção. O que ninguém viu funcionar é a camada de baixo — tipo de retorno do driver,
+  mapeamento de <code>TLzNexValue</code> na ida e na volta, comportamento do pool sob
+  carga e o <code>lock</code> da tabela de migrations nesse dialeto.
+</p>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Em produção com PostgreSQL, trate como não testado</span>
+    <p>
+      Teste primeiro o caminho que você vai usar: conectar, uma leitura, uma escrita, uma
+      transação e <code>migrate:latest</code>. O SQL provavelmente está certo; a integração
+      é que não tem prova.
+    </p>
+  </div>
+</div>
+
+<h2 id="change-on-postgres"><code>Change</code> gera DDL que o PostgreSQL recusa</h2>
+<p>
+  O compilador genérico de DDL monta <code>alter column</code> seguido da definição
+  completa da coluna. Funciona no MySQL, onde <code>modify</code> aceita a definição
+  inteira de uma vez. No PostgreSQL não: ele exige
+  <code>alter column ... type ...</code> e <code>set not null</code> como
+  <strong>comandos separados</strong>.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Db.Schema.Table('users');
+T.Int('age').NotNull.Change;</pre></div>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">alter table `users` modify `age` int not null</pre>
+    <p class="code-note">aceito</p>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">alter table "users" alter column "age" integer not null</pre>
+    <p class="code-note">sintaxe inválida — o banco recusa</p>
+  </div>
+</div>
+
+<p>
+  Ou seja: o texto gerado é o que o teste espera, e o teste espera o texto errado para o
+  PostgreSQL. Enquanto não houver emissão de dois comandos, escreva essa alteração como
+  SQL cru numa migration <code>.sql</code> — veja
+  <a href="#migrations">Migrations</a>.
+</p>
+
+<h2 id="on-conflict-where">Não há como informar o <code>where</code> do <code>on conflict</code></h2>
+<p>
+  O dialeto <strong>declara</strong> a capacidade
+  (<code>SupportsOnConflictWhere</code> é <code>True</code> no PostgreSQL e
+  <code>False</code> no MySQL), mas <code>ILzNexOnConflict</code> só tem
+  <code>Ignore</code>, <code>Merge</code> e <code>MergeValues</code> — nenhum lugar para
+  passar o predicado de um índice parcial.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Ignore: ILzNexQuery</code></td><td><code>on conflict (...) do nothing</code></td></tr>
+<tr><td><code>function Merge: ILzNexQuery</code></td><td><code>do update set</code> com todas as colunas do insert</td></tr>
+<tr><td><code>function Merge(const AColumns: array of string): ILzNexQuery</code></td><td>idem, só as colunas listadas</td></tr>
+<tr><td><code>function MergeValues(const AValues: TLzNexNamedValues): ILzNexQuery</code></td><td><code>do update set</code> com valores explícitos</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  A capacidade existe para o dia em que a interface ganhar esse ponto de entrada. Hoje, um
+  upsert sobre índice parcial sai por <code>Db.Raw</code>.
+</p>
+
+<h2 id="native-enum">Enum nativo do PostgreSQL</h2>
+<p>
+  <code>Enum</code> não cria um tipo (<code>create type ... as enum</code>) no PostgreSQL:
+  sai como <code>text</code> mais um <code>check</code>.
+</p>
+
+<div class="code"><pre data-lang="pascal">Db.Schema.CreateTable('o').Enum('status', ['new', 'done']);</pre></div>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">create table `o` (`status` enum('new', 'done') null)</pre>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">create table "o" ("status" text null check ("status" in ('new', 'done')))</pre>
+  </div>
+</div>
+
+<p>
+  A restrição de domínio é equivalente; o tipo não. Um tipo enum de verdade precisaria ser
+  criado <strong>antes</strong> da tabela, num comando próprio — e o DDL de coluna não tem
+  como emitir um comando que o antecede. Se o tipo nativo importa, crie-o numa migration
+  <code>.sql</code> e declare a coluna com <code>Specific</code>.
+</p>
+
+<h2 id="seed-sql">Seed em <code>.sql</code> não é executada</h2>
+<p>
+  Aqui as migrations e as seeds divergem, e a assimetria morde: migration em
+  <code>.sql</code> é lida do disco e aplicada, seed em <code>.sql</code> não.
+  <code>seed:make</code> cria o arquivo — <code>database/seeds/&lt;slug&gt;.sql</code> —
+  mas <code>seed:run</code> percorre apenas as classes passadas a
+  <code>RegisterSeed</code>. O arquivo fica no disco sem nunca rodar, e sem aviso.
+</p>
+
+<div class="code"><pre data-lang="sh">lznex seed:make demo_users
+lznex seed:run</pre>
+<div class="code-out">
+  <div class="code-label">saída</div>
+  <pre data-lang="out">created: database/seeds/demo_users.sql
+0 seed(s) executed</pre>
+  <p class="code-note">o arquivo foi criado e ignorado, sem erro</p>
+</div>
+</div>
+
+<p>
+  <code>--only</code> também só conhece nome registrado, e o erro lista o que existe:
+</p>
+
+<div class="code"><pre data-lang="out">error: Seed "demo_users" is not registered. Registered: users, roles.</pre></div>
+
+<p>Até isso mudar, seed útil é classe Pascal registrada. Veja <a href="#seeds">Seeds</a>.</p>
+
+<h2 id="jsonb">Sem método <code>Jsonb</code> em <code>ILzNexTable</code></h2>
+<p>
+  O tipo <code>ctJsonb</code> existe e o compilador de DDL do PostgreSQL emite
+  <code>jsonb</code> para ele. Falta só o método na interface de colunas:
+  <code>ILzNexColumnDef</code> tem <code>Json</code>, não <code>Jsonb</code>. Até aparecer,
+  o caminho é <code>Specific</code>, que entrega o tipo direto ao banco:
+</p>
+
+<div class="code"><pre data-lang="pascal">Db.Schema.CreateTable('docs').Specific('payload', 'jsonb');</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">create table "docs" ("payload" jsonb null)</pre>
+  <p class="code-note">
+    <code>Specific</code> não é portável por definição — o texto vai como veio
+  </p>
+</div>
+</div>
+
+<h2 id="ddl-not-transactional">DDL não é transacional no MySQL</h2>
+<p>
+  Isso não é escolha da biblioteca: o MySQL dá <strong>commit implícito</strong> em
+  <code>create</code>, <code>alter</code> e <code>drop</code>. Uma migration que falha no
+  meio deixa atrás o que já executou, e o rollback não desfaz nada disso. O migrator avisa
+  quando o dialeto não tem DDL transacional:
+</p>
+
+<div class="code"><pre data-lang="out">2026-10-24 12:00:00 [lznex] warn  The mysql dialect commits implicitly on DDL: if
+the migration fails midway, the rollback will NOT undo CREATE/ALTER/DROP already
+executed. Keep one migration per structural change so the damage stays small.</pre></div>
+
+<p>
+  A defesa é de escrita: uma mudança estrutural por migration, e cada passo reentrante.
+  No PostgreSQL o problema não existe — <code>DdlIsTransactional</code> é
+  <code>True</code> lá, o que, como todo o resto do dialeto, está provado por texto e não
+  contra o banco.
+</p>
+
+<h2 id="firebird">Firebird: arquitetura, nenhum dialeto</h2>
+<p>
+  Não existe <code>LzNex.Client.Firebird</code> nem
+  <code>LzNex.Schema.Firebird</code>. O que existe é a separação que torna isso possível:
+  dialeto é uma unit que se registra, e tanto o compilador de query quanto o de DDL
+  consultam capacidades em vez de assumir o banco. Escrever o dialeto é trabalho real,
+  não configuração. Veja <a href="#dialects">Dialetos</a>.
+</p>
+
+<h2 id="boss-placeholder">A coordenada do Boss é placeholder</h2>
+<p>
+  <code>boss.json</code> ainda aponta para <code>github.com/CHANGEME/lznex</code> e
+  <code>github.com/CHANGEME/zeoslib</code>, porque o repositório não foi publicado.
+  Duas consequências:
+</p>
+
+<ul>
+  <li>
+    <code>boss install</code> com a coordenada placeholder não resolve nada. Os Dockerfiles
+    contornam clonando o espelho do Zeos direto em
+    <code>modules/&lt;host&gt;_&lt;org&gt;_&lt;repo&gt;</code>, no mesmo layout que o Boss
+    produziria.
+  </li>
+  <li>
+    Trocar a coordenada exige trocar também o nome da pasta nos <code>.lpi</code> — o Boss
+    cria <code>modules/github_com_ACME_lznex</code>, com ponto e barra virando
+    <code>_</code>, e esse caminho está escrito nos unit paths do projeto.
+  </li>
+</ul>
+
+<p>
+  O fork do Zeos precisa ter <code>boss.json</code>: o Boss aborta quando uma dependência
+  não traz o manifesto.
+</p>
+
+<div class="cards">
+  <a class="card" href="#troubleshooting"><h4>Troubleshooting →</h4><p>Sintoma, causa e correção.</p></a>
+  <a class="card" href="#tests"><h4>Testes e Docker →</h4><p>O que roda, onde, e a saída observada.</p></a>
+</div>
+</article>

@@ -1,0 +1,49 @@
+<article>
+<h1>Query builder</h1>
+<p class="subtitle">
+  Cada chamada acumula um statement na árvore e devolve a própria query. Nada vai ao banco até
+  um terminal.
+</p>
+
+<p>
+  <code>Db.Table('users')</code> devolve um <code>ILzNexQuery</code>. Tudo encadeia; a execução
+  só acontece em <strong>terminais</strong> — <code>Get</code>, <code>First</code>,
+  <code>Count</code>, <code>Insert</code>, <code>Update</code>, <code>Delete</code>… — ou em
+  <code>ToSQL</code>, que compila sem executar.
+</p>
+
+<div class="code"><pre data-lang="pascal">// montar sem conexao: so precisa de um dialeto
+Fragment := Db.Table('users').Where('id', 7).ToSQL;
+Writeln(Fragment.Text);              // select * from `users` where `id` = ?
+Writeln(Fragment.Bindings.Count);    // 1</pre></div>
+
+<h2 id="call-order">Ordem das chamadas</h2>
+<p>
+  A ordem <strong>entre</strong> grupos de cláusula nunca importa — <code>Where</code> antes ou
+  depois de <code>OrderBy</code> dá o mesmo SQL, porque quem decide a ordem das seções é o
+  dialeto. A ordem <strong>dentro</strong> de um grupo importa sempre: dois <code>Where</code>
+  saem na sequência em que foram chamados, e os binds acompanham o texto.
+</p>
+
+<h2 id="method-map">Mapa dos métodos</h2>
+<div class="cards">
+  <a class="card" href="#columns"><h4>Fonte e colunas →</h4><p><code>Table</code>, <code>FromSub</code>, <code>Select</code>, <code>Distinct</code>.</p></a>
+  <a class="card" href="#where"><h4>Where e grupos →</h4><p>Comparação, listas, nulidade, grupos aninhados.</p></a>
+  <a class="card" href="#joins"><h4>Joins →</h4><p>Sete tipos de join e cláusulas <code>ON</code> compostas.</p></a>
+  <a class="card" href="#ordering"><h4>Agrupar e ordenar →</h4><p><code>GroupBy</code>, <code>Having</code>, <code>OrderBy</code>, paginação, lock.</p></a>
+  <a class="card" href="#reading"><h4>Executar e ler →</h4><p><code>Get</code>, <code>First</code>, <code>Pluck</code>, agregados.</p></a>
+  <a class="card" href="#writing"><h4>Escrever →</h4><p><code>Insert</code>, upsert, <code>Update</code>, <code>Delete</code>.</p></a>
+</div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">Uma query, uma thread</span>
+    <p>
+      Um <code>ILzNexQuery</code> não pode ser compartilhado entre threads. Monte e consuma na
+      mesma thread; para rodar a mesma consulta em paralelo, use <code>Clone</code> ou monte
+      de novo.
+    </p>
+  </div>
+</div>
+</article>

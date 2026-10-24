@@ -1,18 +1,5 @@
 unit LzNex.Migration;
 
-{ Base das migrations escritas em Pascal e o registry global de metaclasses.
-
-  O registry guarda METACLASSE, nao instancia: a migration so e instanciada
-  quando o runner vai de fato aplica-la, e o custo de ter 300 migrations no
-  projeto e 300 ponteiros.
-
-  ARMADILHA ESTRUTURAL DO PASCAL -- leia antes de criar migration:
-  o linker descarta unit que ninguem referencia em `uses`. Unit descartada nao
-  tem seu `initialization` executado, logo a migration NAO se registra e
-  simplesmente nao existe para o runner, sem erro nenhum. Por isso cada
-  migration precisa aparecer no `uses` de uma unit agregadora (ou do programa);
-  e o gerador do CLI que insere essa linha. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -29,10 +16,6 @@ type
   TLzNexMigrationClass = class of TLzNexMigration;
   TLzNexMigrationClassArray = array of TLzNexMigrationClass;
 
-  { Id e MigrationName sao de CLASSE para o registry conseguir ordenar e
-    detectar duplicata sem instanciar nada. A interface ILzNexMigration pede
-    metodos de instancia, entao as duas vias convivem pelas clausulas de
-    resolucao abaixo. }
   TLzNexMigration = class(TInterfacedObject, ILzNexMigration)
   protected
     function GetMigrationId: string;
@@ -40,9 +23,9 @@ type
     function ILzNexMigration.Id = GetMigrationId;
     function ILzNexMigration.Name = GetMigrationNameStr;
   public
-    // Timestamp 'YYYYMMDDHHMMSS'. Default: o prefixo de MigrationName.
+
     class function Id: string; virtual;
-    // Nome completo '<id>_<descricao>'. Toda subclasse sobrescreve.
+
     class function MigrationName: string; virtual;
 
     function UseTransaction: Boolean; virtual;
@@ -50,41 +33,28 @@ type
     procedure Down(const ADb: ILzNex); virtual; abstract;
   end;
 
-// Acrescenta a classe ao registry, mantendo a ordem por Id. Chamar no
-// `initialization` da unit da migration.
 procedure RegisterMigration(const AClass: TLzNexMigrationClass);
 
-// Quantas estao registradas.
 function RegisteredMigrationCount: Integer;
 
-// A classe na posicao, na ordem de Id (0-based).
 function RegisteredMigrationAt(const AIndex: Integer): TLzNexMigrationClass;
 
-// Copia do registry inteiro, ordenado por Id.
 function RegisteredMigrations: TLzNexMigrationClassArray;
 
-// A classe de um nome completo, ou nil.
 function FindMigrationClass(const AName: string): TLzNexMigrationClass;
 
-// Esvazia o registry. Existe para teste; em producao ninguem chama.
 procedure ClearMigrations;
 
-// Instancia e devolve como interface.
 function CreateMigration(const AClass: TLzNexMigrationClass): ILzNexMigration;
 
-// O prefixo de id de '20240101120000_create_users' -> '20240101120000'.
-// Sem '_' o nome inteiro e o id.
 function MigrationIdOf(const AName: string): string;
 
 implementation
 
 var
-  // Ordenado por Id em todo momento: insercao ordenada custa O(n) por
-  // migration registrada e dispensa comparador de generic (restricao do FPC).
+
   GMigrations: TLzNexMigrationClassArray = nil;
   GCount: Integer = 0;
-
-{ TLzNexMigration }
 
 class function TLzNexMigration.Id: string;
 begin
@@ -113,8 +83,6 @@ function TLzNexMigration.UseTransaction: Boolean;
 begin
   Result := True;
 end;
-
-{ Registry }
 
 function MigrationIdOf(const AName: string): string;
 var
@@ -201,7 +169,6 @@ begin
       SetLength(GMigrations, Length(GMigrations) * 2);
   end;
 
-  { Insercao ordenada: acha o lugar e empurra o resto. }
   Slot := GCount;
   for I := 0 to GCount - 1 do
     if GMigrations[I].Id > NewId then

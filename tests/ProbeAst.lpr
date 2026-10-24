@@ -1,8 +1,5 @@
 program ProbeAst;
 
-{ Sonda da AST: confirma Generics.Collections, TObjectList dono dos itens,
-  clone PROFUNDO e TLzNexQuerySingle. }
-
 {$MODE DELPHI}{$H+}
 
 uses
@@ -37,7 +34,6 @@ var
 begin
   Writeln('=== sonda da AST do LzNex ===');
 
-  // lista dona dos itens
   L := TLzNexStatementList.Create;
   try
     L.Add(TLzNexBasicStmt.Create(sgWhere, TLzNexValue.Identifier('id'), '=', 1));
@@ -47,13 +43,10 @@ begin
     Check('kind do null', L[1].Kind = skWhereNull);
     Check('group do basic', L[0].Group = sgWhere);
 
-    // having reusa as classes mudando o Kind.
-    // Entra na lista para a lista liberar: criar solto aqui vazaria.
     L.Add(TLzNexBasicStmt.Create(sgHaving, TLzNexValue.Identifier('n'), '>', 1));
     Check('basic em having vira skHavingBasic', L[2].Kind = skHavingBasic);
     L.Delete(2);
 
-    // clone profundo: mutar o clone nao pode afetar o original
     L2 := TLzNexStatementList.Create;
     try
       L.CloneInto(L2);
@@ -69,7 +62,6 @@ begin
     L.Free;
   end;
 
-  // grupo aninhado com clone profundo
   G := TLzNexGroupStmt.Create(sgWhere);
   try
     G.Items.Add(TLzNexBasicStmt.Create(sgWhere, TLzNexValue.Identifier('role'), '=', 'admin'));
@@ -93,7 +85,6 @@ begin
     G.Free;
   end;
 
-  // join com clausulas
   J := TLzNexJoinStmt.Create(jtLeft, TLzNexValue.Identifier('users'));
   try
     JC := TLzNexJoinClause.Create;
@@ -120,7 +111,6 @@ begin
     J.Free;
   end;
 
-  // single
   Single.Reset;
   Check('single sem limit', not Single.HasLimit);
   Single.LimitValue := 10;
@@ -132,7 +122,6 @@ begin
     (Single.UpdateValues[0].Value.AsString = 'a') and
     (SingleC.UpdateValues[0].Value.AsString = 'b'));
 
-  // fragmento: texto e binds andam juntos
   F := TLzNexFragment.Lit('a = ').Concat(TLzNexFragment.Param(1), '');
   F2 := TLzNexFragment.Lit('b = ').Concat(TLzNexFragment.Param('x'), '');
   F := F.Concat(TLzNexFragment.Lit('and')).Concat(F2);
@@ -151,7 +140,6 @@ begin
   Check('PlaceholderList texto', F.Text = '?, ?, ?');
   Check('PlaceholderList binds', F.Bindings.Count = 3);
 
-  // bind de valor nao informado tem que levantar
   try
     Bind := TLzNexBindings.Empty;
     Bind.Add(TLzNexValue.Unset);

@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# probe-heaptrc.sh — mede o comportamento do heaptrc em cada binario, com
-# stdout e stderr separados (o heaptrc escreve em stderr, sem buffer).
 set -u
 
 run() {

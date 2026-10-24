@@ -1,8 +1,5 @@
 unit Test.Integration;
 
-{ Testes contra o MySQL real. Pulados quando LZNEX_IT nao esta setado, para a
-  suite unitaria continuar rodando sem banco. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -60,8 +57,6 @@ begin
     Result := ADefault;
 end;
 
-{ TIntegrationTestCase }
-
 function TIntegrationTestCase.SkipWithoutDatabase: Boolean;
 begin
   Result := GetEnvironmentVariable('LZNEX_IT') = '';
@@ -85,8 +80,6 @@ begin
     .LibraryLocation(EnvOr('DB_LIB', '/usr/lib/x86_64-linux-gnu/libmariadb.so.3'))
     .Pool(2, 8));
 
-  // Recriada uma vez por execucao, nao por teste: recriar a cada teste zeraria
-  // o AUTO_INCREMENT e esconderia erro de id.
   if not GTableReady then
   begin
     FDb.Execute('drop table if exists `' + TEST_TABLE + '`', []);
@@ -109,8 +102,6 @@ begin
   end;
   inherited TearDown;
 end;
-
-{ TInsertGetIdTest }
 
 procedure TInsertGetIdTest.ReturnsGeneratedId;
 var
@@ -138,8 +129,7 @@ begin
 end;
 
 type
-  // Insere uma linha com tag unica e guarda o id devolvido, para depois se
-  // conferir que o id corresponde mesmo a linha daquela thread.
+
   TInsertWorker = class(TThread)
   private
     FDb: ILzNex;
@@ -185,8 +175,6 @@ var
 begin
   if SkipWithoutDatabase then Exit;
 
-  // Teste central: com pool, se Execute e LastInsertId caissem em conexoes
-  // diferentes, uma thread receberia o id de outra -- e em silencio.
   for I := 0 to WORKER_COUNT - 1 do
     Workers[I] := TInsertWorker.Create(FDb, 'conc-' + IntToStr(I));
   try
@@ -258,8 +246,6 @@ begin
   end;
 end;
 
-{ TCrudTest }
-
 procedure TCrudTest.InsertUpdateDelete;
 var
   NewId, Affected: Int64;
@@ -305,7 +291,6 @@ var
 begin
   if SkipWithoutDatabase then Exit;
 
-  // Montado por codigo para o .pas ficar ASCII puro.
   Original := 'acentua' + #$C3#$A7 + #$C3#$A3 + 'o ' + #$E2#$9C#$85;
   NewId := FDb.Table(TEST_TABLE).InsertGetId(Vals(['tag', Original]));
   Stored := FDb.Table(TEST_TABLE).Where('id', NewId).Value('tag');

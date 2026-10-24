@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""Conta literais de string em portugues, por arquivo.
-
-Regra do projeto: codigo e mensagens em ingles; so comentario fica em pt-BR.
-"""
 import re
 import sys
 import pathlib
@@ -15,7 +11,6 @@ PT = re.compile(
     r'|somente|deve|devem|use |usar|sem )', re.IGNORECASE)
 
 LITERAL = re.compile(r"'([^']{6,})'")
-
 
 def main(paths):
     grand = 0
@@ -37,7 +32,6 @@ def main(paths):
             print(f'{path.name:38s} {len(hits):4d}')
             grand += len(hits)
     print(f'{"TOTAL":38s} {grand:4d}')
-
 
 if __name__ == '__main__':
     main(sys.argv[1:])

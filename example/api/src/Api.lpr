@@ -1,9 +1,5 @@
 program Api;
 
-{ API Horse de exemplo. Existe para provar que o LzNex e instalavel por outro
-  projeto Lazarus: todas as units vem de modules/, resolvidas pelo `boss install`,
-  nunca de um caminho relativo para o repositorio do LzNex. }
-
 {$MODE DELPHI}{$H+}
 
 uses
@@ -13,12 +9,10 @@ uses
   SysUtils,
   Horse,
   LzNex,
-  LzNex.Client.MySQL;      // registra o dialeto 'mysql' no registry
+  LzNex.Client.MySQL;
 
 var
-  // Uma instancia por processo. O provider FPC do Horse e multi-thread, entao
-  // quem serializa o acesso ao banco e o pool de dentro dela -- nunca uma
-  // conexao global compartilhada.
+
   Db: ILzNex;
 
 function EnvOr(const AName, ADefault: string): string;
@@ -31,11 +25,10 @@ end;
 procedure Log(const AMessage: string);
 begin
   Writeln('[api] ', AMessage);
-  // stdout nao-tty e bufferizado: sem isto o log do container nao aparece.
+
   Flush(Output);
 end;
 
-// Escapa texto para dentro de uma string JSON, sem puxar fpjson.
 function JsonQuote(const AText: string): string;
 var
   I: Integer;
@@ -74,8 +67,7 @@ begin
     .Database(EnvOr('DB_NAME', 'lznex'))
     .User(EnvOr('DB_USER', 'root'))
     .Password(EnvOr('DB_PASS', 'secret'))
-    // Obrigatorio no Ubuntu 26.04: o auto-load do Zeos nao acha a lib cliente,
-    // porque ali so existe libmariadb.so.3.
+
     .LibraryLocation(EnvOr('DB_LIB', '/usr/lib/x86_64-linux-gnu/libmariadb.so.3'))
     .Charset('utf8mb4')
     .Pool(2, 8);

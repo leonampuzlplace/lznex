@@ -1,10 +1,5 @@
 unit LzNex.Cli;
 
-{ Dispatcher de comandos do binario `lznex`.
-
-  Fica numa unit separada do .lpr para poder ser testado e para um projeto
-  consumidor poder embutir o CLI dentro do proprio executavel. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -12,7 +7,7 @@ interface
 uses
   SysUtils,
   Classes,
-  DateUtils,          // LocalTimeToUniversal, para o carimbo de migration em UTC
+  DateUtils,
   LzNex.Types,
   LzNex.Value,
   LzNex.Intf,
@@ -29,7 +24,7 @@ type
     function FlagValue(const AName, ADefault: string): string;
     procedure Say(const AText: string);
     procedure SayFmt(const AFormat: string; const AArgs: array of const);
-    // Comandos
+
     function CmdMigrateLatest: Integer;
     function CmdMigrateRollback: Integer;
     function CmdMigrateUp: Integer;
@@ -45,20 +40,16 @@ type
   public
     constructor Create(const ADb: ILzNex);
     destructor Destroy; override;
-    // Roda o comando. Devolve o exit code do processo (0 = ok).
+
     function Run(const ACommand: string; const AArgs: array of string): Integer;
-    // Le os argumentos do processo e roda. E o que o .lpr chama.
+
     function RunFromCommandLine: Integer;
   end;
 
-// Gera o carimbo de tempo usado no nome da migration: UTC, 'YYYYMMDDHHMMSS'.
-// UTC de proposito: o nome ordena igual em qualquer maquina da equipe.
 function MigrationTimestamp: string;
 
-// Monta o nome de arquivo/unit de uma migration nova.
 function MigrationFileName(const ADescription: string; const ASql: Boolean): string;
 
-// Normaliza a descricao para snake_case ascii.
 function Slugify(const AText: string): string;
 
 implementation
@@ -88,8 +79,6 @@ const
     '  --quiet                     only errors on output' + sLineBreak +
     '  --help                      this help';
 
-  // Gerado por migrate:make. A unit precisa entrar no `uses` de um agregador,
-  // senao o FPC nao a linka e o `initialization` -- logo o registro -- nao roda.
   MIGRATION_STUB =
     'unit %0:s;' + sLineBreak +
     sLineBreak +
@@ -158,7 +147,7 @@ function TLzNexCli.Arg(const AIndex: Integer): string;
 var
   I, N: Integer;
 begin
-  // Conta so os posicionais, pulando as flags.
+
   Result := '';
   N := 0;
   for I := 0 to FArgs.Count - 1 do
@@ -201,7 +190,7 @@ begin
   if FQuiet then
     Exit;
   Writeln(AText);
-  Flush(Output);   // stdout nao-tty e bufferizado: sem flush nada aparece no container
+  Flush(Output);
 end;
 
 procedure TLzNexCli.SayFmt(const AFormat: string; const AArgs: array of const);
@@ -449,8 +438,7 @@ begin
       Result := 2;
     end;
   except
-    // Erro do lock tem codigo proprio: scripts conseguem distinguir disputa de
-    // lock (3) de falha de migration (1).
+
     on E: ELzNexMigrationLock do
     begin
       Writeln('lock error: ', E.Message);
@@ -506,7 +494,7 @@ var
   LastUnderscore: Boolean;
 begin
   Result := '';
-  LastUnderscore := True;   // evita comecar com '_'
+  LastUnderscore := True;
   for I := 1 to Length(AText) do
   begin
     C := AText[I];
@@ -523,7 +511,7 @@ begin
       LastUnderscore := True;
     end;
   end;
-  // Tira o '_' do fim
+
   while (Result <> '') and (Result[Length(Result)] = '_') do
     Delete(Result, Length(Result), 1);
   if Result = '' then

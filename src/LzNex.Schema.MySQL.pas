@@ -1,12 +1,5 @@
 unit LzNex.Schema.MySQL;
 
-{ Gerador de DDL do MySQL/MariaDB.
-
-  So sobrescreve o que difere do ANSI: tipos fisicos, ordem dos modificadores,
-  prefixos do alter (MySQL usa `add`/`modify`/`drop`, sem o `column`), opcoes de
-  tabela (engine/charset/collate/comment) e as consultas de existencia via
-  information_schema. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -46,31 +39,25 @@ type
     function HasColumnSQL(const ATable, AColumn, ASchema: string): TLzNexFragment; override;
   end;
 
-// Fabrica de modulo. O NewSchemaCompiler do LzNex.Client.MySQL deve delegar
-// para esta funcao (a unit do client nao pode usar esta: seria ciclo).
 function NewMySQLSchemaCompiler(const AClient: ILzNexClient): ILzNexSchemaCompiler;
 
 implementation
 
-{ TLzNexMySQLSchemaCompiler }
-
 function TLzNexMySQLSchemaCompiler.InlineComments: Boolean;
 begin
-  // No MySQL o comentario e um modificador da propria coluna.
+
   Result := True;
 end;
 
 function TLzNexMySQLSchemaCompiler.SupportsDefaultOn(
   const ACol: ILzNexColumnDef): Boolean;
 begin
-  // O MySQL NAO aceita DEFAULT em TEXT/BLOB (nem literal em JSON): declarar
-  // isso e erro 1101. O default e omitido em silencio em vez de gerar DDL que
-  // o banco recusa.
+
   case ACol.ColumnType of
     ctTinyText, ctText, ctMediumText, ctLongText, ctBlob, ctJson, ctJsonb:
       Result := False;
     ctBinary:
-      Result := ACol.Param1 > 0;   // varbinary aceita; blob nao
+      Result := ACol.Param1 > 0;
   else
     Result := True;
   end;
@@ -122,7 +109,7 @@ begin
                 Wrap(IndexNameOf(ATable, AIndex)) +
                 '(' + ColumnList(AIndex.Columns) + ')';
     ixPrimary:
-      // O MySQL nao nomeia primary key: o nome e sempre PRIMARY.
+
       Result := 'alter table ' + TableRef(ATable) + ' add primary key (' +
                 ColumnList(AIndex.Columns) + ')';
   else
@@ -140,7 +127,7 @@ begin
       Result := 'alter table ' + TableRef(ATable) + ' drop foreign key ' +
                 Wrap(IndexNameOf(ATable, AIndex));
   else
-    // No MySQL unique tambem e indice: drop index serve para os dois.
+
     Result := 'alter table ' + TableRef(ATable) + ' drop index ' +
               Wrap(IndexNameOf(ATable, AIndex));
   end;
@@ -167,7 +154,7 @@ begin
     ctBigInt:
       Result := 'bigint';
     ctBoolean:
-      // tinyint(1) e o que o MySQL usa como booleano.
+
       Result := 'tinyint(1)';
     ctDecimal:
       if AParam1 <= 0 then
@@ -234,8 +221,7 @@ end;
 
 function TLzNexMySQLSchemaCompiler.ModifierOrder: TLzNexColumnModifiers;
 begin
-  // Ordem do MySQL. Quem define a ordem e o dialeto, nao a ordem de chamada do
-  // usuario: `.Default_(1).Unsigned` e `.Unsigned.Default_(1)` saem iguais.
+
   Result := TLzNexColumnModifiers.Create(
     mdUnsigned, mdNullable, mdDefault, mdComment, mdCollate, mdAfter);
 end;
@@ -268,7 +254,7 @@ begin
     B.Add(TLzNexValue.FromString(ASchema));
   end
   else
-    // Sem schema explicito, o alvo e o database da conexao.
+
     S := S + ' and table_schema = database()';
   Result := TLzNexFragment.Make(S, B);
 end;

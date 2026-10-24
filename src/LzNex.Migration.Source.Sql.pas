@@ -1,22 +1,5 @@
 unit LzNex.Migration.Source.Sql;
 
-{ Fonte de migrations em arquivo .sql.
-
-  Convencao de nome, igual a do CLI do knex com a extensao desdobrada:
-    <id>_<descricao>.up.sql     -- obrigatorio
-    <id>_<descricao>.down.sql   -- opcional
-
-  Sem o .down.sql a migration e irreversivel: ela aplica normalmente e o Down
-  levanta dizendo que nao existe volta. Isso e melhor que um down vazio, que
-  daria rollback "com sucesso" sem desfazer nada.
-
-  SPLITTER: um arquivo pode ter varios comandos separados por ';'. O scanner
-  ignora ';' dentro de literal ('...', "...", `...`) e de comentario (--, #,
-  /* */), o que cobre o caso normal de DDL/DML. O que ele NAO cobre e corpo de
-  procedure/trigger/function, onde o ';' interno e parte do codigo: para esses,
-  ponha um comentario `-- lznex:nosplit` no arquivo e ele vai inteiro, como um
-  unico comando. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -34,7 +17,7 @@ const
   LZNEX_SOURCE_SQL = 'sql';
   LZNEX_SQL_UP_SUFFIX   = '.up.sql';
   LZNEX_SQL_DOWN_SUFFIX = '.down.sql';
-  // Marca que desliga o split no arquivo (procedure, trigger, function).
+
   LZNEX_SQL_NOSPLIT = 'lznex:nosplit';
 
 type
@@ -54,7 +37,6 @@ type
     procedure Up(const ADb: ILzNex);
     procedure Down(const ADb: ILzNex);
 
-    // Caminhos resolvidos. DownPath vazio = migration irreversivel.
     function UpPath: string;
     function DownPath: string;
     function IsReversible: Boolean;
@@ -69,34 +51,24 @@ type
     procedure Load;
   public
     constructor Create(const ADir: string; const AOptional: Boolean = False);
-    // Diretorio ausente e erro: a fonte foi pedida de proposito.
+
     class function New(const ADir: string): ILzNexMigrationSource;
-    // Diretorio ausente devolve lista vazia. E o que a facade usa ao registrar
-    // a fonte .sql automaticamente: projeto que so tem migration em Pascal nao
-    // pode quebrar por nao ter o diretorio.
+
     class function NewOptional(const ADir: string): ILzNexMigrationSource;
 
     function All: TLzNexMigrationArray;
     function SourceName: string;
 
-    // O diretorio varrido.
     function Directory: string;
-    // Descarta o cache; a proxima chamada a All le o diretorio de novo.
+
     procedure Refresh;
   end;
 
-// Quebra um script em comandos. Ignora ';' dentro de literal e de comentario.
-// Comando so com espaco/comentario e descartado.
 function SplitSqlStatements(const ASQL: string): TLzNexStringArray;
 
-// Le o arquivo como texto, descartando BOM UTF-8.
 function ReadSqlFile(const APath: string): string;
 
 implementation
-
-{ ------------------------------------------------------------------
-  Splitter
-  ------------------------------------------------------------------ }
 
 function SplitSqlStatements(const ASQL: string): TLzNexStringArray;
 var
@@ -125,7 +97,6 @@ begin
 
   SetLength(Result, 8);
 
-  { Arquivo marcado: vai inteiro, o ';' interno e do codigo do usuario. }
   if Pos(LZNEX_SQL_NOSPLIT, LowerCase(ASQL)) > 0 then
   begin
     Push(ASQL);
@@ -167,7 +138,7 @@ begin
 
     if InLiteral then
     begin
-      { Barra invertida escapa o proximo char (default do MySQL). }
+
       if (C = '\') and (I < Len) then
       begin
         Inc(I, 2);
@@ -175,7 +146,7 @@ begin
       end;
       if C = Q then
       begin
-        { Delimitador dobrado e o delimitador literal, nao o fim. }
+
         if (I < Len) and (ASQL[I + 1] = Q) then
         begin
           Inc(I, 2);
@@ -269,13 +240,11 @@ begin
   end;
   SetLength(Result, Size);
   Move(Buf[0], Result[1], Size);
-  { BOM UTF-8 na frente faria o primeiro comando comecar com lixo. }
+
   if (Length(Result) >= 3) and (Result[1] = #$EF) and (Result[2] = #$BB)
     and (Result[3] = #$BF) then
     Delete(Result, 1, 3);
 end;
-
-{ TLzNexSqlMigration }
 
 constructor TLzNexSqlMigration.Create(const AId, AName, AUpPath,
   ADownPath: string);
@@ -332,8 +301,6 @@ begin
     raise ELzNexMigration.Create(
       'Migration file has no statement at all: ' + APath + '.');
 
-  { Uma conexao para todos os comandos do arquivo: fora de transacao, cada
-    chamada a ADb.Connection pode devolver uma conexao diferente do pool. }
   Conn := ADb.Connection;
   for I := 0 to High(Statements) do
     try
@@ -362,8 +329,6 @@ begin
       ' in the directory. Create the down file or undo it by hand.');
   RunFile(ADb, FDownPath);
 end;
-
-{ TLzNexSqlMigrationSource }
 
 constructor TLzNexSqlMigrationSource.Create(const ADir: string;
   const AOptional: Boolean);
@@ -396,7 +361,6 @@ begin
   FLoaded := False;
 end;
 
-// True se ANome termina em ASuffix, sem distinguir caixa.
 function HasSuffix(const AName, ASuffix: string): Boolean;
 begin
   Result := (Length(AName) > Length(ASuffix)) and
@@ -465,8 +429,6 @@ begin
     if not FileExists(DownPath) then
       DownPath := '';
 
-    { Acha o lugar e barra duplicata ANTES de alocar: objeto criado e depois
-      abandonado por uma excecao fica orfao, porque quem ia ser dono e a lista. }
     Slot := I;
     for J := 0 to I - 1 do
     begin

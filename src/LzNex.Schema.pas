@@ -1,16 +1,5 @@
 unit LzNex.Schema;
 
-{ Schema builder (DDL) do LzNex -- o equivalente do knex.schema.
-
-  Este arquivo so ACUMULA definicoes: nao monta uma linha de SQL. Quem gera DDL
-  e o ILzNexSchemaCompiler do dialeto, que le este builder pela interface
-  ILzNexTable. Separar as duas coisas deixa o builder testavel sem banco e sem
-  dialeto, e deixa o dialeto testavel com uma tabela montada na mao.
-
-  Ergonomia central: os modificadores aplicam-se a ULTIMA coluna adicionada.
-  T.Str('email', 191).NotNull.Unique le igual ao knex e nao exige um .Done por
-  coluna. Modificador sem coluna anterior levanta ELzNexSchema. }
-
 {$MODE DELPHI}{$H+}
 
 interface
@@ -25,12 +14,9 @@ uses
   LzNex.Exceptions;
 
 type
-  // Conjunto de modificadores de uma coluna. Set de enum em vez de array:
-  // teste de pertinencia em O(1) e sem ordem implicita (a ordem e do dialeto).
+
   TLzNexColumnModifierSet = set of TLzNexColumnModifier;
 
-  // SQL cru usado SO como valor de DEFAULT. Build nao gera bind: em DDL o
-  // default e texto, nao parametro.
   TLzNexSchemaRaw = class(TInterfacedObject, ILzNexRaw)
   private
     FSQL: string;
@@ -40,8 +26,6 @@ type
     function Template: string;
   end;
 
-  // Estado de uma coluna. Os Set* sao usados so pelo table builder;
-  // o compiler ve apenas a interface, que e somente leitura.
   TLzNexColumnDefImpl = class(TInterfacedObject, ILzNexColumnDef)
   private
     FName: string;
@@ -87,7 +71,6 @@ type
     procedure MarkDrop;
   end;
 
-  // Indice, unique ou primary. FK tem classe propria (abaixo).
   TLzNexIndexDefImpl = class(TInterfacedObject, ILzNexIndexDef)
   private
     FKind: TLzNexIndexKind;
@@ -111,8 +94,6 @@ type
     procedure AddColumn(const AColumn: string);
   end;
 
-  // Chave estrangeira. Classe real em vez de campos extra espalhados na coluna:
-  // tabela/colunas referenciadas e acoes de integridade so existem aqui.
   TLzNexForeignDef = class(TLzNexIndexDefImpl)
   private
     FRefTable: string;
@@ -136,9 +117,6 @@ type
   TLzNexColumnDefs = array of ILzNexColumnDef;
   TLzNexIndexDefs = array of ILzNexIndexDef;
 
-  // Table builder. Os descendentes (TLzNexCreateTable / TLzNexAlterTable) so
-  // fixam o TableMethod; as guardas EnsureCreate/EnsureAlter ficam aqui, num
-  // lugar so, para a mensagem de erro ser sempre a mesma.
   TLzNexTableBase = class(TInterfacedObject, ILzNexTable)
   private
     FDb: ILzNex;
@@ -153,8 +131,7 @@ type
     FCharset: string;
     FCollate: string;
     FComment: string;
-    // Referencias de CLASSE, nao de interface: o array ja detem a contagem,
-    // e referencia de interface aqui criaria ciclo de refcount.
+
     FLastColumn: TLzNexColumnDefImpl;
     FLastIndex: TLzNexIndexDefImpl;
     FLastForeign: TLzNexForeignDef;
@@ -174,7 +151,6 @@ type
     constructor Create(const ADb: ILzNex; const AClient: ILzNexClient;
       const ATable, ASchema: string; const AMethod: TLzNexTableMethod);
 
-    // --- colunas ---
     function Increments(const AName: string = 'id'): ILzNexTable;
     function BigIncrements(const AName: string = 'id'): ILzNexTable;
     function TinyInt(const AName: string): ILzNexTable;
@@ -203,7 +179,6 @@ type
     function Specific(const AName, ATypeSQL: string): ILzNexTable;
     function Timestamps(const ADefaultNow: Boolean = True): ILzNexTable;
 
-    // --- modificadores ---
     function NotNull: ILzNexTable;
     function Nullable: ILzNexTable;
     function Unsigned: ILzNexTable;
@@ -217,14 +192,12 @@ type
     function Index: ILzNexTable; overload;
     function Change: ILzNexTable;
 
-    // --- chave estrangeira ---
     function References(const AColumn: string): ILzNexTable;
     function InTable(const ATable: string): ILzNexTable;
     function OnDelete(const AAction: string): ILzNexTable;
     function OnUpdate(const AAction: string): ILzNexTable;
     function ConstraintName(const AName: string): ILzNexTable;
 
-    // --- indices em varias colunas ---
     function Primary(const AColumns: array of string): ILzNexTable; overload;
     function Unique(const AColumns: array of string): ILzNexTable; overload;
     function Index(const AColumns: array of string): ILzNexTable; overload;
@@ -235,17 +208,14 @@ type
     function DropPrimary: ILzNexTable;
     function RenameColumn(const AFrom, ATo: string): ILzNexTable;
 
-    // --- opcoes de tabela ---
     function Engine(const AName: string): ILzNexTable;
     function Charset(const AName: string): ILzNexTable;
     function TableCollate(const AName: string): ILzNexTable;
     function TableComment(const AText: string): ILzNexTable;
 
-    // --- terminais ---
     function ToSQL: TLzNexDdlPlan;
     function Execute: Integer;
 
-    // --- acesso para o compiler ---
     function TableName: string;
     function SchemaName: string;
     function TableMethod: TLzNexTableMethod;
@@ -261,22 +231,18 @@ type
     function Client: ILzNexClient;
   end;
 
-  // Cria tabela nova. Metodos de alter levantam aqui.
   TLzNexCreateTable = class(TLzNexTableBase)
   public
     constructor Create(const ADb: ILzNex; const AClient: ILzNexClient;
       const ATable, ASchema: string);
   end;
 
-  // Altera tabela existente. Opcoes de tabela (engine/charset/...) levantam aqui.
   TLzNexAlterTable = class(TLzNexTableBase)
   public
     constructor Create(const ADb: ILzNex; const AClient: ILzNexClient;
       const ATable, ASchema: string);
   end;
 
-  // Entrada do schema builder. Sem ILzNex (modo so-SQL) o que consulta ou
-  // executa levanta; CreateTable/Table continuam funcionando para ToSQL.
   TLzNexSchema = class(TInterfacedObject, ILzNexSchema)
   private
     FDb: ILzNex;
@@ -301,19 +267,14 @@ type
     procedure Raw(const ASQL: string; const AArgs: array of const);
   end;
 
-// Fabrica do schema builder. ADb pode ser nil: nesse caso o builder fica em
-// modo so-SQL (ToSQL funciona, Execute e as consultas levantam) e AClient e
-// obrigatorio.
 function NewSchema(const ADb: ILzNex; const AClient: ILzNexClient): ILzNexSchema;
 
-// Valida a acao de integridade de FK contra uma lista fechada e normaliza o
-// caso. Lista fechada porque a acao vai INTERPOLADA no DDL.
 function NormalizeFkAction(const AAction: string): string;
 
 implementation
 
 const
-  // Acoes aceitas em ON DELETE / ON UPDATE.
+
   LZNEX_FK_ACTIONS: array[0..4] of string = (
     'cascade', 'restrict', 'set null', 'no action', 'set default'
   );
@@ -337,8 +298,6 @@ begin
     'is interpolated into the DDL.', [AAction]);
 end;
 
-{ TLzNexSchemaRaw }
-
 constructor TLzNexSchemaRaw.Create(const ASQL: string);
 begin
   inherited Create;
@@ -354,8 +313,6 @@ function TLzNexSchemaRaw.Template: string;
 begin
   Result := FSQL;
 end;
-
-{ TLzNexColumnDefImpl }
 
 constructor TLzNexColumnDefImpl.Create(const AName: string;
   const AType: TLzNexColumnType; const AParam1, AParam2: Integer);
@@ -492,8 +449,6 @@ begin
   FIsDrop := True;
 end;
 
-{ TLzNexIndexDefImpl }
-
 constructor TLzNexIndexDefImpl.Create(const AKind: TLzNexIndexKind;
   const AColumns: TLzNexValues; const AIsDrop: Boolean);
 begin
@@ -554,8 +509,6 @@ begin
   FColumns[High(FColumns)] := TLzNexValue.Identifier(AColumn);
 end;
 
-{ TLzNexForeignDef }
-
 constructor TLzNexForeignDef.CreateFk(const AColumns: TLzNexValues);
 begin
   inherited Create(ixForeign, AColumns, False);
@@ -600,8 +553,6 @@ procedure TLzNexForeignDef.SetOnUpdate(const AAction: string);
 begin
   FOnUpdate := NormalizeFkAction(AAction);
 end;
-
-{ TLzNexTableBase }
 
 constructor TLzNexTableBase.Create(const ADb: ILzNex; const AClient: ILzNexClient;
   const ATable, ASchema: string; const AMethod: TLzNexTableMethod);
@@ -662,8 +613,7 @@ begin
       'Empty column name on table "%s".', [FTable]);
 
   Result := TLzNexColumnDefImpl.Create(AName, AType, AParam1, AParam2);
-  // Nullable por default, como no knex. O compiler emite 'null' ou 'not null'
-  // sempre explicito: ausencia de mdNullable significa not null.
+
   Result.AddMod(mdNullable);
 
   SetLength(FColumns, Length(FColumns) + 1);
@@ -695,16 +645,12 @@ begin
   Result := Self;
 end;
 
-{ colunas }
-
 function TLzNexTableBase.Increments(const AName: string): ILzNexTable;
 var
   C: TLzNexColumnDefImpl;
 begin
   C := PushColumn(AName, ctIncrements);
-  // O tipo fisico de increments ja carrega unsigned/not null/auto_increment/PK,
-  // entao o compiler ignora modificadores nessa coluna. Os flags ficam so para
-  // quem inspecionar a definicao.
+
   C.RemoveMod(mdNullable);
   C.AddMod(mdUnsigned);
   C.AddMod(mdAutoIncrement);
@@ -879,8 +825,7 @@ var
   C: TLzNexColumnDefImpl;
   R: ILzNexRaw;
 begin
-  // Tipo TIMESTAMP de proposito: o knex usa DATETIME por default, o que
-  // surpreende quem espera fuso/UTC. Aqui a escolha e invertida.
+
   C := PushColumn('created_at', ctTimestamp);
   if ADefaultNow then
   begin
@@ -899,8 +844,6 @@ begin
 
   Result := Self;
 end;
-
-{ modificadores }
 
 function TLzNexTableBase.NotNull: ILzNexTable;
 begin
@@ -931,8 +874,7 @@ var
 begin
   if Trim(ASQL) = '' then
     raise ELzNexSchema.Create('DefaultRaw without SQL.');
-  // Valida e resolve a coluna ANTES de alocar o raw: o que pode levantar vem
-  // primeiro, com nada alocado ainda.
+
   C := LastColumn('DefaultRaw');
   R := TLzNexSchemaRaw.Create(ASQL);
   C.SetDefault(TLzNexValue.Raw(R));
@@ -963,8 +905,7 @@ var
   Name: string;
 begin
   Name := LastColumn('Primary').ColumnName;
-  // Chamar Primary em duas colunas monta uma PK composta, em vez de
-  // silenciosamente trocar a anterior.
+
   P := FindPrimary;
   if P <> nil then
     P.AddColumn(Name)
@@ -977,8 +918,7 @@ function TLzNexTableBase.Unique: ILzNexTable;
 var
   Name: string;
 begin
-  // Resolve a coluna antes de alocar o indice (nao depender da ordem de
-  // avaliacao de argumentos para a excecao vir antes do Create).
+
   Name := LastColumn('Unique').ColumnName;
   PushIndex(ixUnique, StringsToValues([Name]), False);
   Result := Self;
@@ -1000,16 +940,13 @@ begin
   Result := Self;
 end;
 
-{ chave estrangeira }
-
 function TLzNexTableBase.References(const AColumn: string): ILzNexTable;
 var
   FK: TLzNexForeignDef;
   Dot: Integer;
   Local: string;
 begin
-  // Tudo que pode levantar acontece antes do Create: entre o Create e a
-  // entrada no array dono nao pode haver nada que levante.
+
   Local := LastColumn('References').ColumnName;
   if Trim(AColumn) = '' then
     raise ELzNexSchema.CreateFmt(
@@ -1021,7 +958,6 @@ begin
   FLastIndex := FK;
   FLastForeign := FK;
 
-  // Aceita 'users.id' alem do par References('id').InTable('users').
   Dot := Pos('.', AColumn);
   if Dot > 0 then
   begin
@@ -1062,8 +998,6 @@ begin
   Result := Self;
 end;
 
-{ indices em varias colunas }
-
 function TLzNexTableBase.Primary(const AColumns: array of string): ILzNexTable;
 begin
   if Length(AColumns) = 0 then
@@ -1099,8 +1033,7 @@ begin
   C.MarkDrop;
   SetLength(FColumns, Length(FColumns) + 1);
   FColumns[High(FColumns)] := C;
-  // Coluna removida nao e alvo de modificador: zerar evita
-  // T.DropColumn('x').NotNull passar calado.
+
   FLastColumn := nil;
   FLastForeign := nil;
   Result := Self;
@@ -1147,8 +1080,6 @@ begin
   Result := Self;
 end;
 
-{ opcoes de tabela }
-
 function TLzNexTableBase.Engine(const AName: string): ILzNexTable;
 begin
   EnsureCreate('Engine');
@@ -1176,8 +1107,6 @@ begin
   FComment := AText;
   Result := Self;
 end;
-
-{ terminais }
 
 function TLzNexTableBase.ToSQL: TLzNexDdlPlan;
 var
@@ -1213,8 +1142,6 @@ begin
     Conn.Execute(Cmds[I]);
   Result := Length(Cmds);
 end;
-
-{ acesso para o compiler }
 
 function TLzNexTableBase.TableName: string;
 begin
@@ -1287,23 +1214,17 @@ begin
   Result := FClient;
 end;
 
-{ TLzNexCreateTable }
-
 constructor TLzNexCreateTable.Create(const ADb: ILzNex;
   const AClient: ILzNexClient; const ATable, ASchema: string);
 begin
   inherited Create(ADb, AClient, ATable, ASchema, tmCreate);
 end;
 
-{ TLzNexAlterTable }
-
 constructor TLzNexAlterTable.Create(const ADb: ILzNex;
   const AClient: ILzNexClient; const ATable, ASchema: string);
 begin
   inherited Create(ADb, AClient, ATable, ASchema, tmAlter);
 end;
-
-{ TLzNexSchema }
 
 constructor TLzNexSchema.Create(const ADb: ILzNex; const AClient: ILzNexClient);
 begin
@@ -1401,8 +1322,6 @@ procedure TLzNexSchema.Raw(const ASQL: string; const AArgs: array of const);
 begin
   NeedDb('Raw').Execute(ASQL, AArgs);
 end;
-
-{ fabrica }
 
 function NewSchema(const ADb: ILzNex; const AClient: ILzNexClient): ILzNexSchema;
 begin
