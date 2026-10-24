@@ -1,0 +1,13 @@
+{
+  "name": "lznex-example-api",
+  "description": "API Horse de exemplo consumindo o LzNex instalado pelo Boss",
+  "version": "1.0.0",
+  "mainsrc": "src/",
+  "projects": [
+    "Api.lpi"
+  ],
+  "dependencies": {
+    "github.com/HashLoad/horse": "^3.3.15",
+    "github.com/CHANGEME/lznex": "^1.0.0"
+  }
+}

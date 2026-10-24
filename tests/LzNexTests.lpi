@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Suite FPCUnit. O build mode Debug leva -gh em CustomOptions, NAO via
+     <UseHeaptrc>: verificado que o lazbuild ignora essa tag e o binario sai
+     sem heaptrc, o que tornaria o gate de vazamento um falso verde.
+     Os paths "../modules/github_com_CHANGEME_zeoslib" sao reescritos pelo
+     Dockerfile conforme a coordenada real do fork do Zeos. -->
+<CONFIG>
+  <ProjectOptions>
+    <Version Value="12"/>
+    <PathDelim Value="/"/>
+    <General>
+      <Flags>
+        <MainUnitHasCreateFormStatements Value="False"/>
+        <MainUnitHasTitleStatement Value="False"/>
+        <MainUnitHasScaledStatement Value="False"/>
+        <CompatibilityMode Value="True"/>
+      </Flags>
+      <SessionStorage Value="InProjectDir"/>
+      <Title Value="LzNexTests"/>
+      <UseAppBundle Value="False"/>
+      <ResourceType Value="res"/>
+    </General>
+    <BuildModes Count="2">
+      <Item1 Name="Release" Default="True"/>
+      <Item2 Name="Debug">
+        <CompilerOptions>
+          <Version Value="11"/>
+          <PathDelim Value="/"/>
+          <Target>
+            <Filename Value="../bin/lznex-tests-debug"/>
+          </Target>
+          <SearchPaths>
+            <IncludeFiles Value="../modules/github_com_CHANGEME_zeoslib/src"/>
+            <OtherUnitFiles Value="../src;../tests;../modules/github_com_CHANGEME_zeoslib/src/core;../modules/github_com_CHANGEME_zeoslib/src/parsesql;../modules/github_com_CHANGEME_zeoslib/src/plain;../modules/github_com_CHANGEME_zeoslib/src/dbc;../modules"/>
+            <UnitOutputDirectory Value="../lib/tests-debug/$(TargetCPU)-$(TargetOS)"/>
+          </SearchPaths>
+          <CodeGeneration>
+            <Checks>
+              <IOChecks Value="True"/>
+              <RangeChecks Value="True"/>
+              <OverflowChecks Value="True"/>
+            </Checks>
+          </CodeGeneration>
+          <Linking>
+            <Debugging>
+              <UseHeaptrc Value="True"/>
+            </Debugging>
+          </Linking>
+          <Other>
+            <CustomOptions Value="-dUseCThreads -gh -gl"/>
+          </Other>
+        </CompilerOptions>
+      </Item2>
+    </BuildModes>
+    <PublishOptions>
+      <Version Value="2"/>
+      <UseFileFilters Value="True"/>
+    </PublishOptions>
+    <RunParams>
+      <FormatVersion Value="2"/>
+    </RunParams>
+    <Units Count="1">
+      <Unit0>
+        <Filename Value="LzNexTests.lpr"/>
+        <IsPartOfProject Value="True"/>
+      </Unit0>
+    </Units>
+  </ProjectOptions>
+  <CompilerOptions>
+    <Version Value="11"/>
+    <PathDelim Value="/"/>
+    <Target>
+      <Filename Value="../bin/lznex-tests"/>
+    </Target>
+    <SearchPaths>
+      <IncludeFiles Value="../modules/github_com_CHANGEME_zeoslib/src"/>
+      <OtherUnitFiles Value="../src;../tests;../modules/github_com_CHANGEME_zeoslib/src/core;../modules/github_com_CHANGEME_zeoslib/src/parsesql;../modules/github_com_CHANGEME_zeoslib/src/plain;../modules/github_com_CHANGEME_zeoslib/src/dbc;../modules"/>
+      <UnitOutputDirectory Value="../lib/tests-release/$(TargetCPU)-$(TargetOS)"/>
+    </SearchPaths>
+    <CodeGeneration>
+      <Optimizations>
+        <OptimizationLevel Value="2"/>
+      </Optimizations>
+    </CodeGeneration>
+    <Linking>
+      <Debugging>
+        <GenerateDebugInfo Value="False"/>
+        <DebugInfoType Value="dsAuto"/>
+      </Debugging>
+    </Linking>
+    <Other>
+      <CustomOptions Value="-dUseCThreads"/>
+    </Other>
+  </CompilerOptions>
+</CONFIG>

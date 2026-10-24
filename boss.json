@@ -1,0 +1,13 @@
+{
+  "name": "lznex",
+  "description": "Query builder, schema builder e migrations para Lazarus/FPC sobre ZeosLib",
+  "version": "1.0.0",
+  "homepage": "https://github.com/CHANGEME/lznex",
+  "mainsrc": "src/",
+  "projects": [
+    "tools/LzNexCli.lpi"
+  ],
+  "dependencies": {
+    "github.com/CHANGEME/zeoslib": "^8.0.0"
+  }
+}

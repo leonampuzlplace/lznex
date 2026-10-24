@@ -1,0 +1,122 @@
+# Imagem do LzNex: o stage builder compila o CLI e os binarios de teste nos dois
+# build modes; o stage runtime entrega so o CLI, sem toolchain.
+ARG UBUNTU_VERSION=26.04
+
+# ============================================================
+#  builder
+# ============================================================
+FROM ubuntu:${UBUNTU_VERSION} AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# fpc         -> compilador (3.2.2 no apt) + fcl-db, exigido pelo FCL.lpk que os
+#                .lpk do Zeos pedem
+# lcl-utils   -> lazbuild
+# lazarus-src -> obrigatorio mesmo sem usar LCL: sem ele o lazbuild aborta com
+#                "Invalid Lazarus directory ...: directory lcl not found"
+# libmariadb3 -> cliente MySQL. O libmysqlclient21 NAO existe no 26.04; este
+#                pacote traz a libmariadb.so.3 e o plugin caching_sha2_password.so
+#                que o MySQL 8 exige por default
+# git         -> o Boss resolve dependencia clonando
+# curl + ca-certificates -> baixar o Boss e falar HTTPS com o host do pacote
+#                (o Boss so aceita coordenada HTTPS)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        fpc \
+        lcl-utils \
+        lazarus-src \
+        libmariadb3 \
+        git \
+        ca-certificates \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG BOSS_VERSION=3.0.17
+RUN curl -fsSL "https://github.com/HashLoad/boss/releases/download/v${BOSS_VERSION}/boss_Linux_x86_64.tar.gz" \
+      | tar -xz -C /usr/local/bin boss \
+    && chmod +x /usr/local/bin/boss
+
+WORKDIR /src
+COPY . .
+
+# Coordenada do fork do Zeos. Precisa ser um fork COM boss.json: o Boss aborta
+# com "failed to load package from modules/<dep>/boss.json" se a dependencia nao
+# tiver o manifesto. O mainsrc esperado la e
+# "src/core;src/parsesql;src/plain;src/dbc".
+# Coordenada do fork do Zeos. Precisa ser um fork COM boss.json: o Boss aborta
+# com "failed to load package from modules/<dep>/boss.json" se a dependencia nao
+# tiver o manifesto. O mainsrc esperado la e
+# "src/core;src/parsesql;src/plain;src/dbc".
+#
+# Enquanto a coordenada for o placeholder, o build clona o mirror direto e monta
+# a mesma arvore que o Boss montaria. Assim a imagem sobe sem depender de um
+# fork publicado, e a troca para o `boss install` real e so passar --build-arg.
+ARG ZEOS_COORD=github.com/CHANGEME/zeoslib
+ARG ZEOS_VERSION=^8.0.0
+ARG ZEOS_MIRROR=https://github.com/marsupilami79/zeoslib.git
+ARG ZEOS_REF=8.0.0-stable
+
+# A pasta criada pelo Boss e modules/<host>_<org>_<repo> (ponto e barra viram
+# "_"), e os .lpi referenciam esse nome -- trocar a coordenada muda os dois.
+RUN set -eu; \
+    DIR="$(echo "${ZEOS_COORD}" | tr './' '__')"; \
+    sed -i "s|\"github.com/CHANGEME/zeoslib\": \"[^\"]*\"|\"${ZEOS_COORD}\": \"${ZEOS_VERSION}\"|" boss.json; \
+    grep -q "\"${ZEOS_COORD}\"" boss.json; \
+    for f in tools/LzNexCli.lpi tests/LzNexTests.lpi; do \
+      [ -e "$f" ] && sed -i "s|github_com_CHANGEME_zeoslib|${DIR}|g" "$f"; \
+    done; \
+    echo "${ZEOS_COORD}" > /tmp/zeos-coord
+
+RUN set -eu; \
+    DIR="$(echo "${ZEOS_COORD}" | tr './' '__')"; \
+    case "${ZEOS_COORD}" in \
+      *CHANGEME*) \
+        echo "== Zeos via clone direto (${ZEOS_REF}) -- coordenada ainda e placeholder"; \
+        git clone --depth 1 --branch "${ZEOS_REF}" "${ZEOS_MIRROR}" "modules/${DIR}"; \
+        rm -rf "modules/${DIR}/.git"; \
+        ;; \
+      *) \
+        echo "== Zeos via boss install (${ZEOS_COORD})"; \
+        bash scripts/boss-install.sh; \
+        ;; \
+    esac; \
+    ls -d "modules/${DIR}/src/core"
+
+RUN set -eu; \
+    mkdir -p bin lib; \
+    for p in tools/LzNexCli.lpi tests/LzNexTests.lpi; do \
+      [ -e "$p" ] || continue; \
+      for mode in Release Debug; do \
+        echo "== lazbuild $p ($mode)"; \
+        lazbuild --build-mode="$mode" "$p"; \
+      done; \
+    done; \
+    ls -la bin
+
+# ============================================================
+#  runtime
+# ============================================================
+FROM ubuntu:${UBUNTU_VERSION} AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# libmariadb3     -> a unica dependencia nativa em runtime: e a lib que o Zeos
+#                    carrega, e traz o plugin caching_sha2_password.so
+# ca-certificates -> TLS para o banco
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libmariadb3 \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --create-home --shell /usr/sbin/nologin lznex
+
+COPY --from=builder /src/bin/ /usr/local/lib/lznex/
+RUN ln -s /usr/local/lib/lznex/lznex /usr/local/bin/lznex
+
+# O auto-load do Zeos nao acha a lib cliente no 26.04 (so existe
+# libmariadb.so.3). LZNEX_LIBRARY e o nome que LzNex.Config realmente le
+# (ver EnvOverrideNames).
+ENV LZNEX_LIBRARY=/usr/lib/x86_64-linux-gnu/libmariadb.so.3
+
+USER lznex
+WORKDIR /home/lznex
+ENTRYPOINT ["/usr/local/bin/lznex"]
+CMD ["--help"]

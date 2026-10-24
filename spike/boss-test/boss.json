@@ -1,0 +1,13 @@
+{
+  "name": "boss-path-test",
+  "description": "Mede quais paths o Boss injeta no .lpi ao instalar o Zeos",
+  "version": "1.0.0",
+  "homepage": "",
+  "mainsrc": "src/",
+  "projects": [
+    "Probe.lpi"
+  ],
+  "dependencies": {
+    "github.com/marsupilami79/zeoslib": "8.0.0-stable"
+  }
+}

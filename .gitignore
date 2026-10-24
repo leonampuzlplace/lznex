@@ -1,0 +1,43 @@
+# Artefatos de compilacao do FPC/Lazarus. Os .ppu/.o sao ABI-especificos:
+# versionar nao ajuda ninguem e sao ~870 MB aqui.
+lib/
+bin/
+.build/
+**/lib/
+**/bin/
+*.o
+*.ppu
+*.a
+*.rsj
+*.compiled
+*.or
+*.res
+*.dbg
+*.so
+*.dll
+
+# Estado local do IDE (sessao, posicao do cursor). O .lpi entra, o .lps nao.
+*.lps
+*.lpi.bak
+backup/
+
+# Dependencias do Boss. O boss-lock.json fica versionado de proposito:
+# e o que torna o install reproduzivel.
+modules/
+**/modules/
+
+# Executaveis gerados pelo lazbuild. No Linux saem sem extensao, por isso o
+# filtro e por ausencia de extensao -- as fontes .lpr/.lpi/.pas ficam de fora.
+HeapProbe
+ExitProbe
+LzNexTests
+LzNexCli
+Probe*
+Diag*
+!*.lpr
+!*.lpi
+!*.pas
+
+heap.trc
+*.log
+__pycache__/

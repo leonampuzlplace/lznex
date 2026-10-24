@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Binario do CLI. Caminhos sao relativos a tools/, por isso o "../".
+
+     ../database e ../database/migrations entram no unit path porque o .lpr da
+     `uses Migrations.All`, que agrega as migrations em Pascal do projeto.
+
+     Os paths de modules/ seguem a coordenada do boss.json: trocar
+     github.com/CHANGEME/zeoslib exige trocar github_com_CHANGEME_zeoslib aqui
+     (o Boss converte ponto e barra em "_").
+
+     O `boss install` ACRESCENTA paths a <OtherUnitFiles> (nao substitui), mas
+     relativos a RAIZ do projeto, nao a tools/. Logo o que ele injeta aqui fica
+     inerte e os paths uteis sao estes "../". Ele nao toca em <IncludeFiles>. -->
+<CONFIG>
+  <ProjectOptions>
+    <Version Value="12"/>
+    <PathDelim Value="/"/>
+    <General>
+      <Flags>
+        <MainUnitHasCreateFormStatements Value="False"/>
+        <MainUnitHasTitleStatement Value="False"/>
+        <MainUnitHasScaledStatement Value="False"/>
+        <CompatibilityMode Value="True"/>
+      </Flags>
+      <SessionStorage Value="InProjectDir"/>
+      <Title Value="LzNexCli"/>
+      <UseAppBundle Value="False"/>
+      <ResourceType Value="res"/>
+    </General>
+    <BuildModes Count="2">
+      <Item1 Name="Release" Default="True"/>
+      <Item2 Name="Debug">
+        <CompilerOptions>
+          <Version Value="11"/>
+          <PathDelim Value="/"/>
+          <Target>
+            <Filename Value="../bin/lznex-debug"/>
+          </Target>
+          <SearchPaths>
+            <IncludeFiles Value="../modules/github_com_CHANGEME_zeoslib/src"/>
+            <OtherUnitFiles Value="../src;../database;../database/migrations;../modules/github_com_CHANGEME_zeoslib/src/core;../modules/github_com_CHANGEME_zeoslib/src/parsesql;../modules/github_com_CHANGEME_zeoslib/src/plain;../modules/github_com_CHANGEME_zeoslib/src/dbc;../modules"/>
+            <UnitOutputDirectory Value="../lib/cli-debug/$(TargetCPU)-$(TargetOS)"/>
+          </SearchPaths>
+          <CodeGeneration>
+            <Checks>
+              <IOChecks Value="True"/>
+              <RangeChecks Value="True"/>
+              <OverflowChecks Value="True"/>
+              <StackChecks Value="True"/>
+            </Checks>
+          </CodeGeneration>
+          <Linking>
+            <Debugging>
+              <DebugInfoType Value="dsDwarf3"/>
+            </Debugging>
+          </Linking>
+          <Other>
+            <!-- -gh explicito: <UseHeaptrc> nao faz o lazbuild passar -gh.
+                 Verificado no spike: o binario saia sem heaptrc linkado. -->
+            <CustomOptions Value="-dUseCThreads -gh -gl"/>
+          </Other>
+        </CompilerOptions>
+      </Item2>
+    </BuildModes>
+    <PublishOptions>
+      <Version Value="2"/>
+      <UseFileFilters Value="True"/>
+    </PublishOptions>
+    <RunParams>
+      <FormatVersion Value="2"/>
+    </RunParams>
+    <Units Count="1">
+      <Unit0>
+        <Filename Value="LzNexCli.lpr"/>
+        <IsPartOfProject Value="True"/>
+      </Unit0>
+    </Units>
+  </ProjectOptions>
+  <CompilerOptions>
+    <Version Value="11"/>
+    <PathDelim Value="/"/>
+    <Target>
+      <Filename Value="../bin/lznex"/>
+    </Target>
+    <SearchPaths>
+      <IncludeFiles Value="../modules/github_com_CHANGEME_zeoslib/src"/>
+      <OtherUnitFiles Value="../src;../database;../database/migrations;../modules/github_com_CHANGEME_zeoslib/src/core;../modules/github_com_CHANGEME_zeoslib/src/parsesql;../modules/github_com_CHANGEME_zeoslib/src/plain;../modules/github_com_CHANGEME_zeoslib/src/dbc;../modules"/>
+      <UnitOutputDirectory Value="../lib/cli-release/$(TargetCPU)-$(TargetOS)"/>
+    </SearchPaths>
+    <CodeGeneration>
+      <Optimizations>
+        <OptimizationLevel Value="2"/>
+      </Optimizations>
+    </CodeGeneration>
+    <Linking>
+      <Debugging>
+        <GenerateDebugInfo Value="False"/>
+        <DebugInfoType Value="dsAuto"/>
+        <StripSymbols Value="True"/>
+      </Debugging>
+    </Linking>
+    <Other>
+      <CustomOptions Value="-dUseCThreads"/>
+    </Other>
+  </CompilerOptions>
+</CONFIG>
