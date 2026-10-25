@@ -101,6 +101,10 @@ function StringsToValues(const AItems: array of string): TLzNexValues;
 
 implementation
 
+var
+  // Formato fixo para numero virar texto: locale nao entra nisso.
+  GValueFmt: TFormatSettings;
+
 class function TLzNexValue.Unset: TLzNexValue;
 begin
   Result := Default(TLzNexValue);
@@ -302,8 +306,10 @@ begin
     vkString, vkIdentifier: Result := FStr;
     vkBoolean: Result := BoolToStr(FBool, True);
     vkInteger, vkInt64: Result := IntToStr(FInt);
-    vkFloat: Result := FloatToStr(FFloat);
-    vkCurrency: Result := CurrToStr(FCurrency);
+    { Ponto decimal sempre, nao o do locale: o texto de um numero sai daqui
+      para SQL, log e JSON, e "1,5" nao e numero em nenhum dos tres. }
+    vkFloat: Result := FloatToStr(FFloat, GValueFmt);
+    vkCurrency: Result := CurrToStr(FCurrency, GValueFmt);
     vkDate: Result := FormatDateTime('yyyy-mm-dd', FDateTime);
     vkTime: Result := FormatDateTime('hh:nn:ss', FDateTime);
     vkDateTime: Result := FormatDateTime('yyyy-mm-dd hh:nn:ss', FDateTime);
@@ -460,5 +466,10 @@ begin
   for I := 0 to High(AItems) do
     Result[I] := TLzNexValue.FromString(AItems[I]);
 end;
+
+initialization
+  GValueFmt := DefaultFormatSettings;
+  GValueFmt.DecimalSeparator := '.';
+  GValueFmt.ThousandSeparator := #0;
 
 end.

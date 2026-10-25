@@ -190,6 +190,17 @@ begin
         Continue;
       end;
 
+      { "::" e o cast do PostgreSQL ("a::int"), nao parametro -- sai literal.
+        Sem isto o segundo ":" abriria ":int" e o Build reclamaria de um
+        parametro que ninguem passou. O identificador quotado do Raw e
+        ":nome:", que tem nome entre os dois pontos. }
+      if (Ch = ':') and (I < L) and (FSQL[I + 1] = ':') then
+      begin
+        SB.Append('::');
+        Inc(I, 2);
+        Continue;
+      end;
+
       if (Ch = ':') and (I < L) and IsNameChar(FSQL[I + 1]) then
       begin
         J := I + 1;

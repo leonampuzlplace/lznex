@@ -291,6 +291,12 @@ begin
         'never true, so the next page would come back empty. Order by a NOT ' +
         'NULL column, or use Paginate/SimplePaginate.', [AKeys[I].Column]);
 
+  { O where que ja estava na query vira um grupo so. Sem isso um "or" no topo
+    ficaria com o corte preso ao ultimo ramo ("kind = 'a' or kind = 'b' and
+    (id > ?)"), o corte nao valeria para o primeiro ramo e a pagina seguinte
+    devolveria as mesmas linhas para sempre. }
+  AQuery.GroupWhere;
+
   AQuery.WhereOpen;
   try
     for I := 0 to High(AKeys) do

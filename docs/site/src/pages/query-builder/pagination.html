@@ -220,6 +220,53 @@ Back   := Db.Table('posts').OrderBy('id').CursorPaginate(5, Second.PrevCursor);
   </div>
 </div>
 
+<h3 id="or-scope">Escopo com or</h3>
+<p>
+  O corte do cursor, o avanço por chave do <code>ChunkById</code> e a busca do
+  <code>UpdateOrInsert</code> entram como mais um predicado no <code>where</code> que você
+  montou. Como <code>and</code> tem precedência maior que <code>or</code> em SQL, num escopo
+  com <code>or</code> no topo esse predicado colaria só no último ramo — o corte não valeria
+  para o primeiro, e a página seguinte repetiria a mesma para sempre.
+</p>
+<p>
+  Por isso esses métodos chamam <a href="#where/group-where"><code>GroupWhere</code></a> antes:
+  o escopo que veio da query é fechado em parênteses e o predicado vale para o conjunto todo.
+</p>
+
+<div class="code"><pre data-lang="pascal">Db.Table('posts')
+  .Where('kind', 'a').OrWhere('kind', 'b')
+  .OrderBy('id')
+  .CursorPaginate(3, Cursor);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `posts` where (`kind` = ? or `kind` = ?) and ((`id` > ?)) order by `id` asc limit ?</pre>
+  <p class="code-note">o escopo com or sai fechado; sem isso o corte valeria só para `kind` = 'b'</p>
+</div>
+</div>
+
+<p>
+  Quando o <code>where</code> é todo <code>and</code> nada é fechado, e o SQL sai sem parêntese
+  a mais. Se <strong>você</strong> soma um predicado a um escopo com <code>or</code>, a conta é
+  sua: chame <code>GroupWhere</code> ou monte o <code>or</code> dentro de um
+  <code>WhereOpen</code>/<code>WhereClose</code>.
+</p>
+
+<div class="callout note">
+  <span class="ico">i</span>
+  <div class="body">
+    <span class="t">Paginar não suja a query</span>
+    <p>
+      <code>Paginate</code>, <code>SimplePaginate</code> e <code>CursorPaginate</code> trabalham
+      num clone: a janela, o corte do cursor e a inversão da ordem não ficam grudados na query
+      de quem chamou. Dá para paginar a mesma <code>ILzNexQuery</code> num laço sem que a
+      segunda volta herde o corte da primeira. O mesmo vale para <code>First</code>,
+      <code>Exists</code>, <code>Count</code>, <code>Aggregate</code>, <code>Value</code>,
+      <code>Pluck</code> e <code>Sole</code> — ver <a href="#reading/no-mutation">leitura não
+      muda a query</a>.
+    </p>
+  </div>
+</div>
+
 <h2 id="chunks">Chunk, ChunkById e Each — varrer tudo</h2>
 <p>
   Paginação é para mostrar; <strong>varredura</strong> é para processar. <code>Chunk</code> lê a

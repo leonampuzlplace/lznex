@@ -185,6 +185,12 @@ procedure TLzNexLeasedResult.Close;
 begin
   if FInner <> nil then
     FInner.Close;
+
+  { Solta o lease aqui, nao no destrutor: quem chamou Close espera a conexao de
+    volta no pool na hora. Esperar o refcount morrer prenderia a conexao ate a
+    variavel sair de escopo, e com pool pequeno a proxima query bateria em
+    "Pool exhausted". }
+  FLease := nil;
 end;
 
 constructor TLzNexPooledConnection.Create(const APool: TLzNexPool;
@@ -403,19 +409,10 @@ begin
       if FShutdown then
         raise ELzNexPool.Create('Pool already shut down: Acquire after Shutdown');
 
-      while FIdleCount > 0 do
-      begin
-        Conn := PopIdle;
-        if Conn.Ping then
-        begin
-          Inc(FInUse);
-          Break;
-        end;
-        Conn.Close;
-        Conn := nil;
-      end;
-
-      if (Conn = nil) and (FInUse + FIdleCount < FMax) then
+      Conn := PopIdle;
+      if Conn <> nil then
+        Inc(FInUse)
+      else if FInUse + FIdleCount < FMax then
       begin
 
         Inc(FInUse);
@@ -425,8 +422,29 @@ begin
       FLock.Release;
     end;
 
+    { Ping fora do lock: e ida ao servidor, e segurar o lock durante um timeout
+      de rede pararia o Acquire de todas as outras threads. A conexao ja saiu
+      do idle e conta em InUse, entao ninguem mais a pega enquanto isso. }
     if Conn <> nil then
-      Exit(Lend(Conn));
+    begin
+      if Conn.Ping then
+        Exit(Lend(Conn));
+
+      // Morta do outro lado: fecha, devolve a vaga e procura outra.
+      try
+        Conn.Close;
+      except
+      end;
+      Conn := nil;
+      FLock.Acquire;
+      try
+        if FInUse > 0 then
+          Dec(FInUse);
+      finally
+        FLock.Release;
+      end;
+      Continue;
+    end;
 
     if Reserved then
     begin
@@ -464,27 +482,27 @@ begin
   if AConn = nil then
     Exit;
 
+  { Desfazer a transacao esquecida e ida ao servidor, e acontece fora do lock:
+    uma devolucao lenta nao pode parar o Acquire das outras threads. A conexao
+    ainda conta em InUse aqui, entao ninguem a pega no meio disso. }
+  Keep := True;
+  try
+    if AConn.IsClosed then
+      Keep := False
+    else if AConn.InTransaction then
+      AConn.Rollback;
+  except
+
+    Keep := False;
+  end;
+
   Dead := nil;
   FLock.Acquire;
   try
     if FInUse > 0 then
       Dec(FInUse);
 
-    Keep := not FShutdown;
-    if Keep then
-    begin
-      try
-        if AConn.IsClosed then
-          Keep := False
-        else if AConn.InTransaction then
-          AConn.Rollback;
-      except
-
-        Keep := False;
-      end;
-    end;
-
-    if Keep and (FIdleCount >= FMax) then
+    if FShutdown or (FIdleCount >= FMax) then
       Keep := False;
 
     if Keep then

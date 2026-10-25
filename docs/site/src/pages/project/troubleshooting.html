@@ -117,12 +117,35 @@
 <td><code>ELzNexPool: Pool exhausted: N connections in total (max M), N in use</code></td>
 <td>
   Duas causas. (a) Alguma <code>ILzNexConnection</code> está viva além do escopo da
-  requisição — cursor não consumido até o fim ou transação sem <code>Commit</code>/
-  <code>Rollback</code> segura o empréstimo até ser liberada. (b) O <code>max</code> é
-  baixo para o número de threads: um servidor que atende N requisições em paralelo precisa
-  de pelo menos N conexões se cada uma mantém cursor aberto. Diagnostique com
-  <code>Db.Pool.InUse</code> e <code>Db.Pool.Size</code> (é o que o
+  requisição — cursor aberto ou transação sem <code>Commit</code>/<code>Rollback</code>
+  segura o empréstimo até ser liberada. Chame <code>Close</code> no
+  <code>ILzNexResult</code>: a conexão volta ao pool ali, sem esperar a variável sair de
+  escopo. (b) O <code>max</code> é baixo para o número de threads: um servidor que atende N
+  requisições em paralelo precisa de pelo menos N conexões se cada uma mantém cursor aberto.
+  Diagnostique com <code>Db.Pool.InUse</code> e <code>Db.Pool.Size</code> (é o que o
   <code>tests/DiagPool.lpr</code> imprime a cada passo).
+</td>
+</tr>
+
+<tr>
+<td>A paginação por cursor devolve sempre a <strong>mesma</strong> página</td>
+<td>
+  Em versão anterior a esta, um <code>where</code> com <code>or</code> no topo prendia o corte
+  do cursor ao último ramo do <code>or</code> e a navegação não avançava; o mesmo acontecia com
+  o <code>ChunkById</code>/<code>Each</code>, que reliam o mesmo lote sem fim. Hoje esses
+  métodos fecham o escopo com <a href="#where/group-where"><code>GroupWhere</code></a> antes de
+  somar o predicado. Se você monta o predicado à mão sobre um escopo com <code>or</code>, chame
+  <code>GroupWhere</code> — ver <a href="#pagination/or-scope">escopo com or</a>.
+</td>
+</tr>
+
+<tr>
+<td><code>column "t.x" must appear in the GROUP BY clause</code> num <code>Count</code></td>
+<td>
+  PostgreSQL e Firebird recusam <code>order by</code> de coluna não agregada junto com
+  <code>count(*)</code>. O agregado já sai sem a ordenação da query, então esta mensagem
+  aponta para um <code>OrderBy</code> que você mesmo colocou num <code>Select</code> com
+  agregado e sem <code>group by</code> — ver <a href="#reading/aggregates">agregados</a>.
 </td>
 </tr>
 

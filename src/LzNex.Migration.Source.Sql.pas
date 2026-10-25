@@ -70,12 +70,38 @@ function ReadSqlFile(const APath: string): string;
 
 implementation
 
+{ Abertura de dollar-quote do PostgreSQL ("$$" ou "$tag$") na posicao AAt, ou
+  '' se o que vem ali nao e uma abertura. A tag e vazia ou um identificador --
+  so assim um "$" solto num script MySQL continua sendo um "$" comum. }
+function DollarTagAt(const ASQL: string; const AAt: Integer): string;
+var
+  I, Len: Integer;
+  C: Char;
+begin
+  Result := '';
+  Len := Length(ASQL);
+  if (AAt > Len) or (ASQL[AAt] <> '$') then
+    Exit;
+
+  I := AAt + 1;
+  while I <= Len do
+  begin
+    C := ASQL[I];
+    if C = '$' then
+      Exit(Copy(ASQL, AAt, I - AAt + 1));
+    if not (((C >= 'a') and (C <= 'z')) or ((C >= 'A') and (C <= 'Z')) or
+            ((C >= '0') and (C <= '9')) or (C = '_')) then
+      Exit;
+    Inc(I);
+  end;
+end;
+
 function SplitSqlStatements(const ASQL: string): TLzNexStringArray;
 var
   I, Len, Start, N: Integer;
   C, Q: Char;
   InLiteral, InLine, InBlock, HasContent: Boolean;
-  Piece: string;
+  Piece, Tag: string;
 
   procedure Push(const AText: string);
   begin
@@ -86,6 +112,27 @@ var
       SetLength(Result, Length(Result) * 2);
     Result[N] := Piece;
     Inc(N);
+  end;
+
+  { Pula um corpo "$tag$ ... $tag$" inteiro, deixando I depois do fechamento.
+    False quando a tag nunca fecha. }
+  function SkipDollarBody(const ATag: string): Boolean;
+  var
+    P, TagLen: Integer;
+  begin
+    TagLen := Length(ATag);
+    P := I + TagLen;
+    while P + TagLen - 1 <= Len do
+    begin
+      if Copy(ASQL, P, TagLen) = ATag then
+      begin
+        I := P + TagLen;
+        Exit(True);
+      end;
+      Inc(P);
+    end;
+    I := Len + 1;
+    Result := False;
   end;
 
 begin
@@ -188,6 +235,23 @@ begin
       HasContent := True;
       Inc(I);
       Continue;
+    end;
+
+    { Corpo entre "$$" ou "$tag$": e onde mora o PL/pgSQL, e ele tem ";" dentro.
+      Sem pular o corpo inteiro a funcao sairia cortada em pedacos invalidos. }
+    if C = '$' then
+    begin
+      Tag := DollarTagAt(ASQL, I);
+      if Tag <> '' then
+      begin
+        HasContent := True;
+        if not SkipDollarBody(Tag) then
+          raise ELzNexMigration.Create(
+            'SQL script ends with an unclosed ' + Tag + ' body: the opening ' +
+            Tag + ' has no pair, so there is no way to tell where the ' +
+            'statement ends. Nothing was executed.');
+        Continue;
+      end;
     end;
 
     if C = ';' then

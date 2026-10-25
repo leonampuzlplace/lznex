@@ -116,12 +116,12 @@ LZNEX_CHARSET=UTF-8</pre>
 <table>
 <thead><tr><th>Execução</th><th>Testes</th><th>Erros</th><th>Falhas</th><th>Ignorados</th><th>Exit</th></tr></thead>
 <tbody>
-<tr><td><code>tests</code> (sem banco)</td><td>468</td><td>0</td><td>0</td><td>100</td><td>0</td></tr>
-<tr><td><code>tests-it</code> (MySQL)</td><td>468</td><td>0</td><td>0</td><td>1</td><td>0</td></tr>
-<tr><td><code>tests-it-pg</code> (PostgreSQL)</td><td>468</td><td>0</td><td>0</td><td>1</td><td>0</td></tr>
-<tr><td><code>tests-it-fb3</code> (Firebird 3)</td><td>468</td><td>0</td><td>0</td><td>8</td><td>0</td></tr>
-<tr><td><code>tests-it-fb5</code> (Firebird 5)</td><td>468</td><td>0</td><td>0</td><td>8</td><td>0</td></tr>
-<tr><td><code>tests-it-sqlite</code> (SQLite)</td><td>468</td><td>0</td><td>0</td><td>4</td><td>0</td></tr>
+<tr><td><code>tests</code> (sem banco)</td><td>495</td><td>0</td><td>0</td><td>110</td><td>0</td></tr>
+<tr><td><code>tests-it</code> (MySQL)</td><td>495</td><td>0</td><td>0</td><td>1</td><td>0</td></tr>
+<tr><td><code>tests-it-pg</code> (PostgreSQL)</td><td>495</td><td>0</td><td>0</td><td>1</td><td>0</td></tr>
+<tr><td><code>tests-it-fb3</code> (Firebird 3)</td><td>495</td><td>0</td><td>0</td><td>8</td><td>0</td></tr>
+<tr><td><code>tests-it-fb5</code> (Firebird 5)</td><td>495</td><td>0</td><td>0</td><td>8</td><td>0</td></tr>
+<tr><td><code>tests-it-sqlite</code> (SQLite)</td><td>495</td><td>0</td><td>0</td><td>4</td><td>0</td></tr>
 </tbody>
 </table>
 </div>
@@ -138,10 +138,10 @@ LZNEX_CHARSET=UTF-8</pre>
   estar disponível: os 8 do Firebird são JSON (5), texto completo (2) e upsert de várias linhas
   (1); os 4 do SQLite são texto completo (2), índice de texto completo (1) e lock de linha (1);
   o único do MySQL e do PostgreSQL é o teste que prova a recusa do Firebird. A rodada sem banco
-  ignora os 100 casos que precisam de servidor.
+  ignora os 110 casos que precisam de servidor.
 </p>
 
-<div class="code"><pre data-lang="out">sondas: 870 asserções em 7 binários, todas verdes
+<div class="code"><pre data-lang="out">sondas: 870 asserções em 8 binários, todas verdes
 heaptrc: 0 unfreed memory blocks
 API: {"status":"ok","dialect":"mysql"}</pre></div>
 
@@ -165,7 +165,7 @@ API: {"status":"ok","dialect":"mysql"}</pre></div>
 <table>
 <thead><tr><th>Arquivo</th><th>Cobre</th></tr></thead>
 <tbody>
-<tr><td><code>Test.Core</code></td><td><code>TLzNexValue</code> (conversão implícita, <code>Unset</code> não bindável, precisão de <code>Int64</code>), <code>Vals</code>/<code>ValueList</code>, ordem dos bindings e composição de fragmentos.</td></tr>
+<tr><td><code>Test.Core</code></td><td><code>TLzNexValue</code> (conversão implícita, <code>Unset</code> não bindável, precisão de <code>Int64</code>), <code>Vals</code>/<code>ValueList</code>, ordem dos bindings, composição de fragmentos e o split de script <code>.sql</code> — <code>;</code> dentro de literal, de comentário e de corpo <code>$$</code> do PostgreSQL.</td></tr>
 <tr><td><code>Test.Query</code></td><td>Select e alias, where e operadores, grupos de predicado, join, ordenação e paginação, SQL cru, clone. Registra também as áreas <code>security</code> (operador fora da lista, valor nunca interpolado, backtick escapado) e <code>dialect</code>.</td></tr>
 <tr><td><code>Test.Postgres</code></td><td>O dialeto PostgreSQL <strong>por texto</strong>: identificador com aspas duplas, <code>limit</code>/<code>offset</code> ANSI, <code>returning</code>, <code>on conflict</code>, <code>distinct on</code>, <code>nulls first/last</code>, <code>truncate</code> e o DDL. Quase todo caso compara com o MySQL para a mesma entrada, e os dois lados são asserções — inclusive o que o MySQL tem que <strong>recusar</strong>.</td></tr>
 <tr><td><code>Test.Firebird</code></td><td>O dialeto Firebird <strong>por texto</strong>, sem banco: identificador, <code>offset … rows fetch next … rows only</code> na ordem certa, <code>with lock</code> e <code>skip locked</code>, <code>update or insert … matching</code>, <code>upper() like upper()</code>, e o DDL — identity, ordem <code>default</code>/<code>not null</code>, <code>blob sub_type</code>, <code>execute block</code> no drop, catálogo <code>rdb$relations</code> e corte do nome de índice em 31 bytes. Também assertam o que o dialeto <strong>recusa</strong>.</td></tr>
@@ -178,17 +178,42 @@ API: {"status":"ok","dialect":"mysql"}</pre></div>
 <tr><td><code>Test.Sugar</code></td><td>O açúcar do builder por texto: <code>WhereAny</code>/<code>WhereAll</code> (grupo fechado que não contamina o <code>where</code> seguinte), <code>SelectCount</code>/<code>SelectAggregate</code>, <code>WithCount</code> (inclusive a prova de que a subquery de quem chamou não é alterada), <code>ClearPaging</code>, <code>Dump</code> e o que <code>Upsert</code>/<code>UpdateOrInsert</code> recusam.</td></tr>
 <tr><td><code>Test.Features.MySQL</code> · <code>.Postgres</code> · <code>.SQLite</code> · <code>.Firebird</code></td><td>As variações novas por dialeto, por texto: cada parte de data, JSON nos três modos, texto completo nos dois modos, ordem aleatória — e, em cada dialeto, o que ele <strong>recusa</strong> com mensagem.</td></tr>
 <tr><td><code>Test.Schema.Inspect</code></td><td>O SQL de inspeção de catálogo de cada dialeto: <code>Tables</code>, <code>Columns</code> e <code>HasIndex</code> em <code>information_schema</code>, <code>pg_index</code>, <code>pragma_index_list</code> e <code>rdb$indices</code>.</td></tr>
-<tr><td><code>Test.It.Paginate</code></td><td>Paginação contra banco real, nos cinco: total e janela, última página curta, página além do fim, count com <code>group by</code> e com <code>distinct</code>, <code>SimplePaginate</code>, a caminhada completa do cursor para frente e para trás, o cursor que <strong>não repete linha</strong> quando uma é inserida no meio da leitura, empate desempatado pela segunda chave, e <code>Chunk</code>/<code>ChunkById</code>/<code>Each</code>.</td></tr>
-<tr><td><code>Test.It.Sugar</code></td><td><code>FirstOrFail</code>, <code>Sole</code>, <code>DoesntExist</code>, <code>Upsert</code> e <code>UpdateOrInsert</code> contra banco real — incluindo o caso em que o update grava o mesmo valor e o MySQL devolve zero linhas afetadas, que quebraria uma implementação que decidisse por esse número.</td></tr>
+<tr><td><code>Test.It.Paginate</code></td><td>Paginação contra banco real, nos cinco: total e janela, última página curta, página além do fim, count com <code>group by</code> e com <code>distinct</code>, <code>SimplePaginate</code>, a caminhada completa do cursor para frente e para trás, o cursor que <strong>não repete linha</strong> quando uma é inserida no meio da leitura, empate desempatado pela segunda chave, e <code>Chunk</code>/<code>ChunkById</code>/<code>Each</code>. Também a caminhada sobre um escopo com <code>or</code> (onde o corte preso ao último ramo repetiria a mesma página sem fim) e a mesma query paginada duas vezes, que não pode acumular corte.</td></tr>
+<tr><td><code>Test.It.Sugar</code></td><td><code>FirstOrFail</code>, <code>Sole</code>, <code>DoesntExist</code>, <code>Upsert</code> e <code>UpdateOrInsert</code> contra banco real — incluindo o caso em que o update grava o mesmo valor e o MySQL devolve zero linhas afetadas, que quebraria uma implementação que decidisse por esse número, e o <code>UpdateOrInsert</code> sobre um escopo com <code>or</code>, que não pode escrever na linha errada. Prova também que <code>First</code>, <code>Exists</code> e <code>Count</code> não deixam janela nem agregado grudados na query.</td></tr>
 <tr><td><code>Test.It.Dialect</code></td><td>Partes de data, JSON, ordem aleatória e texto completo contra banco real, decidindo por <strong>capacidade</strong> do dialeto e não por nome de banco.</td></tr>
 <tr><td><code>Test.It.Schema</code></td><td>Inspeção contra banco real: a tabela criada aparece em <code>Tables</code>, <code>Columns</code> vem na ordem declarada, <code>HasIndex</code> acha a unique composta e não acha um conjunto sem índice.</td></tr>
-<tr><td><code>Test.It.Lease</code></td><td>A conexão volta ao pool em <strong>todo</strong> caminho de saída: commit, rollback, transação abandonada (quem desfaz é o destrutor), <code>Transact</code> que comita, <code>Transact</code> que falha e desfaz, e <code>Transact</code> que repete três vezes. Mede <code>Pool.InUse</code>, que é observável — não depende do heaptrc para acusar lease preso.</td></tr>
-<tr><td><code>Test.It.Infra</code></td><td>Query log (logger espião contando <code>LogQuery</code>/<code>LogError</code> e o tempo medido), retry de transação (<code>Transact</code> com <code>ILzNexWork</code>) e roteamento de leitura para a réplica.</td></tr>
+<tr><td><code>Test.It.Lease</code></td><td>A conexão volta ao pool em <strong>todo</strong> caminho de saída: commit, rollback, transação abandonada (quem desfaz é o destrutor), <code>Transact</code> que comita, <code>Transact</code> que falha e desfaz, <code>Transact</code> que repete três vezes, e <code>ILzNexResult.Close</code>, que devolve a conexão na hora em vez de esperar a variável sair de escopo. Mede <code>Pool.InUse</code>, que é observável — não depende do heaptrc para acusar lease preso.</td></tr>
+<tr><td><code>Test.It.Infra</code></td><td>Query log (logger espião contando <code>LogQuery</code>/<code>LogError</code> e o tempo medido), retry de transação (<code>Transact</code> com <code>ILzNexWork</code>) e roteamento de leitura para a réplica — incluindo a consulta de existência do <code>UpdateOrInsert</code>, que sai do primário porque decide uma escrita.</td></tr>
 <tr><td><code>Test.Helper</code></td><td>Base das suítes unitárias: <code>AssertSQL</code>, <code>AssertBindings</code> e <code>AssertQuery</code>, que comparam texto gerado e lista de binds de uma vez.</td></tr>
 <tr><td><code>Probe*.lpr</code></td><td><code>ProbeValue</code> (valor), <code>ProbeAst</code> (AST), <code>ProbeQuery</code> (builder), <code>ProbeCompiler</code> (compilador de query), <code>ProbeSchema</code> (DDL), <code>ProbeMigration</code> (migrator e seeder), <code>ProbeEndToEnd</code> (fachada até o SQL) e <code>ProbeZeos</code> (conexão, pool e transação contra o Zeos).</td></tr>
 <tr><td><code>DiagPool.lpr</code></td><td>Diagnóstico, não teste: imprime <code>InUse</code> e <code>Size</code> do pool a cada passo. Serve para ver uma conexão presa.</td></tr>
 </tbody>
 </table>
+</div>
+
+<h2 id="dev-scripts">Rodar sem passar pelo compose</h2>
+<p>
+  O <code>docker compose run</code> reconstrói a imagem a cada mudança de fonte. Para o laço
+  curto de desenvolvimento há três scripts que montam o repositório no container
+  <code>lznex-builder</code> e compilam com <code>fpc</code> direto, reaproveitando o ZeosLib
+  que já está na imagem:
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>scripts/dev-check.sh [&lt;lpr&gt;]</code></td><td>Compila e roda uma suíte (default <code>tests/LzNexTests.lpr</code>), já com <code>-gh</code> e <code>-dUseCThreads</code>; imprime exit, contagem e as falhas. O banco vem de <code>LZNEX_IT</code>/<code>LZNEX_CLIENT</code>/<code>DB_HOST</code> no ambiente.</td></tr>
+<tr><td><code>scripts/dev-check-all.sh</code></td><td>O mesmo contra os cinco bancos em sequência. Precisa dos servidores no ar (<code>docker compose up -d mysql postgres firebird3 firebird5</code>).</td></tr>
+<tr><td><code>scripts/dev-probes.sh</code></td><td>Compila e roda as oito sondas, uma linha por sonda.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="code"><pre data-lang="sh">docker run --rm -v "$PWD":/host -w /work -e HEAPTRC=haltonnotreleased   lznex-builder bash /host/scripts/dev-check.sh
+
+docker compose up -d mysql postgres firebird3 firebird5
+bash scripts/dev-check-all.sh</pre>
+  <p class="code-note">o CI continua usando o compose; estes scripts são bancada, não substituem o gate</p>
 </div>
 
 <h2 id="leak-gate">Gate de vazamento</h2>

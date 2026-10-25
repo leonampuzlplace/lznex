@@ -19,6 +19,20 @@
   serve para encerrar <strong>antes</strong> do fim do escopo. Chamar duas vezes não faz mal.
 </p>
 
+<p>
+  <code>Close</code> também <strong>devolve a conexão ao pool</strong> na hora, sem esperar a
+  variável sair de escopo. Importa quando o pool é pequeno e o mesmo bloco abre vários cursores:
+</p>
+
+<div class="code"><pre data-lang="pascal">A := Db.Table('users').Get;
+// ... le
+A.Close;                       // a conexao volta ao pool aqui
+
+B := Db.Table('posts').Get;    // reusa a mesma vaga
+B.Close;
+
+Total := Db.Table('users').Count;   // ainda ha vaga, mesmo com A e B no escopo</pre></div>
+
 <div class="table-wrap">
 <table class="api">
 <thead><tr><th>Método de <code>ILzNexResult</code></th><th>O que faz</th></tr></thead>
@@ -244,16 +258,15 @@ Rows.Field('nome');
     <span class="t">O resultado segura a conexão, não a variável de conexão</span>
     <p>
       Um resultado vindo do pool carrega <strong>dentro dele</strong> o empréstimo da conexão. O
-      empréstimo termina no fim da vida do <em>resultado</em> — não no fim do escopo onde a
-      conexão foi pedida, e nem no <code>Close</code>: <code>Close</code> fecha o resultset do
-      driver, mas a conexão só volta ao pool quando a última referência ao
-      <code>ILzNexResult</code> é liberada.
+      empréstimo termina no <code>Close</code> — ou, se ninguém chamar <code>Close</code>, no
+      fim da vida do <em>resultado</em>; não no fim do escopo onde a conexão foi pedida.
     </p>
     <p>
       Por isso <code>Db.Fetch(…)</code> e <code>.Get</code> funcionam sem você segurar nenhum
       <code>ILzNexConnection</code>: o resultado faz isso por você. E por isso guardar um
-      <code>ILzNexResult</code> em variável global, campo de objeto ou cache é vazamento de
-      conexão disfarçado.
+      <code>ILzNexResult</code> <strong>sem fechar</strong> em variável global, campo de objeto
+      ou cache é vazamento de conexão disfarçado — ali o <code>Close</code> explícito deixa de
+      ser opcional.
     </p>
   </div>
 </div>
@@ -274,7 +287,7 @@ end;
 // certo: devolver o emprestimo antes do fim do escopo
 Rows := Db.Table('users').Get;
 List := Rows.ToRows;
-Rows := nil;              // aqui a conexao volta ao pool
+Rows.Close;               // aqui a conexao volta ao pool
 Process(List);            // as linhas sao copias, nao precisam do cursor</pre></div>
 
 <p>

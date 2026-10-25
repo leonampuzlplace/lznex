@@ -27,6 +27,9 @@ type
 
     function Text: string;
 
+    { Foto dos binds, para ler. O record compartilha o array interno com o
+      fragmento: nao chame Add no que sair daqui -- monte um TLzNexBindings
+      proprio a partir de Empty. }
     function Bindings: TLzNexBindings;
 
     function IsEmpty: Boolean;

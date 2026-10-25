@@ -45,6 +45,7 @@ type
     procedure UsePrimaryForcesTheWriteConnection;
     procedure InsideATransactionReadUsesTheTransactionConnection;
     procedure WritesAlwaysUseThePrimaryConnection;
+    procedure UpdateOrInsertProbesThePrimary;
     procedure ReadReplicaPointingAtItselfRaises;
   end;
 
@@ -594,6 +595,32 @@ begin
 
     AssertEquals('the insert opened (and released back to idle) a primary connection',
       1, Db.Pool.Size);
+  finally
+    Db.Shutdown;
+  end;
+end;
+
+{ A consulta de existencia do UpdateOrInsert decide uma escrita, entao sai do
+  primario: na replica o atraso de replicacao esconderia a linha recem-escrita
+  e o insert sairia duplicado. }
+procedure TInfraTest.UpdateOrInsertProbesThePrimary;
+var
+  Db: ILzNex;
+begin
+  if SkipWithoutDatabase then Exit;
+  FDb.Table(INFRA_TABLE).Truncate;
+
+  Db := Connect(ItConfig(4).Pool(0, 4).ReadReplica(ItConfig(4)));
+  try
+    AssertEquals('fresh primary pool has no physical connection yet', 0,
+      Db.Pool.Size);
+
+    // Linha ausente: o probe le, nao acha e o insert escreve -- tudo no primario.
+    AssertTrue('reported an insert',
+      Db.Table(INFRA_TABLE).UpdateOrInsert(Vals(['tag', 'split-f']), nil));
+
+    AssertEquals('the probe and the write shared the primary pool', 1,
+      Db.Pool.Size);
   finally
     Db.Shutdown;
   end;

@@ -58,10 +58,13 @@ type
     procedure CursorBreaksTiesWithTheSecondKey;
     procedure CursorOnAnEmptySetHasNoCursors;
     procedure CursorFromAnotherOrderingIsRejected;
+    procedure CursorWalksAWhereWithOrWithoutRepeating;
+    procedure CursorCanBeCalledTwiceOnTheSameQuery;
 
     procedure ChunkVisitsEveryRowOnce;
     procedure ChunkByIdVisitsEveryRowOnce;
     procedure ChunkByIdDoesNotRepeatWhenRowsAppear;
+    procedure ChunkByIdWalksAWhereWithOr;
     procedure EachWalksEveryRow;
     procedure EachStopsWhenTheHandlerAsks;
   end;
@@ -477,6 +480,66 @@ begin
   end;
 end;
 
+{ Where com "or" no topo: o corte do cursor tem de valer para os dois ramos.
+  Preso ao ultimo, a pagina seguinte repetiria a primeira para sempre. }
+procedure TPaginateTest.CursorWalksAWhereWithOrWithoutRepeating;
+var
+  P: TLzNexCursorPage;
+  Cursor, Seen: string;
+  Pages: Integer;
+begin
+  if SkipWithoutDatabase then Exit;
+  Seed;
+
+  Cursor := '';
+  Seen := '';
+  Pages := 0;
+  repeat
+    P := FDb.Table(PAGING_TABLE)
+      .Where('score', 1)
+      .OrWhere('score', 2)
+      .OrderBy('tag')
+      .CursorPaginate(3, Cursor);
+    if Seen <> '' then
+      Seen := Seen + ',';
+    Seen := Seen + TagsOf(P.Rows);
+    Cursor := P.NextCursor;
+    Inc(Pages);
+    AssertTrue('runaway cursor walk: the cut is not reaching the first branch',
+      Pages <= 8);
+  until Cursor = '';
+
+  // score = I mod 5, 25 linhas: 5 com score 1 e 5 com score 2.
+  AssertEquals('ten rows, no repeats', 10, TagCount(Seen));
+  AssertFalse('no tag seen twice', HasRepeatedTag(Seen));
+end;
+
+{ Paginar duas vezes na mesma query nao pode acumular corte nem inverter a
+  ordem duas vezes: a segunda chamada tem de dar a mesma primeira pagina. }
+procedure TPaginateTest.CursorCanBeCalledTwiceOnTheSameQuery;
+var
+  Q: ILzNexQuery;
+  One, Two, Next_: TLzNexCursorPage;
+begin
+  if SkipWithoutDatabase then Exit;
+  Seed;
+
+  Q := FDb.Table(PAGING_TABLE).OrderBy('tag');
+
+  One := Q.CursorPaginate(4);
+  Two := Q.CursorPaginate(4);
+  AssertEquals('the same query gives the same first page',
+    TagsOf(One.Rows), TagsOf(Two.Rows));
+
+  Next_ := Q.CursorPaginate(4, One.NextCursor);
+  AssertEquals('and the cursor still advances', 'row-05,row-06,row-07,row-08',
+    TagsOf(Next_.Rows));
+
+  Next_ := Q.CursorPaginate(4, One.NextCursor);
+  AssertEquals('twice with the same cursor gives the same page',
+    'row-05,row-06,row-07,row-08', TagsOf(Next_.Rows));
+end;
+
 procedure TPaginateTest.ChunkVisitsEveryRowOnce;
 var
   Chunks: ILzNexChunks;
@@ -555,6 +618,37 @@ begin
   AssertFalse('no row read twice', HasRepeatedTag(Seen));
   AssertEquals('the row inserted mid walk was read too', SEED_ROWS + 1,
     TagCount(Seen));
+end;
+
+{ Mesmo risco do cursor: com "or" no topo o "id > ultimo" ficaria preso ao
+  ultimo ramo e a varredura releria o mesmo lote sem fim. }
+procedure TPaginateTest.ChunkByIdWalksAWhereWithOr;
+var
+  Chunks: ILzNexChunks;
+  Seen: string;
+  Batches: Integer;
+begin
+  if SkipWithoutDatabase then Exit;
+  Seed;
+
+  Chunks := FDb.Table(PAGING_TABLE)
+    .Where('score', 1)
+    .OrWhere('score', 2)
+    .ChunkById(3, 'id');
+  Seen := '';
+  Batches := 0;
+  while Chunks.Next do
+  begin
+    if Seen <> '' then
+      Seen := Seen + ',';
+    Seen := Seen + TagsOf(Chunks.Rows);
+    Inc(Batches);
+    AssertTrue('runaway chunk walk: the key advance is not reaching the ' +
+      'first branch of the or', Batches <= 8);
+  end;
+
+  AssertEquals('ten rows', 10, TagCount(Seen));
+  AssertFalse('no row read twice', HasRepeatedTag(Seen));
 end;
 
 procedure TPaginateTest.EachWalksEveryRow;

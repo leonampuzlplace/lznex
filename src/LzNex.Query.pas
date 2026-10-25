@@ -72,6 +72,7 @@ type
     procedure OpenGroup(const AGroup: TLzNexStatementGroup;
       const ABool: TLzNexBoolOp = boAnd; const ANot: Boolean = False);
     procedure CloseGroup(const AGroup: TLzNexStatementGroup);
+    procedure Enclose(const AGroup: TLzNexStatementGroup; const AWhat: string);
 
     function StartJoin(const AType: TLzNexJoinType; const ATable: TLzNexValue;
       const AAlias: string): ILzNexJoin;
@@ -95,6 +96,8 @@ type
     function TotalForPaging: Int64;
 
     function MaterializeRows: TLzNexRowArray;
+    function RowsOf(const AQuery: ILzNexQuery): TLzNexRowArray;
+    function RowOf(const AQuery: ILzNexQuery): ILzNexRow;
   public
     constructor Create(const AClient: ILzNexClient; const ADb: ILzNex;
       const ATrx: ILzNexTransaction);
@@ -195,6 +198,8 @@ type
     function OrWhereOpen: ILzNexQuery;
     function WhereNotOpen: ILzNexQuery;
     function WhereClose: ILzNexQuery;
+    function GroupWhere: ILzNexQuery;
+    function GroupHaving: ILzNexQuery;
 
     function Join(const ATable: string): ILzNexJoin;
     function JoinAs(const ATable, AAlias: string): ILzNexJoin;
@@ -1073,6 +1078,32 @@ begin
   Result := Self as ILzNexQuery;
 end;
 
+procedure TLzNexQuery.Enclose(const AGroup: TLzNexStatementGroup;
+  const AWhat: string);
+begin
+  { Com grupo aberto os statements novos iriam para dentro dele, e fechar a
+    raiz deixaria a pilha apontando para um galho que nao esta mais la. }
+  if StackOf(AGroup).Count > 0 then
+    raise ELzNexBuilder.CreateFmt(
+      '%s with %d open predicate group(s). Close them first: the enclosing ' +
+      'moves the current predicates into a new group, and the open stack ' +
+      'would be left pointing at the old tree.',
+      [AWhat, StackOf(AGroup).Count]);
+  FAst.EncloseGroup(AGroup);
+end;
+
+function TLzNexQuery.GroupWhere: ILzNexQuery;
+begin
+  Enclose(sgWhere, 'GroupWhere');
+  Result := Self as ILzNexQuery;
+end;
+
+function TLzNexQuery.GroupHaving: ILzNexQuery;
+begin
+  Enclose(sgHaving, 'GroupHaving');
+  Result := Self as ILzNexQuery;
+end;
+
 function TLzNexQuery.StartJoin(const AType: TLzNexJoinType; const ATable: TLzNexValue;
   const AAlias: string): ILzNexJoin;
 var
@@ -1751,20 +1782,42 @@ begin
   Result := Conn.Query(ToSQL);
 end;
 
-function TLzNexQuery.First: ILzNexRow;
+{ Primeira linha de uma query qualquer. Fecha o cursor antes de devolver, e a
+  linha ja vem copiada (CurrentRow tira uma foto dos valores). }
+function TLzNexQuery.RowOf(const AQuery: ILzNexQuery): ILzNexRow;
 var
-  Conn: ILzNexConnection;
   Res: ILzNexResult;
 begin
   Result := nil;
-  FAst.Single.Method := qmFirst;
+  Res := AQuery.Get;
+  try
+    if Res.Next then
+      Result := Res.CurrentRow;
+  finally
+    Res.Close;
+  end;
+end;
+
+function TLzNexQuery.First: ILzNexRow;
+var
+  Res: ILzNexResult;
+begin
+  Result := nil;
+
+  { Sem janela propria o "limit 1" vai num clone: senao First deixaria o limite
+    grudado e o Get seguinte traria uma linha so. Com limit 1 explicito o SQL
+    sai igual ao de qmFirst, que so entra quando nao ha janela. }
   if not FAst.Single.HasLimit then
-    FAst.Single.LimitValue := TLzNexValue.FromInt64(1);
-  Conn := ActiveConnection;
-  Res := Conn.Query(ToSQL);
-  if Res.Next then
-    Result := Res.CurrentRow;
-  Res.Close;
+    Exit(RowOf(Clone.Limit(1)));
+
+  FAst.Single.Method := qmFirst;
+  Res := ActiveConnection.Query(ToSQL);
+  try
+    if Res.Next then
+      Result := Res.CurrentRow;
+  finally
+    Res.Close;
+  end;
 end;
 
 function TLzNexQuery.FirstOrFail: ILzNexRow;
@@ -1779,9 +1832,9 @@ function TLzNexQuery.Sole: ILzNexRow;
 var
   Rows: TLzNexRowArray;
 begin
-  // Duas linhas bastam para saber que ha mais de uma.
-  Limit(2);
-  Rows := MaterializeRows;
+  // Duas linhas bastam para saber que ha mais de uma. O limite fica no clone:
+  // Sole nao pode deixar "limit 2" grudado na query de quem chamou.
+  Rows := RowsOf(Clone.Limit(2));
 
   if Length(Rows) = 0 then
     raise ELzNexQuery.CreateFmt('Sole: no row matched', ToSQL.Text);
@@ -1796,12 +1849,12 @@ end;
 
 function TLzNexQuery.Value(const AColumn: string): TLzNexValue;
 var
+  Q: ILzNexQuery;
   Row: ILzNexRow;
 begin
-
-  FAst.ClearGroup(sgColumns);
-  Column(AColumn);
-  Row := First;
+  // Troca de colunas no clone: a query de quem chamou segue com o Select dela.
+  Q := Clone.Clear(sgColumns).Column(AColumn);
+  Row := Q.First;
   if Row = nil then
     Result := TLzNexValue.Null
   else
@@ -1821,14 +1874,14 @@ end;
 
 function TLzNexQuery.Pluck(const AColumn: string): TLzNexValues;
 var
+  Q: ILzNexQuery;
   Res: ILzNexResult;
   N: Integer;
 begin
   Result := nil;
-  FAst.ClearGroup(sgColumns);
-  Column(AColumn);
-  FAst.Single.PluckColumn := AColumn;
-  Res := Get;
+  Q := Clone.Clear(sgColumns).Column(AColumn);
+  Q.Ast.Single.PluckColumn := AColumn;
+  Res := Q.Get;
   N := 0;
   while Res.Next do
   begin
@@ -1846,8 +1899,8 @@ end;
 
 function TLzNexQuery.Exists: Boolean;
 begin
-  Limit(1);
-  Result := First <> nil;
+  // Limite no clone: "if Q.Exists then Q.Get" nao pode voltar uma linha so.
+  Result := Clone.Limit(1).First <> nil;
 end;
 
 function TLzNexQuery.DoesntExist: Boolean;
@@ -1863,11 +1916,22 @@ end;
 function TLzNexQuery.Aggregate(const AAgg: TLzNexAggregate;
   const AColumn: string): TLzNexValue;
 var
+  Q: ILzNexQuery;
   Row: ILzNexRow;
 begin
-  FAst.ClearGroup(sgColumns);
-  FAst.Add(TLzNexAggregateStmt.Create(AAgg, Ident(AColumn), ''));
-  Row := First;
+  { O agregado troca a lista de colunas, e no clone: senao um Q.Count deixaria
+    "select count(*)" na query e o Q.Get seguinte traria o count, nao as
+    linhas. }
+  Q := Clone.Clear(sgColumns);
+
+  { A ordem nao muda o agregado e custa sort, e no PostgreSQL "select count(*)
+    ... order by tag" e erro -- a coluna da ordem nao esta no group by. Com
+    group by ela fica: ali e a ordem que decide qual grupo o First pega. }
+  if not Q.Ast.Has(sgGroup) then
+    Q.Clear(sgOrder);
+
+  Q.Ast.Add(TLzNexAggregateStmt.Create(AAgg, Ident(AColumn), ''));
+  Row := Q.First;
   if Row = nil then
     Result := TLzNexValue.Null
   else
@@ -1909,10 +1973,17 @@ begin
 end;
 
 function TLzNexQuery.MaterializeRows: TLzNexRowArray;
+begin
+  Result := RowsOf(Self as ILzNexQuery);
+end;
+
+{ Le tudo e fecha o cursor antes de devolver, para a conexao nao ficar presa
+  enquanto quem chamou mexe nas linhas. }
+function TLzNexQuery.RowsOf(const AQuery: ILzNexQuery): TLzNexRowArray;
 var
   Res: ILzNexResult;
 begin
-  Res := Get;
+  Res := AQuery.Get;
   try
     Result := Res.ToRows;
   finally
@@ -1924,25 +1995,29 @@ function TLzNexQuery.Paginate(const APage, APerPage: Int64): TLzNexPage;
 begin
   Result := Default(TLzNexPage);
 
-  // Page valida os dois argumentos; o clone do count desfaz a janela.
-  Page(APage, APerPage);
+  { A janela vai no clone: paginar nao pode deixar limit/offset grudados na
+    query, senao a chamada seguinte (outra pagina, um Count) herdaria a janela
+    da anterior. O count ja clona por conta propria. }
+  Result.Total := TotalForPaging;
   Result.PerPage := APerPage;
   Result.CurrentPage := APage;
-  Result.Total := TotalForPaging;
-  Result.Rows := MaterializeRows;
+  Result.Rows := RowsOf(Clone.Page(APage, APerPage));
 end;
 
 function TLzNexQuery.SimplePaginate(const APage, APerPage: Int64): TLzNexSimplePage;
+var
+  Q: ILzNexQuery;
 begin
   Result := Default(TLzNexSimplePage);
 
-  Page(APage, APerPage);
+  // Page valida os dois argumentos antes de o limite ser trocado.
+  Q := Clone.Page(APage, APerPage);
   Result.PerPage := APerPage;
   Result.CurrentPage := APage;
 
   // Uma linha alem da pagina: se ela vier, ha proxima.
-  Limit(APerPage + 1);
-  Result.Rows := MaterializeRows;
+  Q.Limit(APerPage + 1);
+  Result.Rows := RowsOf(Q);
 
   Result.HasMorePages := Int64(Length(Result.Rows)) > APerPage;
   if Result.HasMorePages then
@@ -1952,6 +2027,7 @@ end;
 function TLzNexQuery.CursorPaginate(const APerPage: Int64;
   const ACursor: string): TLzNexCursorPage;
 var
+  Q: ILzNexQuery;
   Keys: TLzNexOrderKeys;
   Values: TLzNexValues;
   Backward, HasMore: Boolean;
@@ -1966,6 +2042,12 @@ begin
   Keys := OrderKeysOf(Self as ILzNexQuery);
   Backward := False;
 
+  { Corte e inversao da ordem acontecem num clone. Na mesma query eles se
+    acumulariam: a segunda pagina sairia com os dois cortes ("id > 10 and
+    id > 20") e, voltando duas vezes, a ordem invertida duas vezes voltaria
+    ao original e a pagina viria do inicio do conjunto. }
+  Q := Clone;
+
   if Trim(ACursor) <> '' then
   begin
     if not DecodeCursor(ACursor, Values, Backward) then
@@ -1973,17 +2055,16 @@ begin
         'Invalid cursor: the text is not a cursor produced by CursorPaginate, ' +
         'or it was truncated on the way. Start the listing from the beginning ' +
         '(empty cursor).');
-    ApplyKeyset(Self as ILzNexQuery, Keys, Values, Backward);
+    ApplyKeyset(Q, Keys, Values, Backward);
   end;
 
   { Para tras le na ordem invertida -- so assim o limite pega as linhas
     imediatamente anteriores, e nao as primeiras do conjunto. }
   if Backward then
-    FlipOrderDirection(Self as ILzNexQuery);
+    FlipOrderDirection(Q);
 
-  ClearPaging;
-  Limit(APerPage + 1);
-  Result.Rows := MaterializeRows;
+  Q.ClearPaging.Limit(APerPage + 1);
+  Result.Rows := RowsOf(Q);
   Result.PerPage := APerPage;
 
   HasMore := Int64(Length(Result.Rows)) > APerPage;
@@ -2165,6 +2246,10 @@ var
   var
     K: Integer;
   begin
+    { Fecha o escopo que veio da query antes de somar a busca: num where com
+      "or" no topo a busca valeria so para o ultimo ramo, e o update acabaria
+      numa linha que nao casa. }
+    ATarget.GroupWhere;
     for K := 0 to High(AMatch) do
       ATarget.Where(AMatch[K].Name, AMatch[K].Value);
   end;
@@ -2177,8 +2262,11 @@ begin
 
   { Existencia primeiro, nao "update e ve quantas linhas mudaram": no MySQL um
     UPDATE que grava o mesmo valor devolve zero linhas afetadas, e dai sairia
-    um INSERT duplicado. }
-  Probe := Clone.Clear(sgOrder).ClearPaging;
+    um INSERT duplicado.
+
+    UsePrimary porque esta leitura decide uma escrita: na replica o atraso de
+    replicacao esconderia a linha recem-inserida e o insert sairia duplicado. }
+  Probe := Clone.UsePrimary.Clear(sgOrder).ClearPaging;
   ApplyMatch(Probe);
 
   if Probe.Exists then

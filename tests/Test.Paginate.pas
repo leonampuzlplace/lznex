@@ -34,6 +34,8 @@ type
     procedure BackwardFlipsEveryComparison;
     procedure BackwardOnDescendingKeyComparesGreater;
     procedure KeysetKeepsThePreviousWhere;
+    procedure KeysetEnclosesAWhereWithOr;
+    procedure KeysetDoesNotEncloseAWhereWithoutOr;
     procedure NullInTheCursorRaises;
     procedure ValueCountMismatchRaises;
   end;
@@ -144,6 +146,38 @@ begin
   AssertQuery(
     'select * from `t` where `active` = ? and ((`id` > ?)) order by `id` asc',
     'True|10', Q);
+end;
+
+{ Sem os parenteses o and do corte ficaria preso ao ultimo ramo do or, o corte
+  nao valeria para o primeiro e a pagina seguinte repetiria as mesmas linhas. }
+procedure TKeysetTest.KeysetEnclosesAWhereWithOr;
+var
+  Q: ILzNexQuery;
+begin
+  Q := NewTestQuery.Table('t')
+    .Where('kind', 'a')
+    .OrWhere('kind', 'b')
+    .OrderBy('id');
+  ApplyKeyset(Q, Keys(Q), ValueList([10]), False);
+  AssertQuery(
+    'select * from `t` where (`kind` = ? or `kind` = ?) and ((`id` > ?)) ' +
+    'order by `id` asc',
+    'a|b|10', Q);
+end;
+
+// Tudo em and: somar mais um and nao muda o sentido, e o SQL fica sem sobra.
+procedure TKeysetTest.KeysetDoesNotEncloseAWhereWithoutOr;
+var
+  Q: ILzNexQuery;
+begin
+  Q := NewTestQuery.Table('t')
+    .Where('kind', 'a')
+    .Where('active', True)
+    .OrderBy('id');
+  ApplyKeyset(Q, Keys(Q), ValueList([10]), False);
+  AssertSQL(
+    'select * from `t` where `kind` = ? and `active` = ? and ((`id` > ?)) ' +
+    'order by `id` asc', Q);
 end;
 
 procedure TKeysetTest.NullInTheCursorRaises;

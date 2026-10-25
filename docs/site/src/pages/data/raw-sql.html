@@ -131,16 +131,17 @@ R.Build(Db.Client);</pre>
 </div>
 </div>
 
-<div class="callout trap">
-  <span class="ico">⚠</span>
+<div class="callout note">
+  <span class="ico">i</span>
   <div class="body">
-    <span class="t">O cast <code>::</code> do PostgreSQL colide com <code>:nome</code></span>
+    <span class="t">O cast <code>::</code> do PostgreSQL passa intacto</span>
     <p>
-      Em <code>id::text</code>, o segundo <code>:</code> é seguido de letra e o parser entende
-      <code>:text</code> como parâmetro nomeado — o <code>Build</code> levanta
-      <code>Raw: parameter ":text" was not given</code>. Escreva <code>id:\:text</code> para
-      escapar, ou use <code>cast(id as text)</code>, que não tem o problema. Vale também em
-      template posicional: o parser de nomeado roda sempre.
+      <code>::</code> é reconhecido antes de <code>:nome</code> e sai literal, então
+      <code>id::text</code> e <code>(payload-&gt;&gt;'n')::int</code> funcionam sem escape. O que
+      o parser trata como parâmetro é <code>:nome</code> com <strong>um</strong> dois-pontos, e
+      como identificador é <code>:nome:</code> — com nome entre os dois pontos. O escape
+      <code>:\:</code> continua valendo, e <code>cast(id as text)</code> segue sendo a forma
+      portável entre os cinco dialetos.
     </p>
   </div>
 </div>

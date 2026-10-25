@@ -53,6 +53,12 @@ type
     procedure LeadingGroup;
     procedure UnclosedGroupRaises;
     procedure ClosingWithoutOpeningRaises;
+    procedure GroupWhereEnclosesAnOrAtTheRoot;
+    procedure GroupWhereLeavesAnAllAndWhereAlone;
+    procedure GroupWhereOnAnEmptyWhereDoesNothing;
+    procedure GroupWhereTwiceDoesNotStackParentheses;
+    procedure GroupWhereWithAnOpenGroupRaises;
+    procedure GroupHavingEnclosesAnOrAtTheRoot;
   end;
 
   TJoinTest = class(TLzNexTestCase)
@@ -78,6 +84,8 @@ type
     procedure IdentifierPlaceholder;
     procedure RawInsideWhere;
     procedure WrongPlaceholderCountRaises;
+    procedure PostgresCastIsNotAParameter;
+    procedure NamedParameterStillWorksNextToACast;
   end;
 
   TSecurityTest = class(TLzNexTestCase)
@@ -265,6 +273,59 @@ begin
   end;
 end;
 
+procedure TPredicateGroupTest.GroupWhereEnclosesAnOrAtTheRoot;
+begin
+  AssertSQL('select * from `t` where (`a` = ? or `b` = ?) and `c` = ?',
+    NewTestQuery.Table('t')
+      .Where('a', 1).OrWhere('b', 2)
+      .GroupWhere
+      .Where('c', 3));
+end;
+
+procedure TPredicateGroupTest.GroupWhereLeavesAnAllAndWhereAlone;
+begin
+  AssertSQL('select * from `t` where `a` = ? and `b` = ? and `c` = ?',
+    NewTestQuery.Table('t')
+      .Where('a', 1).Where('b', 2)
+      .GroupWhere
+      .Where('c', 3));
+end;
+
+procedure TPredicateGroupTest.GroupWhereOnAnEmptyWhereDoesNothing;
+begin
+  AssertSQL('select * from `t` where `a` = ?',
+    NewTestQuery.Table('t').GroupWhere.Where('a', 1));
+end;
+
+procedure TPredicateGroupTest.GroupWhereTwiceDoesNotStackParentheses;
+begin
+  AssertSQL('select * from `t` where (`a` = ? or `b` = ?) and `c` = ?',
+    NewTestQuery.Table('t')
+      .Where('a', 1).OrWhere('b', 2)
+      .GroupWhere.GroupWhere
+      .Where('c', 3));
+end;
+
+procedure TPredicateGroupTest.GroupWhereWithAnOpenGroupRaises;
+begin
+  try
+    NewTestQuery.Table('t').WhereOpen.Where('a', 1).GroupWhere;
+    Fail('expected ELzNexBuilder for GroupWhere with an open group');
+  except
+    on E: ELzNexBuilder do ;
+  end;
+end;
+
+procedure TPredicateGroupTest.GroupHavingEnclosesAnOrAtTheRoot;
+begin
+  AssertSQL(
+    'select * from `t` group by `k` having (`a` = ? or `b` = ?) and `c` = ?',
+    NewTestQuery.Table('t').GroupBy(['k'])
+      .Having('a', '=', 1).OrHaving('b', '=', 2)
+      .GroupHaving
+      .Having('c', '=', 3));
+end;
+
 procedure TJoinTest.InnerJoinComparesColumns;
 begin
   AssertQuery(
@@ -366,6 +427,31 @@ begin
   except
     on E: ELzNex do ;
   end;
+end;
+
+{ "::" e o cast do PostgreSQL. Sem tratamento o segundo ":" abriria ":int" e o
+  Build reclamaria de um parametro que ninguem passou. }
+procedure TRawTest.PostgresCastIsNotAParameter;
+var
+  Fragment: TLzNexFragment;
+begin
+  Fragment := LzNexRaw('select (payload->>''n'')::int from t where id = ?',
+    [7]).Build(FClient);
+  AssertEquals('select (payload->>''n'')::int from t where id = ?',
+    Fragment.Text);
+  AssertEquals('7', BindingsOf(Fragment));
+end;
+
+procedure TRawTest.NamedParameterStillWorksNextToACast;
+var
+  Fragment: TLzNexFragment;
+  Named: TLzNexNamedValues;
+begin
+  Named := Vals(['n', 3]);
+  Fragment := LzNexRawNamed('select a::text from t where b = :n', Named)
+    .Build(FClient);
+  AssertEquals('select a::text from t where b = ?', Fragment.Text);
+  AssertEquals('3', BindingsOf(Fragment));
 end;
 
 procedure TSecurityTest.OperatorOutsideWhitelistRaises;

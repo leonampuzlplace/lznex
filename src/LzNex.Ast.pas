@@ -310,6 +310,12 @@ type
 
     procedure ClearGroup(const AGroup: TLzNexStatementGroup);
 
+    { Fecha o que ja esta no grupo dentro de um "(...)", para que o proximo
+      predicado entre como and do conjunto todo. Sem isso um "or" no topo
+      rouba o and ("a = 1 or b = 2 and novo"), e o predicado novo valeria so
+      para o ultimo ramo do or. False quando nao havia nada a fechar. }
+    function EncloseGroup(const AGroup: TLzNexStatementGroup): Boolean;
+
     function Clone: TLzNexAst;
   end;
 
@@ -819,6 +825,59 @@ end;
 procedure TLzNexAst.ClearGroup(const AGroup: TLzNexStatementGroup);
 begin
   FGroups[AGroup].Clear;
+end;
+
+function TLzNexAst.EncloseGroup(const AGroup: TLzNexStatementGroup): Boolean;
+var
+  L: TLzNexStatementList;
+  G: TLzNexGroupStmt;
+  I: Integer;
+  HasOr: Boolean;
+begin
+  Result := False;
+  if not (AGroup in [sgWhere, sgHaving]) then
+    Exit;
+
+  L := FGroups[AGroup];
+  if L.Count = 0 then
+    Exit;
+
+  { So ha o que fechar quando existe um "or" na raiz: e ele que rouba o and do
+    predicado novo. Com tudo em and, somar mais um and nao muda o sentido e o
+    SQL fica sem parenteses a mais. O BoolOp do primeiro item nao conta --
+    nao ha nada antes dele para ligar. }
+  HasOr := False;
+  for I := 1 to L.Count - 1 do
+    if L[I].BoolOp = boOr then
+    begin
+      HasOr := True;
+      Break;
+    end;
+  if not HasOr then
+    Exit;
+
+  G := TLzNexGroupStmt.Create(AGroup);
+  try
+    for I := 0 to L.Count - 1 do
+      G.Items.Add(L[I]);
+  except
+    { Nada foi removido de L ainda, e G e dono dos mesmos ponteiros: solta a
+      posse antes de liberar o grupo, senao os statements morrem duas vezes. }
+    G.Items.OwnsObjects := False;
+    G.Free;
+    raise;
+  end;
+
+  // Clear sem posse: os statements agora vivem dentro de G.
+  L.OwnsObjects := False;
+  try
+    L.Clear;
+  finally
+    L.OwnsObjects := True;
+  end;
+
+  L.Add(G);
+  Result := True;
 end;
 
 function TLzNexAst.Clone: TLzNexAst;

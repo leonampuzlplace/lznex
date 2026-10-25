@@ -83,6 +83,41 @@ select * from `users` where `email` = ? limit ?</pre>
   <code>Aggregate(agCount, '*').AsInt64</code>.
 </p>
 
+<p>
+  O agregado sai <strong>sem a ordenação</strong> da query: a ordem não muda a conta e custa
+  sort, e no PostgreSQL e no Firebird <code>select count(*) ... order by tag</code> é erro,
+  porque a coluna da ordem não está no <code>group by</code>. Com <code>group by</code> a
+  ordem fica, porque ali é ela que decide qual grupo o agregado devolve.
+</p>
+
+<h2 id="no-mutation">Leitura não muda a query</h2>
+<p>
+  Os terminadores de leitura trabalham num clone. <code>First</code> e <code>Exists</code>
+  precisam de <code>limit</code>, <code>Sole</code> de <code>limit 2</code>,
+  <code>Count</code>/<code>Aggregate</code>/<code>Value</code>/<code>Pluck</code> trocam a
+  lista de colunas — e nada disso fica grudado na <code>ILzNexQuery</code> de quem chamou.
+</p>
+
+<div class="code"><pre data-lang="pascal">Q := Db.Table('users').OrderBy('name');
+
+if Q.Exists then           // select ... limit 1   (no clone)
+  Total := Q.Count;        // select count(*)      (no clone, sem order by)
+
+Rows := Q.Get.ToRows;      // continua "select * from users order by name"</pre></div>
+
+<div class="callout note">
+  <span class="ico">i</span>
+  <div class="body">
+    <span class="t">O que ainda muda a query</span>
+    <p>
+      Os verbos de escrita — <code>Insert</code>, <code>Update</code>, <code>Delete</code>,
+      <code>Truncate</code>, <code>Increment</code>, <code>Decrement</code> — gravam o verbo e
+      os valores na própria query, porque depois de executar não se reusa aquele objeto. Para
+      reaproveitar o escopo, clone antes com <code>Clone</code>.
+    </p>
+  </div>
+</div>
+
 <h2 id="consuming">Consumir o resultado</h2>
 <div class="code"><pre data-lang="pascal">Rows := Db.Table('users').Select(['id', 'name']).Get;
 while Rows.Next do

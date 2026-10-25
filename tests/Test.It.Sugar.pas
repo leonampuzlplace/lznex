@@ -37,6 +37,10 @@ type
     procedure UpdateOrInsertUpdatesWhenTheKeyExists;
     procedure UpdateOrInsertDoesNotDuplicateTheRow;
     procedure UpdateOrInsertStillReportsAnUpdateWhenTheValueDoesNotChange;
+    procedure UpdateOrInsertRespectsAScopeWithOr;
+    procedure ExistsDoesNotLeaveALimitOnTheQuery;
+    procedure CountDoesNotLeaveTheQueryCounting;
+    procedure FirstDoesNotLeaveALimitOnTheQuery;
     procedure UpsertInsertsAndUpdatesInOneCall;
     procedure UpsertOnFirebirdRejectsMoreThanOneRow;
     procedure WithCountCountsRealChildren;
@@ -221,6 +225,74 @@ begin
   FDb.Table(TABLE).UpdateOrInsert(Vals(['tag', 'bbb']), Vals(['score', 77]));
 
   AssertEquals('still three rows, not four', Int64(3), FDb.Table(TABLE).Count);
+end;
+
+{ Escopo com "or" e uma busca que nao casa: tem de inserir, nao atualizar. Sem
+  fechar o escopo a busca valeria so para o ultimo ramo do or, o Exists daria
+  verdadeiro pelo primeiro e o update cairia numa linha que nao casa. }
+procedure TSugarFeatureTest.UpdateOrInsertRespectsAScopeWithOr;
+var
+  Inserted: Boolean;
+begin
+  if SkipWithoutDatabase then Exit;
+  Seed;
+
+  Inserted := FDb.Table(TABLE)
+    .Where('tag', 'aaa')
+    .OrWhere('tag', 'bbb')
+    .UpdateOrInsert(Vals(['tag', 'zzz']), Vals(['score', 99]));
+
+  AssertTrue('tag zzz did not exist, so it is an insert', Inserted);
+  AssertEquals('four rows now', Int64(4), FDb.Table(TABLE).Count);
+  AssertEquals('the new row carries the value', Int64(99),
+    FDb.Table(TABLE).Where('tag', 'zzz').Value('score').AsInt64);
+  AssertEquals('the row in the first branch was not touched', Int64(10),
+    FDb.Table(TABLE).Where('tag', 'aaa').Value('score').AsInt64);
+end;
+
+{ Exists limita a uma linha para responder rapido; esse limite nao pode ficar
+  grudado na query, senao o Get seguinte traria uma linha so. }
+procedure TSugarFeatureTest.ExistsDoesNotLeaveALimitOnTheQuery;
+var
+  Q: ILzNexQuery;
+begin
+  if SkipWithoutDatabase then Exit;
+  Seed;
+
+  Q := FDb.Table(TABLE);
+  AssertTrue('the table has rows', Q.Exists);
+  AssertEquals('and the query still reads all of them', 3,
+    Length(Q.OrderBy('tag').Get.ToRows));
+end;
+
+// Count troca a lista de colunas por count(*); no clone, nao na query.
+procedure TSugarFeatureTest.CountDoesNotLeaveTheQueryCounting;
+var
+  Q: ILzNexQuery;
+  Rows: TLzNexRowArray;
+begin
+  if SkipWithoutDatabase then Exit;
+  Seed;
+
+  Q := FDb.Table(TABLE).OrderBy('tag');
+  AssertEquals('three rows', Int64(3), Q.Count);
+
+  Rows := Q.Get.ToRows;
+  AssertEquals('the query still returns rows, not the count', 3, Length(Rows));
+  AssertEquals('with the real columns', 'aaa', Rows[0].Field('tag').AsString);
+end;
+
+procedure TSugarFeatureTest.FirstDoesNotLeaveALimitOnTheQuery;
+var
+  Q: ILzNexQuery;
+begin
+  if SkipWithoutDatabase then Exit;
+  Seed;
+
+  Q := FDb.Table(TABLE).OrderBy('tag');
+  AssertEquals('first row', 'aaa', Q.First.Field('tag').AsString);
+  AssertEquals('and the query still reads all of them', 3,
+    Length(Q.Get.ToRows));
 end;
 
 procedure TSugarFeatureTest.UpdateOrInsertStillReportsAnUpdateWhenTheValueDoesNotChange;

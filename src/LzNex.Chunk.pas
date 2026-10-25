@@ -118,7 +118,11 @@ begin
     sentido lendo nessa ordem. }
   Q := FSource.Clone.ClearPaging.Clear(sgOrder);
   if not FLastKey.IsUnset then
-    Q.Where(FKeyColumn, '>', FLastKey);
+  begin
+    { GroupWhere antes: num where com "or" no topo o avanco ficaria preso ao
+      ultimo ramo e a varredura releria o mesmo lote para sempre. }
+    Q.GroupWhere.Where(FKeyColumn, '>', FLastKey);
+  end;
   Q.OrderBy(FKeyColumn).Limit(FSize);
 
   Result := RunChunk(Q);

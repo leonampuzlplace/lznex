@@ -36,8 +36,13 @@ x-sqlite-env: &sqlite-env
 
 # Fica saudavel so quando o servidor responde a SQL — o processo sobe antes de
 # o banco existir, e "porta aberta" deixaria a suite conectar cedo demais.
+#
+# O caminho vai com "localhost:" na frente de proposito: sem isso o isql abre o
+# arquivo em modo embedded, o engine do servidor ja o tem aberto e o Firebird
+# recusa os dois com "Database already opened with engine instance". Como o
+# healthcheck repete a cada 5s, isso derrubava a suite de forma intermitente.
 x-fb-healthcheck: &fb-healthcheck
-  test: ["CMD-SHELL", "echo 'select 1 from rdb$$database;' | /opt/firebird/bin/isql -b -user SYSDBA -password secret /var/lib/firebird/data/lznex.fdb"]
+  test: ["CMD-SHELL", "echo 'select 1 from rdb$$database;' | /opt/firebird/bin/isql -b -user SYSDBA -password secret localhost:/var/lib/firebird/data/lznex.fdb"]
   interval: 5s
   timeout: 5s
   retries: 20

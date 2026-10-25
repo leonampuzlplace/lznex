@@ -277,9 +277,9 @@ alter table `users` drop `phone`;</pre></div>
 <p>
   O arquivo é quebrado em comandos pelo <code>;</code>, mas o splitter entende o texto em volta:
   ponto e vírgula dentro de literal (<code>'</code>, <code>"</code>, <code>`</code>), dentro de
-  <code>--</code>, de <code>#</code> ou de <code>/* */</code> não separa nada. Cada comando vai
-  ao banco sozinho, e o erro diz qual deles falhou (<em>statement 2 of 4</em>) com o SQL inteiro
-  anexado.
+  <code>--</code>, de <code>#</code>, de <code>/* */</code> ou de um corpo
+  <code>$$ … $$</code> do PostgreSQL não separa nada. Cada comando vai ao banco sozinho, e o
+  erro diz qual deles falhou (<em>statement 2 of 4</em>) com o SQL inteiro anexado.
 </p>
 
 <div class="code"><pre data-lang="sql">create table a (
@@ -296,17 +296,36 @@ update a set nota = 'c' where id = 1;
 </div>
 
 <p>
-  Literal aberto sem par, ou <code>/*</code> sem <code>*/</code>, levanta
-  <code>ELzNexMigration</code> e <strong>nada</strong> é executado: sem saber onde um comando
-  termina, não há palpite seguro.
+  Literal aberto sem par, <code>/*</code> sem <code>*/</code> ou <code>$$</code> sem par
+  levanta <code>ELzNexMigration</code> e <strong>nada</strong> é executado: sem saber onde um
+  comando termina, não há palpite seguro.
 </p>
+
+<h4>PL/pgSQL entre <code>$$</code></h4>
+<p>
+  No PostgreSQL o corpo de função e de <code>do</code> vem entre <code>$$</code> ou
+  <code>$tag$</code>, e tem <code>;</code> dentro. O splitter pula o corpo inteiro, então a
+  função chega ao banco em uma peça:
+</p>
+
+<div class="code"><pre data-lang="sql">create function bump(n int) returns int as $$
+begin
+  n := n + 1;
+  return n;
+end;
+$$ language plpgsql;
+
+select bump(1);</pre>
+  <p class="code-note">2 comandos: a <code>function</code> inteira e o <code>select</code>. Um <code>$</code> solto não abre corpo — a abertura é <code>$$</code> ou <code>$tag$</code>, com tag vazia ou identificador.</p>
+</div>
 
 <h4>A marca nosplit</h4>
 <p>
-  Corpo de <code>procedure</code>, <code>function</code> ou <code>trigger</code> tem
-  <code>;</code> interno que pertence ao corpo, não ao script. Com a marca
-  <code>lznex:nosplit</code> em qualquer lugar do arquivo (num comentário, por convenção na
-  primeira linha), o arquivo vai ao banco <strong>inteiro</strong>, como um único comando.
+  Nos outros bancos o corpo de <code>procedure</code>, <code>function</code> ou
+  <code>trigger</code> não tem delimitador próprio: o <code>;</code> interno pertence ao corpo,
+  e o splitter não tem como saber. Com a marca <code>lznex:nosplit</code> em qualquer lugar do
+  arquivo (num comentário, por convenção na primeira linha), o arquivo vai ao banco
+  <strong>inteiro</strong>, como um único comando.
 </p>
 
 <div class="code"><pre data-lang="sql">-- lznex:nosplit

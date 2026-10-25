@@ -43,7 +43,15 @@
 <p>
   Na devolução, o pool ainda verifica o estado da conexão: se ficou com transação aberta, faz
   <code>Rollback</code>; se está fechada ou deu erro na verificação, descarta em vez de devolver
-  uma conexão suja ao próximo que pedir.
+  uma conexão suja ao próximo que pedir. Esse <code>Rollback</code> — e o <code>Ping</code> de
+  quem pega a conexão de volta — acontece <strong>fora</strong> da seção crítica: as duas coisas
+  são ida ao servidor, e segurar o lock durante um timeout de rede pararia o
+  <code>Acquire</code> de todas as outras threads.
+</p>
+<p>
+  Quando o empréstimo chega por um cursor, <code>ILzNexResult.Close</code> devolve a conexão na
+  hora, sem esperar a variável sair de escopo — ver
+  <a href="#results/connection-lease">o empréstimo da conexão</a>.
 </p>
 
 <div class="code"><pre data-lang="out">ELzNexPool: Pool exhausted: 8 connections in total (max 8), 8 in use.

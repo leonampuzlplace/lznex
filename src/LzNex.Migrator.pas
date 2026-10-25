@@ -452,8 +452,14 @@ begin
   except
     on E: Exception do
     begin
+      { Rollback dentro de try proprio: se ele tambem falhar, quem sobe e o
+        erro da migration, nao o do rollback -- e o primeiro que diz o que
+        quebrou. }
       if not Trx.IsCompleted then
-        Trx.Rollback;
+        try
+          Trx.Rollback;
+        except
+        end;
       raise ELzNexMigration.Create(
         'Migration ' + AMigration.Name + ' failed: ' + E.Message);
     end;

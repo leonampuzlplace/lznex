@@ -1461,6 +1461,47 @@ select * from `posts` where (`title` <> ? and `body` <> ?)</pre>
   mudaria o sentido do <code>where</code> em silêncio.
 </p>
 
+<h3 id="where__group-where">Fechar o que já está montado</h3>
+<p>
+  <code>and</code> tem precedência maior que <code>or</code> em SQL. Então somar um predicado
+  a um <code>where</code> que já tem <code>or</code> no topo não o aplica ao conjunto: ele
+  cola no último ramo.
+</p>
+
+<div class="code"><pre data-lang="pascal">Db.Table('users')
+  .Where('kind', 'a').OrWhere('kind', 'b')
+  .Where('active', True);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `users` where `kind` = ? or `kind` = ? and `active` = ?</pre>
+  <p class="code-note">o banco lê isto como `kind` = 'a' or (`kind` = 'b' and `active`)</p>
+</div>
+</div>
+
+<p>
+  <code>GroupWhere</code> fecha o que já está lá num parêntese, e o predicado seguinte passa a
+  valer para o conjunto. <code>GroupHaving</code> faz o mesmo no <code>having</code>. Quando
+  tudo é <code>and</code> não há o que fechar, e o método não acrescenta parêntese nenhum.
+</p>
+
+<div class="code"><pre data-lang="pascal">Db.Table('users')
+  .Where('kind', 'a').OrWhere('kind', 'b')
+  .GroupWhere
+  .Where('active', True);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `users` where (`kind` = ? or `kind` = ?) and `active` = ?</pre>
+</div>
+</div>
+
+<p>
+  É o que <code>CursorPaginate</code>, <code>ChunkById</code>, <code>Each</code> e
+  <code>UpdateOrInsert</code> chamam antes de somar o predicado deles — ver
+  <a href="#pagination/or-scope">escopo com or</a>. Chamar <code>GroupWhere</code> com grupo
+  aberto levanta <code>ELzNexBuilder</code>: o fechamento move os predicados para dentro de um
+  grupo novo, e a pilha ficaria apontando para a árvore antiga.
+</p>
+
 <div class="table-wrap">
 <table class="api">
 <thead><tr><th>Método</th><th>Abre</th></tr></thead>
@@ -1469,7 +1510,9 @@ select * from `posts` where (`title` <> ? and `body` <> ?)</pre>
 <tr><td><code>OrWhereOpen</code></td><td><code>or (</code></td></tr>
 <tr><td><code>WhereNotOpen</code></td><td><code>and not (</code></td></tr>
 <tr><td><code>WhereClose</code></td><td>fecha o grupo mais interno</td></tr>
+<tr><td><code>GroupWhere</code></td><td>envolve o <code>where</code> inteiro em <code>(</code>…<code>)</code></td></tr>
 <tr><td><code>HavingOpen</code> / <code>HavingClose</code></td><td>o mesmo, em <code>having</code></td></tr>
+<tr><td><code>GroupHaving</code></td><td>envolve o <code>having</code> inteiro</td></tr>
 </tbody>
 </table>
 </div>
@@ -2023,6 +2066,53 @@ Back   := Db.Table('posts').OrderBy('id').CursorPaginate(5, Second.PrevCursor);
   </div>
 </div>
 
+<h3 id="pagination__or-scope">Escopo com or</h3>
+<p>
+  O corte do cursor, o avanço por chave do <code>ChunkById</code> e a busca do
+  <code>UpdateOrInsert</code> entram como mais um predicado no <code>where</code> que você
+  montou. Como <code>and</code> tem precedência maior que <code>or</code> em SQL, num escopo
+  com <code>or</code> no topo esse predicado colaria só no último ramo — o corte não valeria
+  para o primeiro, e a página seguinte repetiria a mesma para sempre.
+</p>
+<p>
+  Por isso esses métodos chamam <a href="#where/group-where"><code>GroupWhere</code></a> antes:
+  o escopo que veio da query é fechado em parênteses e o predicado vale para o conjunto todo.
+</p>
+
+<div class="code"><pre data-lang="pascal">Db.Table('posts')
+  .Where('kind', 'a').OrWhere('kind', 'b')
+  .OrderBy('id')
+  .CursorPaginate(3, Cursor);</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `posts` where (`kind` = ? or `kind` = ?) and ((`id` > ?)) order by `id` asc limit ?</pre>
+  <p class="code-note">o escopo com or sai fechado; sem isso o corte valeria só para `kind` = 'b'</p>
+</div>
+</div>
+
+<p>
+  Quando o <code>where</code> é todo <code>and</code> nada é fechado, e o SQL sai sem parêntese
+  a mais. Se <strong>você</strong> soma um predicado a um escopo com <code>or</code>, a conta é
+  sua: chame <code>GroupWhere</code> ou monte o <code>or</code> dentro de um
+  <code>WhereOpen</code>/<code>WhereClose</code>.
+</p>
+
+<div class="callout note">
+  <span class="ico">i</span>
+  <div class="body">
+    <span class="t">Paginar não suja a query</span>
+    <p>
+      <code>Paginate</code>, <code>SimplePaginate</code> e <code>CursorPaginate</code> trabalham
+      num clone: a janela, o corte do cursor e a inversão da ordem não ficam grudados na query
+      de quem chamou. Dá para paginar a mesma <code>ILzNexQuery</code> num laço sem que a
+      segunda volta herde o corte da primeira. O mesmo vale para <code>First</code>,
+      <code>Exists</code>, <code>Count</code>, <code>Aggregate</code>, <code>Value</code>,
+      <code>Pluck</code> e <code>Sole</code> — ver <a href="#reading/no-mutation">leitura não
+      muda a query</a>.
+    </p>
+  </div>
+</div>
+
 <h2 id="pagination__chunks">Chunk, ChunkById e Each — varrer tudo</h2>
 <p>
   Paginação é para mostrar; <strong>varredura</strong> é para processar. <code>Chunk</code> lê a
@@ -2302,6 +2392,41 @@ select * from `users` where `email` = ? limit ?</pre>
   Agregado sem coluna vira <code>count(*)</code>. <code>Count</code> é atalho para
   <code>Aggregate(agCount, '*').AsInt64</code>.
 </p>
+
+<p>
+  O agregado sai <strong>sem a ordenação</strong> da query: a ordem não muda a conta e custa
+  sort, e no PostgreSQL e no Firebird <code>select count(*) ... order by tag</code> é erro,
+  porque a coluna da ordem não está no <code>group by</code>. Com <code>group by</code> a
+  ordem fica, porque ali é ela que decide qual grupo o agregado devolve.
+</p>
+
+<h2 id="reading__no-mutation">Leitura não muda a query</h2>
+<p>
+  Os terminadores de leitura trabalham num clone. <code>First</code> e <code>Exists</code>
+  precisam de <code>limit</code>, <code>Sole</code> de <code>limit 2</code>,
+  <code>Count</code>/<code>Aggregate</code>/<code>Value</code>/<code>Pluck</code> trocam a
+  lista de colunas — e nada disso fica grudado na <code>ILzNexQuery</code> de quem chamou.
+</p>
+
+<div class="code"><pre data-lang="pascal">Q := Db.Table('users').OrderBy('name');
+
+if Q.Exists then           // select ... limit 1   (no clone)
+  Total := Q.Count;        // select count(*)      (no clone, sem order by)
+
+Rows := Q.Get.ToRows;      // continua "select * from users order by name"</pre></div>
+
+<div class="callout note">
+  <span class="ico">i</span>
+  <div class="body">
+    <span class="t">O que ainda muda a query</span>
+    <p>
+      Os verbos de escrita — <code>Insert</code>, <code>Update</code>, <code>Delete</code>,
+      <code>Truncate</code>, <code>Increment</code>, <code>Decrement</code> — gravam o verbo e
+      os valores na própria query, porque depois de executar não se reusa aquele objeto. Para
+      reaproveitar o escopo, clone antes com <code>Clone</code>.
+    </p>
+  </div>
+</div>
 
 <h2 id="reading__consuming">Consumir o resultado</h2>
 <div class="code"><pre data-lang="pascal">Rows := Db.Table('users').Select(['id', 'name']).Get;
@@ -3178,16 +3303,17 @@ R.Build(Db.Client);</pre>
 </div>
 </div>
 
-<div class="callout trap">
-  <span class="ico">⚠</span>
+<div class="callout note">
+  <span class="ico">i</span>
   <div class="body">
-    <span class="t">O cast <code>::</code> do PostgreSQL colide com <code>:nome</code></span>
+    <span class="t">O cast <code>::</code> do PostgreSQL passa intacto</span>
     <p>
-      Em <code>id::text</code>, o segundo <code>:</code> é seguido de letra e o parser entende
-      <code>:text</code> como parâmetro nomeado — o <code>Build</code> levanta
-      <code>Raw: parameter ":text" was not given</code>. Escreva <code>id:\:text</code> para
-      escapar, ou use <code>cast(id as text)</code>, que não tem o problema. Vale também em
-      template posicional: o parser de nomeado roda sempre.
+      <code>::</code> é reconhecido antes de <code>:nome</code> e sai literal, então
+      <code>id::text</code> e <code>(payload-&gt;&gt;'n')::int</code> funcionam sem escape. O que
+      o parser trata como parâmetro é <code>:nome</code> com <strong>um</strong> dois-pontos, e
+      como identificador é <code>:nome:</code> — com nome entre os dois pontos. O escape
+      <code>:\:</code> continua valendo, e <code>cast(id as text)</code> segue sendo a forma
+      portável entre os cinco dialetos.
     </p>
   </div>
 </div>
@@ -3394,6 +3520,20 @@ R.Build(Db.Client);</pre>
   <code>Close</code>. Variável local de escopo curto já é suficiente; <code>Close</code> explícito
   serve para encerrar <strong>antes</strong> do fim do escopo. Chamar duas vezes não faz mal.
 </p>
+
+<p>
+  <code>Close</code> também <strong>devolve a conexão ao pool</strong> na hora, sem esperar a
+  variável sair de escopo. Importa quando o pool é pequeno e o mesmo bloco abre vários cursores:
+</p>
+
+<div class="code"><pre data-lang="pascal">A := Db.Table('users').Get;
+// ... le
+A.Close;                       // a conexao volta ao pool aqui
+
+B := Db.Table('posts').Get;    // reusa a mesma vaga
+B.Close;
+
+Total := Db.Table('users').Count;   // ainda ha vaga, mesmo com A e B no escopo</pre></div>
 
 <div class="table-wrap">
 <table class="api">
@@ -3620,16 +3760,15 @@ Rows.Field('nome');
     <span class="t">O resultado segura a conexão, não a variável de conexão</span>
     <p>
       Um resultado vindo do pool carrega <strong>dentro dele</strong> o empréstimo da conexão. O
-      empréstimo termina no fim da vida do <em>resultado</em> — não no fim do escopo onde a
-      conexão foi pedida, e nem no <code>Close</code>: <code>Close</code> fecha o resultset do
-      driver, mas a conexão só volta ao pool quando a última referência ao
-      <code>ILzNexResult</code> é liberada.
+      empréstimo termina no <code>Close</code> — ou, se ninguém chamar <code>Close</code>, no
+      fim da vida do <em>resultado</em>; não no fim do escopo onde a conexão foi pedida.
     </p>
     <p>
       Por isso <code>Db.Fetch(…)</code> e <code>.Get</code> funcionam sem você segurar nenhum
       <code>ILzNexConnection</code>: o resultado faz isso por você. E por isso guardar um
-      <code>ILzNexResult</code> em variável global, campo de objeto ou cache é vazamento de
-      conexão disfarçado.
+      <code>ILzNexResult</code> <strong>sem fechar</strong> em variável global, campo de objeto
+      ou cache é vazamento de conexão disfarçado — ali o <code>Close</code> explícito deixa de
+      ser opcional.
     </p>
   </div>
 </div>
@@ -3650,7 +3789,7 @@ end;
 // certo: devolver o emprestimo antes do fim do escopo
 Rows := Db.Table('users').Get;
 List := Rows.ToRows;
-Rows := nil;              // aqui a conexao volta ao pool
+Rows.Close;               // aqui a conexao volta ao pool
 Process(List);            // as linhas sao copias, nao precisam do cursor</pre></div>
 
 <p>
@@ -5552,9 +5691,9 @@ alter table `users` drop `phone`;</pre></div>
 <p>
   O arquivo é quebrado em comandos pelo <code>;</code>, mas o splitter entende o texto em volta:
   ponto e vírgula dentro de literal (<code>'</code>, <code>"</code>, <code>`</code>), dentro de
-  <code>--</code>, de <code>#</code> ou de <code>/* */</code> não separa nada. Cada comando vai
-  ao banco sozinho, e o erro diz qual deles falhou (<em>statement 2 of 4</em>) com o SQL inteiro
-  anexado.
+  <code>--</code>, de <code>#</code>, de <code>/* */</code> ou de um corpo
+  <code>$$ … $$</code> do PostgreSQL não separa nada. Cada comando vai ao banco sozinho, e o
+  erro diz qual deles falhou (<em>statement 2 of 4</em>) com o SQL inteiro anexado.
 </p>
 
 <div class="code"><pre data-lang="sql">create table a (
@@ -5571,17 +5710,36 @@ update a set nota = 'c' where id = 1;
 </div>
 
 <p>
-  Literal aberto sem par, ou <code>/*</code> sem <code>*/</code>, levanta
-  <code>ELzNexMigration</code> e <strong>nada</strong> é executado: sem saber onde um comando
-  termina, não há palpite seguro.
+  Literal aberto sem par, <code>/*</code> sem <code>*/</code> ou <code>$$</code> sem par
+  levanta <code>ELzNexMigration</code> e <strong>nada</strong> é executado: sem saber onde um
+  comando termina, não há palpite seguro.
 </p>
+
+<h4>PL/pgSQL entre <code>$$</code></h4>
+<p>
+  No PostgreSQL o corpo de função e de <code>do</code> vem entre <code>$$</code> ou
+  <code>$tag$</code>, e tem <code>;</code> dentro. O splitter pula o corpo inteiro, então a
+  função chega ao banco em uma peça:
+</p>
+
+<div class="code"><pre data-lang="sql">create function bump(n int) returns int as $$
+begin
+  n := n + 1;
+  return n;
+end;
+$$ language plpgsql;
+
+select bump(1);</pre>
+  <p class="code-note">2 comandos: a <code>function</code> inteira e o <code>select</code>. Um <code>$</code> solto não abre corpo — a abertura é <code>$$</code> ou <code>$tag$</code>, com tag vazia ou identificador.</p>
+</div>
 
 <h4>A marca nosplit</h4>
 <p>
-  Corpo de <code>procedure</code>, <code>function</code> ou <code>trigger</code> tem
-  <code>;</code> interno que pertence ao corpo, não ao script. Com a marca
-  <code>lznex:nosplit</code> em qualquer lugar do arquivo (num comentário, por convenção na
-  primeira linha), o arquivo vai ao banco <strong>inteiro</strong>, como um único comando.
+  Nos outros bancos o corpo de <code>procedure</code>, <code>function</code> ou
+  <code>trigger</code> não tem delimitador próprio: o <code>;</code> interno pertence ao corpo,
+  e o splitter não tem como saber. Com a marca <code>lznex:nosplit</code> em qualquer lugar do
+  arquivo (num comentário, por convenção na primeira linha), o arquivo vai ao banco
+  <strong>inteiro</strong>, como um único comando.
 </p>
 
 <div class="code"><pre data-lang="sql">-- lznex:nosplit
@@ -6451,7 +6609,15 @@ end;</pre>
 <p>
   Na devolução, o pool ainda verifica o estado da conexão: se ficou com transação aberta, faz
   <code>Rollback</code>; se está fechada ou deu erro na verificação, descarta em vez de devolver
-  uma conexão suja ao próximo que pedir.
+  uma conexão suja ao próximo que pedir. Esse <code>Rollback</code> — e o <code>Ping</code> de
+  quem pega a conexão de volta — acontece <strong>fora</strong> da seção crítica: as duas coisas
+  são ida ao servidor, e segurar o lock durante um timeout de rede pararia o
+  <code>Acquire</code> de todas as outras threads.
+</p>
+<p>
+  Quando o empréstimo chega por um cursor, <code>ILzNexResult.Close</code> devolve a conexão na
+  hora, sem esperar a variável sair de escopo — ver
+  <a href="#results/connection-lease">o empréstimo da conexão</a>.
 </p>
 
 <div class="code"><pre data-lang="out">ELzNexPool: Pool exhausted: 8 connections in total (max 8), 8 in use.
@@ -8561,6 +8727,8 @@ Db.Table('users').Returning(['id']).Insert(Vals(['name', 'Ana']));
 <tr><td><code>function OrWhereOpen: ILzNexQuery</code></td><td>Abre <code>or (</code>.</td></tr>
 <tr><td><code>function WhereNotOpen: ILzNexQuery</code></td><td>Abre <code>and not (</code>.</td></tr>
 <tr><td><code>function WhereClose: ILzNexQuery</code></td><td>Fecha o grupo mais interno.</td></tr>
+<tr><td><code>function GroupWhere: ILzNexQuery</code></td><td>Envolve o <code>where</code> inteiro em <code>(</code>…<code>)</code>, para o próximo predicado valer para o conjunto e não só para o último ramo de um <code>or</code>. Sem <code>or</code> na raiz não acrescenta nada. Com grupo aberto levanta.</td></tr>
+<tr><td><code>function GroupHaving: ILzNexQuery</code></td><td>O mesmo, no <code>having</code>.</td></tr>
 <tr><td><code>function WhereAny(const AColumns: array of string; const AOp: string; const AValue: TLzNexValue): ILzNexQuery</code></td><td>Grupo de <code>or</code> já fechado, com o mesmo teste em cada coluna. Lista vazia levanta.</td></tr>
 <tr><td><code>function WhereAll(const AColumns: array of string; const AOp: string; const AValue: TLzNexValue): ILzNexQuery</code></td><td>O mesmo, com <code>and</code>.</td></tr>
 </tbody>
@@ -8704,11 +8872,11 @@ Db.Table('users').Returning(['id']).Insert(Vals(['name', 'Ana']));
 <div class="table-wrap">
 <table class="api">
 <tbody>
-<tr><td><code>function Paginate(const APage, APerPage: Int64): TLzNexPage</code></td><td>Duas queries: <code>count</code> num clone sem ordem nem janela, e a página. Com <code>group by</code>, <code>having</code>, <code>union</code> ou <code>Distinct</code>, o count vai numa subquery.</td></tr>
-<tr><td><code>function SimplePaginate(const APage, APerPage: Int64): TLzNexSimplePage</code></td><td>Uma query, com <code>limit APerPage + 1</code>: a linha extra responde <code>HasMorePages</code> e é descartada.</td></tr>
-<tr><td><code>function CursorPaginate(const APerPage: Int64; const ACursor: string = ''): TLzNexCursorPage</code></td><td>Keyset. Exige <code>OrderBy</code>; recusa <code>OrderByRaw</code>, ordem de nulos explícita, coluna de ordenação fora do <code>Select</code> e valor nulo na chave. Cursor vazio começa do início.</td></tr>
+<tr><td><code>function Paginate(const APage, APerPage: Int64): TLzNexPage</code></td><td>Duas queries: <code>count</code> num clone sem ordem nem janela, e a página — também num clone, então a janela não fica na query. Com <code>group by</code>, <code>having</code>, <code>union</code> ou <code>Distinct</code>, o count vai numa subquery.</td></tr>
+<tr><td><code>function SimplePaginate(const APage, APerPage: Int64): TLzNexSimplePage</code></td><td>Uma query, com <code>limit APerPage + 1</code>: a linha extra responde <code>HasMorePages</code> e é descartada. Roda num clone.</td></tr>
+<tr><td><code>function CursorPaginate(const APerPage: Int64; const ACursor: string = ''): TLzNexCursorPage</code></td><td>Keyset. Exige <code>OrderBy</code>; recusa <code>OrderByRaw</code>, ordem de nulos explícita, coluna de ordenação fora do <code>Select</code> e valor nulo na chave. Cursor vazio começa do início. O corte e a inversão da ordem vão num clone, e o escopo passa por <code>GroupWhere</code> — paginar a mesma query num laço não acumula corte.</td></tr>
 <tr><td><code>function Chunk(const ASize: Int64): ILzNexChunks</code></td><td>Lotes por <code>limit</code>/<code>offset</code>. Exige <code>OrderBy</code>.</td></tr>
-<tr><td><code>function ChunkById(const ASize: Int64; const AKeyColumn: string = 'id'): ILzNexChunks</code></td><td>Lotes por <code>chave &gt; última lida</code>. Ignora o <code>OrderBy</code> da query e não se perde se o conjunto mudar no meio.</td></tr>
+<tr><td><code>function ChunkById(const ASize: Int64; const AKeyColumn: string = 'id'): ILzNexChunks</code></td><td>Lotes por <code>chave &gt; última lida</code>. Ignora o <code>OrderBy</code> da query e não se perde se o conjunto mudar no meio. O avanço entra depois de <code>GroupWhere</code>, para valer também num escopo com <code>or</code>.</td></tr>
 <tr><td><code>function Each(const AHandler: TLzNexRowProc; const AChunkSize: Int64 = 1000; const AKeyColumn: string = 'id'): Int64</code></td><td><code>ChunkById</code> + handler linha por linha; devolve quantas visitou. O handler é ponteiro de método, com <code>var AStop</code> para interromper.</td></tr>
 </tbody>
 </table>
@@ -8753,23 +8921,23 @@ Db.Table('users').Returning(['id']).Insert(Vals(['name', 'Ana']));
 <tr><td><code>function ToSQLString: string</code></td><td>SQL com os valores já interpolados. <strong>Só para log</strong> — nunca mande ao banco.</td></tr>
 <tr><td><code>function Dump: ILzNexQuery</code></td><td>Despeja <code>ToSQLString</code> no logger da configuração (ou em stdout, se não houver) e devolve a própria query, para seguir a cadeia.</td></tr>
 <tr><td><code>function Get: ILzNexResult</code></td><td>Executa o select e devolve o cursor forward-only.</td></tr>
-<tr><td><code>function First: ILzNexRow</code></td><td>Primeira linha materializada, ou <code>nil</code>. Acrescenta <code>limit 1</code> se não houver limite.</td></tr>
+<tr><td><code>function First: ILzNexRow</code></td><td>Primeira linha materializada, ou <code>nil</code>. Sem janela própria, o <code>limit 1</code> vai num clone — a query de quem chamou não fica limitada.</td></tr>
 <tr><td><code>function Value(const AColumn: string): TLzNexValue</code></td><td>Troca a lista de colunas pela informada e devolve o escalar da primeira linha. Sem linha: <code>Null</code>.</td></tr>
 <tr><td><code>function Scalar: TLzNexValue</code></td><td>Primeira coluna da primeira linha, sem mexer no select.</td></tr>
 <tr><td><code>function Pluck(const AColumn: string): TLzNexValues</code></td><td>Uma coluna de todas as linhas, como array.</td></tr>
 <tr><td><code>function FirstOrFail: ILzNexRow</code></td><td>Como <code>First</code>, mas levanta <code>ELzNexQuery</code> quando nada casa.</td></tr>
 <tr><td><code>function Sole: ILzNexRow</code></td><td>Pede <code>limit 2</code> e exige exatamente uma linha: levanta se nenhuma e levanta se duas.</td></tr>
-<tr><td><code>function Exists: Boolean</code></td><td><code>limit 1</code> e testa se veio linha.</td></tr>
+<tr><td><code>function Exists: Boolean</code></td><td><code>limit 1</code> num clone e testa se veio linha.</td></tr>
 <tr><td><code>function DoesntExist: Boolean</code></td><td>O complemento de <code>Exists</code>.</td></tr>
 <tr><td><code>function Count: Int64</code></td><td>Atalho para <code>Aggregate(agCount, '*').AsInt64</code>.</td></tr>
-<tr><td><code>function Aggregate(const AAgg: TLzNexAggregate; const AColumn: string): TLzNexValue</code></td><td><code>agCount</code>, <code>agMin</code>, <code>agMax</code>, <code>agSum</code>, <code>agAvg</code>.</td></tr>
+<tr><td><code>function Aggregate(const AAgg: TLzNexAggregate; const AColumn: string): TLzNexValue</code></td><td><code>agCount</code>, <code>agMin</code>, <code>agMax</code>, <code>agSum</code>, <code>agAvg</code>. Roda num clone, sem a ordenação (com <code>group by</code> a ordem fica, porque ali ela decide qual grupo volta).</td></tr>
 <tr><td><code>function Insert(const AValues: TLzNexNamedValues): Int64</code></td><td>Uma linha; devolve linhas afetadas. A ordem das colunas informadas é preservada no SQL.</td></tr>
 <tr><td><code>function InsertGetId(const AValues: TLzNexNamedValues): Int64</code></td><td>Insere e devolve o id gerado. Onde há <code>RETURNING</code>, lê do próprio insert; onde não há, pergunta ao banco na <strong>mesma</strong> conexão. Assume a chave <code>id</code>.</td></tr>
 <tr><td><code>function InsertGetId(const AValues: TLzNexNamedValues; const AIdColumn: string): Int64</code></td><td>Idem, quando a chave tem outro nome.</td></tr>
 <tr><td><code>function InsertMany(const ARows: array of TLzNexNamedValues): Int64</code></td><td>Um <code>insert</code> com várias tuplas de <code>values</code>.</td></tr>
 <tr><td><code>function Upsert(const ARows: array of TLzNexNamedValues; const AUniqueBy: array of string; const AUpdate: array of string): Int64</code></td><td><code>InsertMany</code> + <code>OnConflict(AUniqueBy).Merge(AUpdate)</code>. <code>AUpdate</code> vazio atualiza todas as colunas; <code>AUniqueBy</code> vazio levanta.</td></tr>
 <tr><td><code>function Update(const AValues: TLzNexNamedValues): Int64</code></td><td>Linhas afetadas. Lista vazia levanta <code>ELzNexBuilder</code>.</td></tr>
-<tr><td><code>function UpdateOrInsert(const AMatch, AValues: TLzNexNamedValues): Boolean</code></td><td>Consulta a existência, depois atualiza ou insere <code>AMatch + AValues</code>. <code>True</code> = inseriu. Não decide pelo número de linhas afetadas, porque no MySQL um update que grava o mesmo valor devolve zero.</td></tr>
+<tr><td><code>function UpdateOrInsert(const AMatch, AValues: TLzNexNamedValues): Boolean</code></td><td>Consulta a existência, depois atualiza ou insere <code>AMatch + AValues</code>. <code>True</code> = inseriu. Não decide pelo número de linhas afetadas, porque no MySQL um update que grava o mesmo valor devolve zero. A busca entra depois de <code>GroupWhere</code> e a consulta sai do primário, nunca da réplica.</td></tr>
 <tr><td><code>function Increment(const AColumn: string; const ABy: Int64 = 1): Int64</code></td><td><code>coluna = coluna + ?</code> — soma no banco, sem ler-somar-gravar.</td></tr>
 <tr><td><code>function Decrement(const AColumn: string; const ABy: Int64 = 1): Int64</code></td><td>O mesmo, com o sinal invertido.</td></tr>
 <tr><td><code>function Delete: Int64</code></td><td>Linhas apagadas.</td></tr>
@@ -10936,12 +11104,12 @@ LZNEX_CHARSET=UTF-8</pre>
 <table>
 <thead><tr><th>Execução</th><th>Testes</th><th>Erros</th><th>Falhas</th><th>Ignorados</th><th>Exit</th></tr></thead>
 <tbody>
-<tr><td><code>tests</code> (sem banco)</td><td>468</td><td>0</td><td>0</td><td>100</td><td>0</td></tr>
-<tr><td><code>tests-it</code> (MySQL)</td><td>468</td><td>0</td><td>0</td><td>1</td><td>0</td></tr>
-<tr><td><code>tests-it-pg</code> (PostgreSQL)</td><td>468</td><td>0</td><td>0</td><td>1</td><td>0</td></tr>
-<tr><td><code>tests-it-fb3</code> (Firebird 3)</td><td>468</td><td>0</td><td>0</td><td>8</td><td>0</td></tr>
-<tr><td><code>tests-it-fb5</code> (Firebird 5)</td><td>468</td><td>0</td><td>0</td><td>8</td><td>0</td></tr>
-<tr><td><code>tests-it-sqlite</code> (SQLite)</td><td>468</td><td>0</td><td>0</td><td>4</td><td>0</td></tr>
+<tr><td><code>tests</code> (sem banco)</td><td>495</td><td>0</td><td>0</td><td>110</td><td>0</td></tr>
+<tr><td><code>tests-it</code> (MySQL)</td><td>495</td><td>0</td><td>0</td><td>1</td><td>0</td></tr>
+<tr><td><code>tests-it-pg</code> (PostgreSQL)</td><td>495</td><td>0</td><td>0</td><td>1</td><td>0</td></tr>
+<tr><td><code>tests-it-fb3</code> (Firebird 3)</td><td>495</td><td>0</td><td>0</td><td>8</td><td>0</td></tr>
+<tr><td><code>tests-it-fb5</code> (Firebird 5)</td><td>495</td><td>0</td><td>0</td><td>8</td><td>0</td></tr>
+<tr><td><code>tests-it-sqlite</code> (SQLite)</td><td>495</td><td>0</td><td>0</td><td>4</td><td>0</td></tr>
 </tbody>
 </table>
 </div>
@@ -10958,10 +11126,10 @@ LZNEX_CHARSET=UTF-8</pre>
   estar disponível: os 8 do Firebird são JSON (5), texto completo (2) e upsert de várias linhas
   (1); os 4 do SQLite são texto completo (2), índice de texto completo (1) e lock de linha (1);
   o único do MySQL e do PostgreSQL é o teste que prova a recusa do Firebird. A rodada sem banco
-  ignora os 100 casos que precisam de servidor.
+  ignora os 110 casos que precisam de servidor.
 </p>
 
-<div class="code"><pre data-lang="out">sondas: 870 asserções em 7 binários, todas verdes
+<div class="code"><pre data-lang="out">sondas: 870 asserções em 8 binários, todas verdes
 heaptrc: 0 unfreed memory blocks
 API: {"status":"ok","dialect":"mysql"}</pre></div>
 
@@ -10985,7 +11153,7 @@ API: {"status":"ok","dialect":"mysql"}</pre></div>
 <table>
 <thead><tr><th>Arquivo</th><th>Cobre</th></tr></thead>
 <tbody>
-<tr><td><code>Test.Core</code></td><td><code>TLzNexValue</code> (conversão implícita, <code>Unset</code> não bindável, precisão de <code>Int64</code>), <code>Vals</code>/<code>ValueList</code>, ordem dos bindings e composição de fragmentos.</td></tr>
+<tr><td><code>Test.Core</code></td><td><code>TLzNexValue</code> (conversão implícita, <code>Unset</code> não bindável, precisão de <code>Int64</code>), <code>Vals</code>/<code>ValueList</code>, ordem dos bindings, composição de fragmentos e o split de script <code>.sql</code> — <code>;</code> dentro de literal, de comentário e de corpo <code>$$</code> do PostgreSQL.</td></tr>
 <tr><td><code>Test.Query</code></td><td>Select e alias, where e operadores, grupos de predicado, join, ordenação e paginação, SQL cru, clone. Registra também as áreas <code>security</code> (operador fora da lista, valor nunca interpolado, backtick escapado) e <code>dialect</code>.</td></tr>
 <tr><td><code>Test.Postgres</code></td><td>O dialeto PostgreSQL <strong>por texto</strong>: identificador com aspas duplas, <code>limit</code>/<code>offset</code> ANSI, <code>returning</code>, <code>on conflict</code>, <code>distinct on</code>, <code>nulls first/last</code>, <code>truncate</code> e o DDL. Quase todo caso compara com o MySQL para a mesma entrada, e os dois lados são asserções — inclusive o que o MySQL tem que <strong>recusar</strong>.</td></tr>
 <tr><td><code>Test.Firebird</code></td><td>O dialeto Firebird <strong>por texto</strong>, sem banco: identificador, <code>offset … rows fetch next … rows only</code> na ordem certa, <code>with lock</code> e <code>skip locked</code>, <code>update or insert … matching</code>, <code>upper() like upper()</code>, e o DDL — identity, ordem <code>default</code>/<code>not null</code>, <code>blob sub_type</code>, <code>execute block</code> no drop, catálogo <code>rdb$relations</code> e corte do nome de índice em 31 bytes. Também assertam o que o dialeto <strong>recusa</strong>.</td></tr>
@@ -10998,17 +11166,42 @@ API: {"status":"ok","dialect":"mysql"}</pre></div>
 <tr><td><code>Test.Sugar</code></td><td>O açúcar do builder por texto: <code>WhereAny</code>/<code>WhereAll</code> (grupo fechado que não contamina o <code>where</code> seguinte), <code>SelectCount</code>/<code>SelectAggregate</code>, <code>WithCount</code> (inclusive a prova de que a subquery de quem chamou não é alterada), <code>ClearPaging</code>, <code>Dump</code> e o que <code>Upsert</code>/<code>UpdateOrInsert</code> recusam.</td></tr>
 <tr><td><code>Test.Features.MySQL</code> · <code>.Postgres</code> · <code>.SQLite</code> · <code>.Firebird</code></td><td>As variações novas por dialeto, por texto: cada parte de data, JSON nos três modos, texto completo nos dois modos, ordem aleatória — e, em cada dialeto, o que ele <strong>recusa</strong> com mensagem.</td></tr>
 <tr><td><code>Test.Schema.Inspect</code></td><td>O SQL de inspeção de catálogo de cada dialeto: <code>Tables</code>, <code>Columns</code> e <code>HasIndex</code> em <code>information_schema</code>, <code>pg_index</code>, <code>pragma_index_list</code> e <code>rdb$indices</code>.</td></tr>
-<tr><td><code>Test.It.Paginate</code></td><td>Paginação contra banco real, nos cinco: total e janela, última página curta, página além do fim, count com <code>group by</code> e com <code>distinct</code>, <code>SimplePaginate</code>, a caminhada completa do cursor para frente e para trás, o cursor que <strong>não repete linha</strong> quando uma é inserida no meio da leitura, empate desempatado pela segunda chave, e <code>Chunk</code>/<code>ChunkById</code>/<code>Each</code>.</td></tr>
-<tr><td><code>Test.It.Sugar</code></td><td><code>FirstOrFail</code>, <code>Sole</code>, <code>DoesntExist</code>, <code>Upsert</code> e <code>UpdateOrInsert</code> contra banco real — incluindo o caso em que o update grava o mesmo valor e o MySQL devolve zero linhas afetadas, que quebraria uma implementação que decidisse por esse número.</td></tr>
+<tr><td><code>Test.It.Paginate</code></td><td>Paginação contra banco real, nos cinco: total e janela, última página curta, página além do fim, count com <code>group by</code> e com <code>distinct</code>, <code>SimplePaginate</code>, a caminhada completa do cursor para frente e para trás, o cursor que <strong>não repete linha</strong> quando uma é inserida no meio da leitura, empate desempatado pela segunda chave, e <code>Chunk</code>/<code>ChunkById</code>/<code>Each</code>. Também a caminhada sobre um escopo com <code>or</code> (onde o corte preso ao último ramo repetiria a mesma página sem fim) e a mesma query paginada duas vezes, que não pode acumular corte.</td></tr>
+<tr><td><code>Test.It.Sugar</code></td><td><code>FirstOrFail</code>, <code>Sole</code>, <code>DoesntExist</code>, <code>Upsert</code> e <code>UpdateOrInsert</code> contra banco real — incluindo o caso em que o update grava o mesmo valor e o MySQL devolve zero linhas afetadas, que quebraria uma implementação que decidisse por esse número, e o <code>UpdateOrInsert</code> sobre um escopo com <code>or</code>, que não pode escrever na linha errada. Prova também que <code>First</code>, <code>Exists</code> e <code>Count</code> não deixam janela nem agregado grudados na query.</td></tr>
 <tr><td><code>Test.It.Dialect</code></td><td>Partes de data, JSON, ordem aleatória e texto completo contra banco real, decidindo por <strong>capacidade</strong> do dialeto e não por nome de banco.</td></tr>
 <tr><td><code>Test.It.Schema</code></td><td>Inspeção contra banco real: a tabela criada aparece em <code>Tables</code>, <code>Columns</code> vem na ordem declarada, <code>HasIndex</code> acha a unique composta e não acha um conjunto sem índice.</td></tr>
-<tr><td><code>Test.It.Lease</code></td><td>A conexão volta ao pool em <strong>todo</strong> caminho de saída: commit, rollback, transação abandonada (quem desfaz é o destrutor), <code>Transact</code> que comita, <code>Transact</code> que falha e desfaz, e <code>Transact</code> que repete três vezes. Mede <code>Pool.InUse</code>, que é observável — não depende do heaptrc para acusar lease preso.</td></tr>
-<tr><td><code>Test.It.Infra</code></td><td>Query log (logger espião contando <code>LogQuery</code>/<code>LogError</code> e o tempo medido), retry de transação (<code>Transact</code> com <code>ILzNexWork</code>) e roteamento de leitura para a réplica.</td></tr>
+<tr><td><code>Test.It.Lease</code></td><td>A conexão volta ao pool em <strong>todo</strong> caminho de saída: commit, rollback, transação abandonada (quem desfaz é o destrutor), <code>Transact</code> que comita, <code>Transact</code> que falha e desfaz, <code>Transact</code> que repete três vezes, e <code>ILzNexResult.Close</code>, que devolve a conexão na hora em vez de esperar a variável sair de escopo. Mede <code>Pool.InUse</code>, que é observável — não depende do heaptrc para acusar lease preso.</td></tr>
+<tr><td><code>Test.It.Infra</code></td><td>Query log (logger espião contando <code>LogQuery</code>/<code>LogError</code> e o tempo medido), retry de transação (<code>Transact</code> com <code>ILzNexWork</code>) e roteamento de leitura para a réplica — incluindo a consulta de existência do <code>UpdateOrInsert</code>, que sai do primário porque decide uma escrita.</td></tr>
 <tr><td><code>Test.Helper</code></td><td>Base das suítes unitárias: <code>AssertSQL</code>, <code>AssertBindings</code> e <code>AssertQuery</code>, que comparam texto gerado e lista de binds de uma vez.</td></tr>
 <tr><td><code>Probe*.lpr</code></td><td><code>ProbeValue</code> (valor), <code>ProbeAst</code> (AST), <code>ProbeQuery</code> (builder), <code>ProbeCompiler</code> (compilador de query), <code>ProbeSchema</code> (DDL), <code>ProbeMigration</code> (migrator e seeder), <code>ProbeEndToEnd</code> (fachada até o SQL) e <code>ProbeZeos</code> (conexão, pool e transação contra o Zeos).</td></tr>
 <tr><td><code>DiagPool.lpr</code></td><td>Diagnóstico, não teste: imprime <code>InUse</code> e <code>Size</code> do pool a cada passo. Serve para ver uma conexão presa.</td></tr>
 </tbody>
 </table>
+</div>
+
+<h2 id="tests__dev-scripts">Rodar sem passar pelo compose</h2>
+<p>
+  O <code>docker compose run</code> reconstrói a imagem a cada mudança de fonte. Para o laço
+  curto de desenvolvimento há três scripts que montam o repositório no container
+  <code>lznex-builder</code> e compilam com <code>fpc</code> direto, reaproveitando o ZeosLib
+  que já está na imagem:
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>scripts/dev-check.sh [&lt;lpr&gt;]</code></td><td>Compila e roda uma suíte (default <code>tests/LzNexTests.lpr</code>), já com <code>-gh</code> e <code>-dUseCThreads</code>; imprime exit, contagem e as falhas. O banco vem de <code>LZNEX_IT</code>/<code>LZNEX_CLIENT</code>/<code>DB_HOST</code> no ambiente.</td></tr>
+<tr><td><code>scripts/dev-check-all.sh</code></td><td>O mesmo contra os cinco bancos em sequência. Precisa dos servidores no ar (<code>docker compose up -d mysql postgres firebird3 firebird5</code>).</td></tr>
+<tr><td><code>scripts/dev-probes.sh</code></td><td>Compila e roda as oito sondas, uma linha por sonda.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="code"><pre data-lang="sh">docker run --rm -v "$PWD":/host -w /work -e HEAPTRC=haltonnotreleased   lznex-builder bash /host/scripts/dev-check.sh
+
+docker compose up -d mysql postgres firebird3 firebird5
+bash scripts/dev-check-all.sh</pre>
+  <p class="code-note">o CI continua usando o compose; estes scripts são bancada, não substituem o gate</p>
 </div>
 
 <h2 id="tests__leak-gate">Gate de vazamento</h2>
@@ -11607,12 +11800,35 @@ executed. Keep one migration per structural change so the damage stays small.</p
 <td><code>ELzNexPool: Pool exhausted: N connections in total (max M), N in use</code></td>
 <td>
   Duas causas. (a) Alguma <code>ILzNexConnection</code> está viva além do escopo da
-  requisição — cursor não consumido até o fim ou transação sem <code>Commit</code>/
-  <code>Rollback</code> segura o empréstimo até ser liberada. (b) O <code>max</code> é
-  baixo para o número de threads: um servidor que atende N requisições em paralelo precisa
-  de pelo menos N conexões se cada uma mantém cursor aberto. Diagnostique com
-  <code>Db.Pool.InUse</code> e <code>Db.Pool.Size</code> (é o que o
+  requisição — cursor aberto ou transação sem <code>Commit</code>/<code>Rollback</code>
+  segura o empréstimo até ser liberada. Chame <code>Close</code> no
+  <code>ILzNexResult</code>: a conexão volta ao pool ali, sem esperar a variável sair de
+  escopo. (b) O <code>max</code> é baixo para o número de threads: um servidor que atende N
+  requisições em paralelo precisa de pelo menos N conexões se cada uma mantém cursor aberto.
+  Diagnostique com <code>Db.Pool.InUse</code> e <code>Db.Pool.Size</code> (é o que o
   <code>tests/DiagPool.lpr</code> imprime a cada passo).
+</td>
+</tr>
+
+<tr>
+<td>A paginação por cursor devolve sempre a <strong>mesma</strong> página</td>
+<td>
+  Em versão anterior a esta, um <code>where</code> com <code>or</code> no topo prendia o corte
+  do cursor ao último ramo do <code>or</code> e a navegação não avançava; o mesmo acontecia com
+  o <code>ChunkById</code>/<code>Each</code>, que reliam o mesmo lote sem fim. Hoje esses
+  métodos fecham o escopo com <a href="#where/group-where"><code>GroupWhere</code></a> antes de
+  somar o predicado. Se você monta o predicado à mão sobre um escopo com <code>or</code>, chame
+  <code>GroupWhere</code> — ver <a href="#pagination/or-scope">escopo com or</a>.
+</td>
+</tr>
+
+<tr>
+<td><code>column "t.x" must appear in the GROUP BY clause</code> num <code>Count</code></td>
+<td>
+  PostgreSQL e Firebird recusam <code>order by</code> de coluna não agregada junto com
+  <code>count(*)</code>. O agregado já sai sem a ordenação da query, então esta mensagem
+  aponta para um <code>OrderBy</code> que você mesmo colocou num <code>Select</code> com
+  agregado e sem <code>group by</code> — ver <a href="#reading/aggregates">agregados</a>.
 </td>
 </tr>
 

@@ -157,17 +157,29 @@ docker compose run --rm cli migrate:latest
 docker compose up -d api && curl localhost:9000/health
 ```
 
+Laço curto, sem reconstruir a imagem a cada mudança de fonte:
+
+```sh
+docker run --rm -v "$PWD":/host -w /work -e HEAPTRC=haltonnotreleased \
+  lznex-builder bash /host/scripts/dev-check.sh    # compila e roda a suíte
+
+docker compose up -d mysql postgres firebird3 firebird5
+bash scripts/dev-check-all.sh                      # a suíte contra os cinco
+docker run --rm -v "$PWD":/host -w /work lznex-builder \
+  bash /host/scripts/dev-probes.sh                 # as oito sondas
+```
+
 Saída observada na última execução, a mesma suíte contra cada banco:
 
 ```
-tests-it         (MySQL)        468 testes · 0 erros · 0 falhas ·   1 ignorado  · exit 0
-tests-it-pg      (PostgreSQL)   468 testes · 0 erros · 0 falhas ·   1 ignorado  · exit 0
-tests-it-fb3     (Firebird 3)   468 testes · 0 erros · 0 falhas ·   8 ignorados · exit 0
-tests-it-fb5     (Firebird 5)   468 testes · 0 erros · 0 falhas ·   8 ignorados · exit 0
-tests-it-sqlite  (SQLite)       468 testes · 0 erros · 0 falhas ·   4 ignorados · exit 0
-tests            (sem banco)    468 testes · 0 erros · 0 falhas · 100 ignorados · exit 0
+tests-it         (MySQL)        495 testes · 0 erros · 0 falhas ·   1 ignorado  · exit 0
+tests-it-pg      (PostgreSQL)   495 testes · 0 erros · 0 falhas ·   1 ignorado  · exit 0
+tests-it-fb3     (Firebird 3)   495 testes · 0 erros · 0 falhas ·   8 ignorados · exit 0
+tests-it-fb5     (Firebird 5)   495 testes · 0 erros · 0 falhas ·   8 ignorados · exit 0
+tests-it-sqlite  (SQLite)       495 testes · 0 erros · 0 falhas ·   4 ignorados · exit 0
+tests            (sem banco)    495 testes · 0 erros · 0 falhas · 110 ignorados · exit 0
 
-sondas: 870 asserções em 7 binários, todas verdes
+sondas: 870 asserções em 8 binários, todas verdes
 heaptrc: 0 unfreed memory blocks
 API: {"status":"ok","dialect":"mysql"}
 ```
@@ -263,4 +275,14 @@ Programa que usa threads precisa de `cthreads` no início do `uses` (Unix).
   **não** detecta é a última chave não ser única — ordene por uma coluna única no fim (em
   geral a chave primária), ou linhas empatadas podem ser puladas.
 - **Réplica de leitura** (`ReadReplica`) não tem *sticky*: leitura logo depois de escrita
-  pode não ver o dado se a replicação estiver atrasada. Use `UsePrimary` ou uma transação.
+  pode não ver o dado se a replicação estiver atrasada. Use `UsePrimary` ou uma transação. A
+  consulta de existência do `UpdateOrInsert` já sai do primário, porque decide uma escrita.
+- **Predicado somado a um escopo com `or`** cola no último ramo, não no conjunto —
+  precedência de SQL. `CursorPaginate`, `ChunkById`, `Each` e `UpdateOrInsert` chamam
+  `GroupWhere` antes de somar o deles; se você soma o seu, chame `GroupWhere` também.
+- **`UpdateOrInsert` não é atômico**: ele consulta a existência e depois escreve. Fora de
+  transação, duas execuções simultâneas podem inserir as duas. Para garantir unicidade, o que
+  resolve é a constraint no banco (ou `Upsert`, que é um comando só).
+- **Split de `.sql`**: `;` dentro de literal, comentário e corpo `$$` do PostgreSQL não
+  separa. Corpo de procedure sem delimitador (MySQL, Firebird) precisa da marca
+  `lznex:nosplit`, que manda o arquivo inteiro como um comando.

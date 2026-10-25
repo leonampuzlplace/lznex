@@ -37,6 +37,8 @@ type
     procedure RollbackReturnsTheConnection;
     procedure AbandonedTransactionReturnsTheConnection;
     procedure QueryInsideTransactionDoesNotHoldTheLease;
+    procedure ClosingTheCursorReturnsTheConnection;
+    procedure ClosedCursorsDoNotExhaustThePool;
     procedure TransactReturnsTheConnectionOnCommit;
     procedure TransactReturnsTheConnectionOnRollback;
     procedure TransactReturnsTheConnectionOnEveryRetry;
@@ -195,6 +197,47 @@ begin
 
   AssertEquals('the surviving query does not hold the lease', 0, FDb.Pool.InUse);
   Q := nil;
+end;
+
+procedure TLeaseTest.ClosingTheCursorReturnsTheConnection;
+var
+  Res: ILzNexResult;
+begin
+  if SkipWithoutDatabase then Exit;
+
+  FDb.Table(LEASE_TABLE).Insert(Vals(['tag', 'one']));
+
+  Res := FDb.Table(LEASE_TABLE).Get;
+  AssertEquals('an open cursor holds its lease', 1, FDb.Pool.InUse);
+
+  { Close devolve na hora. Esperar o refcount morrer prenderia a conexao ate a
+    variavel sair de escopo, e com pool pequeno a proxima query bateria em
+    "Pool exhausted". }
+  Res.Close;
+  AssertEquals('Close returns the connection right away', 0, FDb.Pool.InUse);
+
+  Res := nil;
+  AssertEquals('releasing the closed cursor changes nothing', 0,
+    FDb.Pool.InUse);
+end;
+
+procedure TLeaseTest.ClosedCursorsDoNotExhaustThePool;
+var
+  A, B, C, D: ILzNexResult;
+begin
+  if SkipWithoutDatabase then Exit;
+
+  FDb.Table(LEASE_TABLE).Insert(Vals(['tag', 'one']));
+
+  // O pool desta suite tem max 4: quatro cursores fechados e ainda sobra vaga.
+  A := FDb.Table(LEASE_TABLE).Get; A.Close;
+  B := FDb.Table(LEASE_TABLE).Get; B.Close;
+  C := FDb.Table(LEASE_TABLE).Get; C.Close;
+  D := FDb.Table(LEASE_TABLE).Get; D.Close;
+
+  AssertEquals('nothing in use', 0, FDb.Pool.InUse);
+  AssertEquals('a fifth read still works', Int64(1),
+    FDb.Table(LEASE_TABLE).Count);
 end;
 
 procedure TLeaseTest.TransactReturnsTheConnectionOnCommit;

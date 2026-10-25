@@ -397,6 +397,15 @@ type
 
     function WhereClose: ILzNexQuery;
 
+    { Fecha o where atual num "(...)". Use antes de somar um predicado a um
+      where que tem "or" no topo: "a = 1 or b = 2" mais um Where('c', 3) sai
+      como "a = 1 or b = 2 and c = 3", e o and vale so para o ultimo ramo.
+      Com GroupWhere sai "(a = 1 or b = 2) and c = 3". }
+    function GroupWhere: ILzNexQuery;
+
+    // Mesma coisa para o having.
+    function GroupHaving: ILzNexQuery;
+
     function Join(const ATable: string): ILzNexJoin;
     function JoinAs(const ATable, AAlias: string): ILzNexJoin;
     function InnerJoin(const ATable: string): ILzNexJoin;

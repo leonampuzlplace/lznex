@@ -138,6 +138,8 @@
 <tr><td><code>function OrWhereOpen: ILzNexQuery</code></td><td>Abre <code>or (</code>.</td></tr>
 <tr><td><code>function WhereNotOpen: ILzNexQuery</code></td><td>Abre <code>and not (</code>.</td></tr>
 <tr><td><code>function WhereClose: ILzNexQuery</code></td><td>Fecha o grupo mais interno.</td></tr>
+<tr><td><code>function GroupWhere: ILzNexQuery</code></td><td>Envolve o <code>where</code> inteiro em <code>(</code>…<code>)</code>, para o próximo predicado valer para o conjunto e não só para o último ramo de um <code>or</code>. Sem <code>or</code> na raiz não acrescenta nada. Com grupo aberto levanta.</td></tr>
+<tr><td><code>function GroupHaving: ILzNexQuery</code></td><td>O mesmo, no <code>having</code>.</td></tr>
 <tr><td><code>function WhereAny(const AColumns: array of string; const AOp: string; const AValue: TLzNexValue): ILzNexQuery</code></td><td>Grupo de <code>or</code> já fechado, com o mesmo teste em cada coluna. Lista vazia levanta.</td></tr>
 <tr><td><code>function WhereAll(const AColumns: array of string; const AOp: string; const AValue: TLzNexValue): ILzNexQuery</code></td><td>O mesmo, com <code>and</code>.</td></tr>
 </tbody>
@@ -281,11 +283,11 @@
 <div class="table-wrap">
 <table class="api">
 <tbody>
-<tr><td><code>function Paginate(const APage, APerPage: Int64): TLzNexPage</code></td><td>Duas queries: <code>count</code> num clone sem ordem nem janela, e a página. Com <code>group by</code>, <code>having</code>, <code>union</code> ou <code>Distinct</code>, o count vai numa subquery.</td></tr>
-<tr><td><code>function SimplePaginate(const APage, APerPage: Int64): TLzNexSimplePage</code></td><td>Uma query, com <code>limit APerPage + 1</code>: a linha extra responde <code>HasMorePages</code> e é descartada.</td></tr>
-<tr><td><code>function CursorPaginate(const APerPage: Int64; const ACursor: string = ''): TLzNexCursorPage</code></td><td>Keyset. Exige <code>OrderBy</code>; recusa <code>OrderByRaw</code>, ordem de nulos explícita, coluna de ordenação fora do <code>Select</code> e valor nulo na chave. Cursor vazio começa do início.</td></tr>
+<tr><td><code>function Paginate(const APage, APerPage: Int64): TLzNexPage</code></td><td>Duas queries: <code>count</code> num clone sem ordem nem janela, e a página — também num clone, então a janela não fica na query. Com <code>group by</code>, <code>having</code>, <code>union</code> ou <code>Distinct</code>, o count vai numa subquery.</td></tr>
+<tr><td><code>function SimplePaginate(const APage, APerPage: Int64): TLzNexSimplePage</code></td><td>Uma query, com <code>limit APerPage + 1</code>: a linha extra responde <code>HasMorePages</code> e é descartada. Roda num clone.</td></tr>
+<tr><td><code>function CursorPaginate(const APerPage: Int64; const ACursor: string = ''): TLzNexCursorPage</code></td><td>Keyset. Exige <code>OrderBy</code>; recusa <code>OrderByRaw</code>, ordem de nulos explícita, coluna de ordenação fora do <code>Select</code> e valor nulo na chave. Cursor vazio começa do início. O corte e a inversão da ordem vão num clone, e o escopo passa por <code>GroupWhere</code> — paginar a mesma query num laço não acumula corte.</td></tr>
 <tr><td><code>function Chunk(const ASize: Int64): ILzNexChunks</code></td><td>Lotes por <code>limit</code>/<code>offset</code>. Exige <code>OrderBy</code>.</td></tr>
-<tr><td><code>function ChunkById(const ASize: Int64; const AKeyColumn: string = 'id'): ILzNexChunks</code></td><td>Lotes por <code>chave &gt; última lida</code>. Ignora o <code>OrderBy</code> da query e não se perde se o conjunto mudar no meio.</td></tr>
+<tr><td><code>function ChunkById(const ASize: Int64; const AKeyColumn: string = 'id'): ILzNexChunks</code></td><td>Lotes por <code>chave &gt; última lida</code>. Ignora o <code>OrderBy</code> da query e não se perde se o conjunto mudar no meio. O avanço entra depois de <code>GroupWhere</code>, para valer também num escopo com <code>or</code>.</td></tr>
 <tr><td><code>function Each(const AHandler: TLzNexRowProc; const AChunkSize: Int64 = 1000; const AKeyColumn: string = 'id'): Int64</code></td><td><code>ChunkById</code> + handler linha por linha; devolve quantas visitou. O handler é ponteiro de método, com <code>var AStop</code> para interromper.</td></tr>
 </tbody>
 </table>
@@ -330,23 +332,23 @@
 <tr><td><code>function ToSQLString: string</code></td><td>SQL com os valores já interpolados. <strong>Só para log</strong> — nunca mande ao banco.</td></tr>
 <tr><td><code>function Dump: ILzNexQuery</code></td><td>Despeja <code>ToSQLString</code> no logger da configuração (ou em stdout, se não houver) e devolve a própria query, para seguir a cadeia.</td></tr>
 <tr><td><code>function Get: ILzNexResult</code></td><td>Executa o select e devolve o cursor forward-only.</td></tr>
-<tr><td><code>function First: ILzNexRow</code></td><td>Primeira linha materializada, ou <code>nil</code>. Acrescenta <code>limit 1</code> se não houver limite.</td></tr>
+<tr><td><code>function First: ILzNexRow</code></td><td>Primeira linha materializada, ou <code>nil</code>. Sem janela própria, o <code>limit 1</code> vai num clone — a query de quem chamou não fica limitada.</td></tr>
 <tr><td><code>function Value(const AColumn: string): TLzNexValue</code></td><td>Troca a lista de colunas pela informada e devolve o escalar da primeira linha. Sem linha: <code>Null</code>.</td></tr>
 <tr><td><code>function Scalar: TLzNexValue</code></td><td>Primeira coluna da primeira linha, sem mexer no select.</td></tr>
 <tr><td><code>function Pluck(const AColumn: string): TLzNexValues</code></td><td>Uma coluna de todas as linhas, como array.</td></tr>
 <tr><td><code>function FirstOrFail: ILzNexRow</code></td><td>Como <code>First</code>, mas levanta <code>ELzNexQuery</code> quando nada casa.</td></tr>
 <tr><td><code>function Sole: ILzNexRow</code></td><td>Pede <code>limit 2</code> e exige exatamente uma linha: levanta se nenhuma e levanta se duas.</td></tr>
-<tr><td><code>function Exists: Boolean</code></td><td><code>limit 1</code> e testa se veio linha.</td></tr>
+<tr><td><code>function Exists: Boolean</code></td><td><code>limit 1</code> num clone e testa se veio linha.</td></tr>
 <tr><td><code>function DoesntExist: Boolean</code></td><td>O complemento de <code>Exists</code>.</td></tr>
 <tr><td><code>function Count: Int64</code></td><td>Atalho para <code>Aggregate(agCount, '*').AsInt64</code>.</td></tr>
-<tr><td><code>function Aggregate(const AAgg: TLzNexAggregate; const AColumn: string): TLzNexValue</code></td><td><code>agCount</code>, <code>agMin</code>, <code>agMax</code>, <code>agSum</code>, <code>agAvg</code>.</td></tr>
+<tr><td><code>function Aggregate(const AAgg: TLzNexAggregate; const AColumn: string): TLzNexValue</code></td><td><code>agCount</code>, <code>agMin</code>, <code>agMax</code>, <code>agSum</code>, <code>agAvg</code>. Roda num clone, sem a ordenação (com <code>group by</code> a ordem fica, porque ali ela decide qual grupo volta).</td></tr>
 <tr><td><code>function Insert(const AValues: TLzNexNamedValues): Int64</code></td><td>Uma linha; devolve linhas afetadas. A ordem das colunas informadas é preservada no SQL.</td></tr>
 <tr><td><code>function InsertGetId(const AValues: TLzNexNamedValues): Int64</code></td><td>Insere e devolve o id gerado. Onde há <code>RETURNING</code>, lê do próprio insert; onde não há, pergunta ao banco na <strong>mesma</strong> conexão. Assume a chave <code>id</code>.</td></tr>
 <tr><td><code>function InsertGetId(const AValues: TLzNexNamedValues; const AIdColumn: string): Int64</code></td><td>Idem, quando a chave tem outro nome.</td></tr>
 <tr><td><code>function InsertMany(const ARows: array of TLzNexNamedValues): Int64</code></td><td>Um <code>insert</code> com várias tuplas de <code>values</code>.</td></tr>
 <tr><td><code>function Upsert(const ARows: array of TLzNexNamedValues; const AUniqueBy: array of string; const AUpdate: array of string): Int64</code></td><td><code>InsertMany</code> + <code>OnConflict(AUniqueBy).Merge(AUpdate)</code>. <code>AUpdate</code> vazio atualiza todas as colunas; <code>AUniqueBy</code> vazio levanta.</td></tr>
 <tr><td><code>function Update(const AValues: TLzNexNamedValues): Int64</code></td><td>Linhas afetadas. Lista vazia levanta <code>ELzNexBuilder</code>.</td></tr>
-<tr><td><code>function UpdateOrInsert(const AMatch, AValues: TLzNexNamedValues): Boolean</code></td><td>Consulta a existência, depois atualiza ou insere <code>AMatch + AValues</code>. <code>True</code> = inseriu. Não decide pelo número de linhas afetadas, porque no MySQL um update que grava o mesmo valor devolve zero.</td></tr>
+<tr><td><code>function UpdateOrInsert(const AMatch, AValues: TLzNexNamedValues): Boolean</code></td><td>Consulta a existência, depois atualiza ou insere <code>AMatch + AValues</code>. <code>True</code> = inseriu. Não decide pelo número de linhas afetadas, porque no MySQL um update que grava o mesmo valor devolve zero. A busca entra depois de <code>GroupWhere</code> e a consulta sai do primário, nunca da réplica.</td></tr>
 <tr><td><code>function Increment(const AColumn: string; const ABy: Int64 = 1): Int64</code></td><td><code>coluna = coluna + ?</code> — soma no banco, sem ler-somar-gravar.</td></tr>
 <tr><td><code>function Decrement(const AColumn: string; const ABy: Int64 = 1): Int64</code></td><td>O mesmo, com o sinal invertido.</td></tr>
 <tr><td><code>function Delete: Int64</code></td><td>Linhas apagadas.</td></tr>
