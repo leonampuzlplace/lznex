@@ -88,9 +88,12 @@
 </div>
 
 <p>
-  No Postgres, <code>Merge</code> exige as colunas de conflito — <code>OnConflict([])</code>
-  seguido de <code>Merge</code> levanta <code>ELzNexCompile</code>, porque
-  <code>do update</code> sem alvo não é SQL válido. <code>Ignore</code> aceita a lista vazia. O SQL
-  de cada combinação, nos dois bancos, está em <a href="#writing/upsert">Upsert</a>.
+  No Postgres e no SQLite, <code>Merge</code> exige as colunas de conflito —
+  <code>OnConflict([])</code> seguido de <code>Merge</code> levanta
+  <code>ELzNexCompile</code>, porque <code>do update</code> sem alvo não é SQL válido.
+  <code>Ignore</code> aceita a lista vazia. No Firebird é o oposto:
+  <code>update or insert</code> sem <code>matching</code> casa pela chave primária, e é
+  <code>Ignore</code> que não tem equivalente. O SQL de cada combinação em cada banco está em
+  <a href="#writing/upsert">Upsert</a>.
 </p>
 </article>

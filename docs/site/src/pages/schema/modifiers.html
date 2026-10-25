@@ -10,15 +10,15 @@
 <table class="api">
 <tbody>
 <tr><td><code>function NotNull: ILzNexTable</code></td><td>Remove a nulidade. Sai <code>not null</code> no DDL.</td></tr>
-<tr><td><code>function Nullable: ILzNexTable</code></td><td>Volta a permitir nulo (é o estado inicial de toda coluna). Sai <code>null</code>.</td></tr>
-<tr><td><code>function Unsigned: ILzNexTable</code></td><td>Numérico sem sinal. Emitido no MySQL; <strong>ignorado em silêncio</strong> no PostgreSQL.</td></tr>
-<tr><td><code>function Default_(const AValue: TLzNexValue): ILzNexTable</code></td><td>Valor padrão <strong>interpolado</strong> no DDL (string escapada, booleano vira <code>1</code>). O underscore é só para escapar a palavra reservada. <code>TLzNexValue.Unset</code> levanta <code>ELzNexSchema</code>; para nulo explícito use <code>TLzNexValue.Null</code>.</td></tr>
+<tr><td><code>function Nullable: ILzNexTable</code></td><td>Volta a permitir nulo (é o estado inicial de toda coluna). Sai <code>null</code> em MySQL e PostgreSQL; em Firebird e SQLite não sai nada, porque nenhum dos dois aceita <code>null</code> como restrição.</td></tr>
+<tr><td><code>function Unsigned: ILzNexTable</code></td><td>Numérico sem sinal. Só o MySQL tem o conceito; nos outros três é <strong>ignorado em silêncio</strong>.</td></tr>
+<tr><td><code>function Default_(const AValue: TLzNexValue): ILzNexTable</code></td><td>Valor padrão <strong>interpolado</strong> no DDL (string escapada; booleano vira <code>1</code>/<code>0</code> no MySQL e no SQLite, <code>true</code>/<code>false</code> em PostgreSQL e Firebird, que recusam o inteiro numa coluna <code>boolean</code>). O underscore é só para escapar a palavra reservada. <code>TLzNexValue.Unset</code> levanta <code>ELzNexSchema</code>; para nulo explícito use <code>TLzNexValue.Null</code>.</td></tr>
 <tr><td><code>function DefaultRaw(const ASQL: string): ILzNexTable</code></td><td>Padrão que é expressão, não valor: entra cru, sem quote (<code>CURRENT_TIMESTAMP</code>, <code>uuid_generate_v4()</code>). SQL vazio levanta.</td></tr>
-<tr><td><code>function Comment(const AText: string): ILzNexTable</code></td><td>Comentário da coluna. Inline no MySQL, comando separado no PostgreSQL.</td></tr>
-<tr><td><code>function Collate(const AName: string): ILzNexTable</code></td><td><code>collate '&lt;nome&gt;'</code> na coluna. Só o MySQL emite — o PostgreSQL não tem esse modificador na ordem dele.</td></tr>
-<tr><td><code>function After(const AColumn: string): ILzNexTable</code></td><td>Posiciona a coluna depois de outra (<code>after `id`</code>). Extensão do MySQL; no PostgreSQL não sai nada.</td></tr>
+<tr><td><code>function Comment(const AText: string): ILzNexTable</code></td><td>Comentário da coluna. Inline no MySQL, comando separado em PostgreSQL e Firebird, descartado em silêncio no SQLite.</td></tr>
+<tr><td><code>function Collate(const AName: string): ILzNexTable</code></td><td>Collation da coluna. <code>collate '&lt;nome&gt;'</code> no MySQL (literal) e <code>collate &lt;nome&gt;</code> em Firebird e SQLite (identificador). O PostgreSQL não tem esse modificador na ordem dele.</td></tr>
+<tr><td><code>function After(const AColumn: string): ILzNexTable</code></td><td>Posiciona a coluna depois de outra (<code>after `id`</code>). Extensão do MySQL; nos outros não sai nada.</td></tr>
 <tr><td><code>function Primary: ILzNexTable</code></td><td>Entra a coluna atual na primary key. Chamado em duas colunas, monta uma PK composta. Veja <a href="#indexes">Índices e chaves</a>.</td></tr>
-<tr><td><code>function Unique: ILzNexTable</code></td><td>Índice único de uma coluna. Vira comando no <code>Post</code> do plano, não cláusula do <code>create table</code>.</td></tr>
+<tr><td><code>function Unique: ILzNexTable</code></td><td>Índice único de uma coluna. Vira comando no <code>Post</code> do plano, não cláusula do <code>create table</code> — exceto no SQLite, onde a restrição tem de nascer dentro do <code>create table</code>.</td></tr>
 <tr><td><code>function Index: ILzNexTable</code></td><td>Índice comum de uma coluna. Também vira comando no <code>Post</code>.</td></tr>
 <tr><td><code>function Change: ILzNexTable</code></td><td>Marca a coluna como <strong>alteração</strong> em vez de adição. Só vale em alter table — veja <a href="#alter-table">Alterar tabela</a>.</td></tr>
 </tbody>
@@ -65,6 +65,8 @@ T2.Int('n').After('id').Collate('utf8mb4_bin').Comment('qtd').NotNull.Unsigned.D
 <tbody>
 <tr><td>MySQL</td><td><code>unsigned</code> → <code>null</code>/<code>not null</code> → <code>default</code> → <code>comment</code> → <code>collate</code> → <code>after</code></td></tr>
 <tr><td>PostgreSQL</td><td><code>null</code>/<code>not null</code> → <code>default</code></td></tr>
+<tr><td>Firebird</td><td><code>default</code> → <code>not null</code> → <code>collate</code></td></tr>
+<tr><td>SQLite</td><td><code>not null</code> → <code>default</code> → <code>collate</code></td></tr>
 </tbody>
 </table>
 </div>
@@ -72,9 +74,19 @@ T2.Int('n').After('id').Collate('utf8mb4_bin').Comment('qtd').NotNull.Unsigned.D
 <p>
   Seguir a ordem de chamada geraria DDL inválido: <code>int not null unsigned</code> ou
   <code>int default 7 not null</code> são erro de sintaxe no MySQL, que exige
-  <code>unsigned</code> colado no tipo e <code>default</code> depois da nulidade. É por isso que
-  a ordem não é negociável — e por isso a lista do PostgreSQL é curta: o que aquele banco não
+  <code>unsigned</code> colado no tipo e <code>default</code> depois da nulidade. O Firebird é
+  o espelho disso — lá o <code>default</code> tem de vir <strong>antes</strong> do
+  <code>not null</code>, e <code>not null default 0</code> é erro de sintaxe. É por isso que
+  a ordem não é negociável. E por isso a lista do PostgreSQL é curta: o que aquele banco não
   tem como modificador de coluna simplesmente não entra na lista e nunca é emitido.
+</p>
+
+<p>
+  Em Firebird e SQLite a nulidade <strong>não</strong> é sempre explícita, ao contrário dos
+  outros dois: nenhum dos dois aceita <code>null</code> como restrição, então coluna anulável
+  não emite nada e só o <code>not null</code> aparece. E o <code>collate</code> dos dois é
+  <strong>identificador</strong>, não literal entre aspas: <code>collate UNICODE_CI</code>,
+  <code>collate NOCASE</code>.
 </p>
 
 <div class="callout trap">
@@ -84,26 +96,35 @@ T2.Int('n').After('id').Collate('utf8mb4_bin').Comment('qtd').NotNull.Unsigned.D
     <p>
       <code>Increments</code> e <code>BigIncrements</code> já carregam o texto completo do tipo
       (<code>int unsigned not null auto_increment primary key</code> no MySQL,
-      <code>serial primary key</code> no PostgreSQL). O compilador <strong>pula o laço de
+      <code>serial primary key</code> no PostgreSQL,
+      <code>integer generated by default as identity primary key</code> no Firebird,
+      <code>integer primary key autoincrement</code> no SQLite). O compilador <strong>pula o laço de
       modificadores</strong> nessas colunas, então um <code>.NotNull</code> ou
       <code>.Default_(1)</code> encadeado ali não levanta e também não aparece no DDL.
     </p>
   </div>
 </div>
 
-<h2 id="nullability">Nulidade sempre explícita</h2>
+<h2 id="nullability">Nulidade</h2>
 <p>
-  Coluna nasce <code>Nullable</code>, e o DDL sempre escreve qual dos dois é — nunca deixa a
-  decisão para o default do servidor:
+  Coluna nasce <code>Nullable</code>. Em MySQL e PostgreSQL o DDL escreve qual dos dois é —
+  nunca deixa a decisão para o default do servidor. Em Firebird e SQLite o <code>null</code>
+  não existe como restrição, então a coluna anulável sai sem nada e só o
+  <code>not null</code> aparece:
 </p>
 
 <div class="code"><pre data-lang="pascal">T := Sch.CreateTable('nul');
 T.Int('a').Nullable;
-T.Int('b').NotNull;</pre>
-<div class="code-out">
-  <div class="code-label">SQL</div>
-  <pre data-lang="sql">create table `nul` (`a` int null, `b` int not null)</pre>
-</div>
+T.Int('b').NotNull;</pre></div>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">create table `nul` (`a` int null, `b` int not null)</pre>
+  </div>
+  <div class="pane" data-pane="sqlite" data-label="SQLite">
+    <pre data-lang="sql">create table "nul" ("a" integer, "b" integer not null)</pre>
+    <p class="code-note">o Firebird escreve igual</p>
+  </div>
 </div>
 
 <h2 id="defaults">Defaults</h2>
@@ -157,9 +178,10 @@ T.Text('t').Default_('x');</pre>
 
 <h2 id="by-dialect">Diferenças por dialeto</h2>
 <p>
-  <code>Unsigned</code> é a diferença que mais morde: o PostgreSQL não tem o conceito, e levantar
-  ali travaria toda migration escrita para MySQL. A escolha foi <strong>ignorar em silêncio</strong>
-  para a migration continuar rodando nos dois bancos.
+  <code>Unsigned</code> é a diferença que mais morde: só o MySQL tem o conceito, e levantar
+  nos outros travaria toda migration escrita para MySQL. A escolha foi <strong>ignorar em
+  silêncio</strong> para a migration continuar rodando nos quatro bancos. O mesmo vale para
+  <code>After</code>, que é extensão do MySQL.
 </p>
 
 <div class="code"><pre data-lang="pascal">T.Int('n').Unsigned.NotNull;</pre></div>
@@ -175,9 +197,11 @@ T.Text('t').Default_('x');</pre>
 </div>
 
 <p>
-  <code>Comment</code> existe nos dois, com sintaxe diferente: o MySQL aceita inline na definição
-  da coluna, o PostgreSQL só como comando <code>comment on column</code>, que vai para o
-  <code>Post</code> do plano.
+  <code>Comment</code> existe em três dos quatro, com sintaxe diferente: o MySQL aceita inline
+  na definição da coluna; PostgreSQL e Firebird só como comando
+  <code>comment on column</code>, que vai para o <code>Post</code> do plano. O SQLite não tem
+  <code>comment on</code>, e ali o comentário é <strong>descartado em silêncio</strong> — é
+  documentação, e derrubar a migration por causa dele seria pior que perdê-lo.
 </p>
 
 <div class="code"><pre data-lang="pascal">T.Str('email', 191).Comment('login of the user');</pre></div>
@@ -191,6 +215,15 @@ T.Text('t').Default_('x');</pre>
     <pre data-lang="sql">create table "users" ("email" varchar(191) null)
 comment on column "users"."email" is 'login of the user'</pre>
     <p class="code-note">Post: 1 comando</p>
+  </div>
+  <div class="pane" data-pane="fb" data-label="Firebird">
+    <pre data-lang="sql">create table "users" ("email" varchar(191))
+comment on column "users"."email" is 'login of the user'</pre>
+    <p class="code-note">Post: 1 comando</p>
+  </div>
+  <div class="pane" data-pane="sqlite" data-label="SQLite">
+    <pre data-lang="sql">create table "users" ("email" varchar(191))</pre>
+    <p class="code-note">Post: 0 comandos — o comentário não sai em lugar nenhum</p>
   </div>
 </div>
 

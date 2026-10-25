@@ -31,26 +31,25 @@ ARG LZNEX_VERSION=^1.0.0
 # vendor = monta modules/ a partir do fonte deste repositorio (nao depende de tag
 # publicada); boss = instala de verdade pelo Boss, usando a tag do repositorio.
 ARG LZNEX_SOURCE=vendor
-ARG ZEOS_COORD=github.com/CHANGEME/zeoslib
+# O LzNex nao vendoriza o Zeos: quem consome e que o fornece. Este projeto faz o
+# papel do host e clona a propria copia em modules/zeoslib.
 ARG ZEOS_MIRROR=https://github.com/marsupilami79/zeoslib.git
 ARG ZEOS_REF=8.0.0-stable
 
 RUN set -eu; \
     sed -i "s|\"github.com/leonampuzlplace/lznex\": \"[^\"]*\"|\"${LZNEX_COORD}\": \"${LZNEX_VERSION}\"|" boss.json; \
     grep -q "\"${LZNEX_COORD}\"" boss.json; \
-    sed -i "s|github_com_leonampuzlplace_lznex|$(echo "${LZNEX_COORD}" | tr './' '__')|g" Api.lpi; \
-    sed -i "s|github_com_CHANGEME_zeoslib|$(echo "${ZEOS_COORD}" | tr './' '__')|g" Api.lpi
+    sed -i "s|github_com_leonampuzlplace_lznex|$(echo "${LZNEX_COORD}" | tr './' '__')|g" Api.lpi
 
 ARG HORSE_COORD=github.com/HashLoad/horse
 ARG HORSE_VERSION=^3.3.15
 
 RUN set -eu; \
     LZDIR="$(echo "${LZNEX_COORD}" | tr './' '__')"; \
-    ZEDIR="$(echo "${ZEOS_COORD}" | tr './' '__')"; \
     case "${LZNEX_SOURCE}" in \
       vendor) \
-        echo "== modo prova-local: Horse vem do Boss de verdade; LzNex e Zeos"; \
-        echo "   sao montados com o MESMO layout que o boss install produziria."; \
+        echo "== modo prova-local: Horse vem do Boss de verdade; o LzNex e"; \
+        echo "   montado com o MESMO layout que o boss install produziria."; \
         cp boss.json /tmp/boss.json.orig; \
         cp Api.lpi /tmp/Api.lpi.orig; \
         printf '%s\n' \
@@ -67,15 +66,16 @@ RUN set -eu; \
         mkdir -p "modules/${LZDIR}"; \
         cp -a /vendor/lznex/src "modules/${LZDIR}/src"; \
         cp /vendor/lznex/boss.json "modules/${LZDIR}/boss.json"; \
-        git clone --depth 1 --branch "${ZEOS_REF}" "${ZEOS_MIRROR}" "modules/${ZEDIR}"; \
-        rm -rf "modules/${ZEDIR}/.git"; \
         ;; \
       *) \
         echo "== boss install de verdade (${LZNEX_COORD})"; \
         bash scripts/boss-install.sh; \
         ;; \
     esac; \
-    ls -d "modules/${LZDIR}/src" "modules/${ZEDIR}/src/dbc"; \
+    echo "== Zeos ${ZEOS_REF} de ${ZEOS_MIRROR} (depois do boss, que mexe em modules/)"; \
+    git clone --depth 1 --branch "${ZEOS_REF}" "${ZEOS_MIRROR}" modules/zeoslib; \
+    rm -rf modules/zeoslib/.git; \
+    ls -d "modules/${LZDIR}/src" modules/zeoslib/src/dbc; \
     ls -d modules/*horse*/src
 
 RUN set -eu; \

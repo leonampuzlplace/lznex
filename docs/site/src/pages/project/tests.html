@@ -1,31 +1,38 @@
 <article>
 <h1>Testes e Docker</h1>
 <p class="subtitle">
-  Tudo roda em container: a suíte sem banco, a suíte com MySQL de verdade, o CLI e a API
-  de exemplo. O <code>docker-compose.yml</code> do repositório é a única configuração
-  necessária.
+  Tudo roda em container: a suíte sem banco, a mesma suíte contra cinco bancos de verdade,
+  o CLI e a API de exemplo. O <code>docker-compose.yml</code> do repositório é a única
+  configuração necessária.
 </p>
 
 <h2 id="commands">Os comandos</h2>
-<div class="code"><pre data-lang="sh">docker compose run --rm tests          # unitários, sem banco
-docker compose run --rm tests-it       # integração + concorrência (MySQL real)
-docker compose run --rm tests-it-pg    # a mesma suíte, contra PostgreSQL real
+<div class="code"><pre data-lang="sh">docker compose run --rm tests             # unitários, sem banco
+docker compose run --rm tests-it          # integração + concorrência (MySQL real)
+docker compose run --rm tests-it-pg       # a mesma suíte, contra PostgreSQL real
+docker compose run --rm tests-it-fb3      # idem, Firebird 3
+docker compose run --rm tests-it-fb5      # idem, Firebird 5
+docker compose run --rm tests-it-sqlite   # idem, SQLite (arquivo no container)
 docker compose run --rm cli migrate:latest
 docker compose up -d api &amp;&amp; curl localhost:9000/health</pre></div>
 
 <p>
-  Os três primeiros rodam o <strong>mesmo</strong> binário
+  Os seis primeiros rodam o <strong>mesmo</strong> binário
   (<code>./bin/lznex-tests-debug</code>, build mode <code>Debug</code>). O que muda é o
-  ambiente: sem <code>LZNEX_IT</code>, <code>Test.Integration</code> e
-  <code>Test.Concurrency</code> chamam <code>Ignore</code> e os casos aparecem como
-  ignorados — não como falha. Com ela, o dialeto sai de <code>LZNEX_CLIENT</code> e cada
+  ambiente: sem <code>LZNEX_IT</code>, as quatro suítes que precisam de banco
+  (<code>Test.Integration</code>, <code>Test.It.Features</code>,
+  <code>Test.It.Migrator</code> e <code>Test.Concurrency</code>) chamam <code>Ignore</code>
+  e os 54 casos aparecem como ignorados — não como falha. Com ela, o dialeto sai de
+  <code>LZNEX_CLIENT</code> e cada
   serviço declara <code>depends_on</code> do seu banco com
-  <code>condition: service_healthy</code>.
+  <code>condition: service_healthy</code>. O <code>tests-it-sqlite</code> é a exceção: não
+  tem <code>depends_on</code> porque o banco é um arquivo que nasce dentro do próprio
+  container e morre com ele.
 </p>
 
 <p>
   As tabelas de teste nascem pelo <strong>schema builder</strong>, não por DDL cru — é o
-  que permite a mesma suíte rodar nos dois bancos e, de quebra, põe o DDL de cada dialeto
+  que permite a mesma suíte rodar nos cinco bancos e, de quebra, põe o DDL de cada dialeto
   sob teste a cada execução.
 </p>
 
@@ -36,8 +43,12 @@ docker compose up -d api &amp;&amp; curl localhost:9000/health</pre></div>
 <tbody>
 <tr><td><code>mysql</code></td><td><code>mysql:8.4</code> com <code>utf8mb4</code> / <code>utf8mb4_0900_ai_ci</code>, publicado em <code>3307:3306</code> para não colidir com um MySQL local. Healthcheck por <code>mysqladmin ping</code>; dados no volume <code>mysql-data</code>.</td></tr>
 <tr><td><code>tests</code></td><td>Estágio <code>builder</code> do Dockerfile, <code>working_dir: /src</code>. Só <code>HEAPTRC=haltonnotreleased</code> no ambiente — nenhuma variável de banco, nenhum <code>depends_on</code>.</td></tr>
+<tr><td><code>postgres</code></td><td><code>postgres:17</code>, publicado em <code>5433:5432</code>. Healthcheck por <code>pg_isready</code>; dados no volume <code>pg-data</code>.</td></tr>
+<tr><td><code>firebird3</code> · <code>firebird5</code></td><td><code>firebirdsql/firebird:3</code> e <code>:5</code> lado a lado, em <code>3051:3050</code> e <code>3053:3050</code>, com <code>FIREBIRD_DATABASE_DEFAULT_CHARSET: UTF8</code>. O healthcheck é um <code>select 1 from rdb$database</code> por <code>isql</code>, não um teste de porta: o processo sobe antes de o arquivo do banco existir, e "porta aberta" deixaria a suíte conectar cedo demais.</td></tr>
 <tr><td><code>tests-it</code></td><td>Mesma imagem, mais as variáveis <code>LZNEX_*</code> e <code>DB_*</code>, <code>LZNEX_IT=1</code> e <code>HEAPTRC=haltonnotreleased</code>. Espera o healthcheck do MySQL antes de subir.</td></tr>
-<tr><td><code>cli</code></td><td>Imagem <code>runtime</code> (só <code>libmariadb3</code>), <code>entrypoint</code> no binário <code>lznex</code>. Monta <code>./database</code> em <code>/home/lznex/database:ro</code>, então as migrations e seeds do host valem dentro do container.</td></tr>
+<tr><td><code>tests-it-pg</code> · <code>tests-it-fb3</code> · <code>tests-it-fb5</code></td><td>O mesmo binário com outro bloco de ambiente (<code>x-pg-env</code>, <code>x-fb-env</code>) e o <code>depends_on</code> do seu servidor. Nos dois de Firebird só o <code>LZNEX_HOST</code> difere — o dialeto é um só para as duas versões.</td></tr>
+<tr><td><code>tests-it-sqlite</code></td><td>Sem <code>depends_on</code> e sem servidor: <code>LZNEX_DATABASE</code> é um caminho de arquivo dentro do próprio container, que nasce e morre com ele.</td></tr>
+<tr><td><code>cli</code></td><td>Imagem <code>runtime</code> (as quatro bibliotecas cliente, nenhuma ferramenta de build), <code>entrypoint</code> no binário <code>lznex</code>. Monta <code>./database</code> em <code>/home/lznex/database:ro</code>, então as migrations e seeds do host valem dentro do container.</td></tr>
 <tr><td><code>api</code></td><td>Exemplo Horse de <code>example/api/Dockerfile</code>, porta <code>9000</code>, <code>restart: unless-stopped</code> e healthcheck por <code>curl /health</code>.</td></tr>
 <tr><td><code>spike</code></td><td>Container de bancada: monta o repositório em <code>/work</code> e fica em <code>sleep infinity</code>. Serve para compilar sonda por sonda à mão.</td></tr>
 </tbody>
@@ -45,20 +56,39 @@ docker compose up -d api &amp;&amp; curl localhost:9000/health</pre></div>
 </div>
 
 <p>
-  Os serviços que falam com o banco compartilham o mesmo bloco de ambiente (a âncora
-  <code>x-db-env</code> no topo do compose):
+  Cada família de serviço herda um bloco de ambiente declarado como âncora no topo do
+  compose — <code>x-db-env</code>, <code>x-pg-env</code>, <code>x-fb-env</code>,
+  <code>x-sqlite-env</code>:
 </p>
 
-<div class="code"><pre data-lang="sh">LZNEX_CLIENT=mysql
+<div class="code"><pre data-lang="sh"># x-db-env
+LZNEX_CLIENT=mysql
 LZNEX_HOST=mysql
 LZNEX_PORT=3306
 LZNEX_DATABASE=lznex
 LZNEX_USER=root
 LZNEX_PASSWORD=secret
-LZNEX_LIBRARY=/usr/lib/x86_64-linux-gnu/libmariadb.so.3</pre>
+LZNEX_LIBRARY=/usr/lib/x86_64-linux-gnu/libmariadb.so.3
+
+# x-fb-env — LZNEX_HOST fica de fora: cada suite aponta para o seu servidor
+LZNEX_CLIENT=firebird
+LZNEX_PORT=3050
+LZNEX_DATABASE=/var/lib/firebird/data/lznex.fdb
+LZNEX_USER=SYSDBA
+LZNEX_PASSWORD=secret
+LZNEX_LIBRARY=/usr/lib/x86_64-linux-gnu/libfbclient.so.2
+LZNEX_CHARSET=UTF8
+
+# x-sqlite-env — nao ha servidor nem host
+LZNEX_CLIENT=sqlite
+LZNEX_DATABASE=/tmp/lznex-it.sqlite
+LZNEX_LIBRARY=/usr/lib/x86_64-linux-gnu/libsqlite3.so.0
+LZNEX_CHARSET=UTF-8</pre>
 <p class="code-note">
-  <code>LZNEX_LIBRARY</code> está ali porque a imagem é Ubuntu 26.04, onde só existe
-  <code>libmariadb.so.3</code> — veja <a href="#troubleshooting">Troubleshooting</a>.
+  <code>LZNEX_LIBRARY</code> está em todos porque o auto-load do Zeos não acerta o nome da
+  biblioteca no Ubuntu — veja <a href="#troubleshooting">Troubleshooting</a>. O
+  <code>LZNEX_DATABASE</code> de Firebird e SQLite é um caminho de arquivo, não um nome
+  lógico.
 </p>
 </div>
 
@@ -67,46 +97,61 @@ LZNEX_LIBRARY=/usr/lib/x86_64-linux-gnu/libmariadb.so.3</pre>
   <div class="body">
     <span class="t">O host do banco é <code>mysql</code>, não <code>localhost</code></span>
     <p>
-      Dentro da rede do compose o banco responde pelo nome do serviço. Da sua máquina, é
-      <code>localhost:3307</code>. Rodar a suíte de integração fora do container exige
-      apontar <code>DB_HOST</code>/<code>DB_PORT</code> para essa porta publicada.
+      Dentro da rede do compose o banco responde pelo nome do serviço. Da sua máquina, são
+      as portas publicadas: <code>3307</code> (MySQL), <code>5433</code> (PostgreSQL),
+      <code>3051</code> (Firebird 3) e <code>3053</code> (Firebird 5) — todas deslocadas
+      para não colidir com um servidor local. Rodar a suíte de integração fora do container
+      exige apontar <code>DB_HOST</code>/<code>DB_PORT</code> para a porta publicada.
     </p>
   </div>
 </div>
 
 <h2 id="observed-output">Saída observada</h2>
 <p>
-  A mesma suíte, rodada duas vezes — uma contra cada banco. Saída exatamente como saiu:
+  A mesma suíte, rodada seis vezes — uma sem banco e uma contra cada um dos cinco. Saída
+  exatamente como saiu:
 </p>
 
-<div class="code" data-tabs>
-  <div class="pane on" data-pane="mysql" data-label="MySQL">
-    <pre data-lang="out">$ docker compose run --rm tests-it
-
-Number of run tests: 150
-Number of errors:    0
-Number of failures:  0</pre>
-  </div>
-  <div class="pane" data-pane="pg" data-label="PostgreSQL">
-    <pre data-lang="out">$ docker compose run --rm tests-it-pg
-
-Number of run tests: 150
-Number of errors:    0
-Number of failures:  0</pre>
-    <p class="code-note">zero casos ignorados: a integração rodou mesmo</p>
-  </div>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Execução</th><th>Testes</th><th>Erros</th><th>Falhas</th><th>Ignorados</th><th>Exit</th></tr></thead>
+<tbody>
+<tr><td><code>tests</code> (sem banco)</td><td>468</td><td>0</td><td>0</td><td>100</td><td>0</td></tr>
+<tr><td><code>tests-it</code> (MySQL)</td><td>468</td><td>0</td><td>0</td><td>1</td><td>0</td></tr>
+<tr><td><code>tests-it-pg</code> (PostgreSQL)</td><td>468</td><td>0</td><td>0</td><td>1</td><td>0</td></tr>
+<tr><td><code>tests-it-fb3</code> (Firebird 3)</td><td>468</td><td>0</td><td>0</td><td>8</td><td>0</td></tr>
+<tr><td><code>tests-it-fb5</code> (Firebird 5)</td><td>468</td><td>0</td><td>0</td><td>8</td><td>0</td></tr>
+<tr><td><code>tests-it-sqlite</code> (SQLite)</td><td>468</td><td>0</td><td>0</td><td>4</td><td>0</td></tr>
+</tbody>
+</table>
 </div>
 
 <p>
-  Nenhum dos 150 foi ignorado em qualquer das duas execuções — é o que prova que a
-  integração rodou em vez de ter sido pulada. Depois delas, as tabelas <code>it_users</code>
-  e <code>ct_load</code> existem nos dois bancos, criadas pelo schema builder de cada
-  dialeto.
+  <strong>Exit 0 é a parte que mais importa</strong>: com <code>HEAPTRC=haltonnotreleased</code>
+  o processo sairia <strong>203</strong> se sobrasse um bloco não liberado, então exit 0 nas
+  seis execuções é a prova de que nada vazou — inclusive nos caminhos de erro, que são os que
+  costumam esquecer de devolver a conexão.
+</p>
+
+<p>
+  Os ignorados são <strong>declarados por capacidade do dialeto</strong>, nunca por banco não
+  estar disponível: os 8 do Firebird são JSON (5), texto completo (2) e upsert de várias linhas
+  (1); os 4 do SQLite são texto completo (2), índice de texto completo (1) e lock de linha (1);
+  o único do MySQL e do PostgreSQL é o teste que prova a recusa do Firebird. A rodada sem banco
+  ignora os 100 casos que precisam de servidor.
 </p>
 
 <div class="code"><pre data-lang="out">sondas: 870 asserções em 7 binários, todas verdes
-heaptrc: 0 unfreed memory blocks (467.958 alocados, 467.958 liberados)
+heaptrc: 0 unfreed memory blocks
 API: {"status":"ok","dialect":"mysql"}</pre></div>
+
+<p>
+  As tabelas de teste nascem pelo schema builder de cada dialeto, então cada execução também
+  põe o DDL daquele banco sob teste: <code>it_users</code>, <code>it_features</code>,
+  <code>it_paging</code>, <code>it_sugar</code>, <code>it_sugar_child</code>,
+  <code>it_dialect</code>, <code>it_inspect</code>, <code>it_infra</code>,
+  <code>it_lease</code>, <code>ct_load</code> e as do migrator.
+</p>
 
 <h2 id="test-layout">Organização dos testes</h2>
 <p>
@@ -123,8 +168,22 @@ API: {"status":"ok","dialect":"mysql"}</pre></div>
 <tr><td><code>Test.Core</code></td><td><code>TLzNexValue</code> (conversão implícita, <code>Unset</code> não bindável, precisão de <code>Int64</code>), <code>Vals</code>/<code>ValueList</code>, ordem dos bindings e composição de fragmentos.</td></tr>
 <tr><td><code>Test.Query</code></td><td>Select e alias, where e operadores, grupos de predicado, join, ordenação e paginação, SQL cru, clone. Registra também as áreas <code>security</code> (operador fora da lista, valor nunca interpolado, backtick escapado) e <code>dialect</code>.</td></tr>
 <tr><td><code>Test.Postgres</code></td><td>O dialeto PostgreSQL <strong>por texto</strong>: identificador com aspas duplas, <code>limit</code>/<code>offset</code> ANSI, <code>returning</code>, <code>on conflict</code>, <code>distinct on</code>, <code>nulls first/last</code>, <code>truncate</code> e o DDL. Quase todo caso compara com o MySQL para a mesma entrada, e os dois lados são asserções — inclusive o que o MySQL tem que <strong>recusar</strong>.</td></tr>
-<tr><td><code>Test.Integration</code></td><td>MySQL real: <code>InsertGetId</code> (id próprio, ids crescentes, dentro de transação commitada e revertida), CRUD completo e ida-e-volta de UTF-8.</td></tr>
+<tr><td><code>Test.Firebird</code></td><td>O dialeto Firebird <strong>por texto</strong>, sem banco: identificador, <code>offset … rows fetch next … rows only</code> na ordem certa, <code>with lock</code> e <code>skip locked</code>, <code>update or insert … matching</code>, <code>upper() like upper()</code>, e o DDL — identity, ordem <code>default</code>/<code>not null</code>, <code>blob sub_type</code>, <code>execute block</code> no drop, catálogo <code>rdb$relations</code> e corte do nome de índice em 31 bytes. Também assertam o que o dialeto <strong>recusa</strong>.</td></tr>
+<tr><td><code>Test.SQLite</code></td><td>O dialeto SQLite <strong>por texto</strong>: os dois nomes registrados, <code>limit -1 offset ?</code>, upsert com <code>excluded.</code>, <code>like</code> no lugar do <code>ilike</code>, e o DDL — <code>integer primary key autoincrement</code>, restrição dentro do <code>create table</code>, um statement por ação no <code>alter</code>, <code>sqlite_master</code> e <code>pragma_table_info</code>. Mais o que levanta: <code>Returning</code>, lock de linha, <code>Change</code>, <code>not null</code> sem default e <code>ADD CONSTRAINT</code>.</td></tr>
+<tr><td><code>Test.Integration</code></td><td>Banco real, qualquer um dos cinco (o dialeto vem de <code>LZNEX_CLIENT</code>): <code>InsertGetId</code> (id próprio, ids crescentes, dentro de transação commitada e revertida), CRUD completo e ida-e-volta de UTF-8.</td></tr>
+<tr><td><code>Test.It.Features</code></td><td>Os recursos que o dialeto escreve de forma diferente, checados pelo <strong>resultado</strong> e não pelo texto: paginação com janela no meio, offset sozinho, <code>nulls first</code>/<code>last</code>, <code>like</code> sem caixa, upsert que insere e upsert que atualiza, e <code>Truncate</code> esvaziando a tabela. É o que prova que a emulação de um banco dá a mesma resposta que a cláusula nativa de outro.</td></tr>
+<tr><td><code>Test.It.Migrator</code></td><td>O runner de migrations contra banco de verdade: <code>Latest</code> cria as tabelas de controle e aplica, roda de novo e devolve 0 sem ficar presa no lock, <code>Rollback</code> desfaz e devolve <code>CurrentVersion</code> a <code>none</code>, <code>Pending</code>/<code>Status</code>/<code>Batch</code> acompanham, e lock tomado à mão faz <code>Latest</code> levantar <code>ELzNexMigrationLock</code> até o <code>Unlock</code>. A migration de teste é definida na própria unit, pelo schema builder, para ser portável aos cinco.</td></tr>
 <tr><td><code>Test.Concurrency</code></td><td>Carga paralela: operações mistas que não se misturam, pool que devolve toda conexão, transações isoladas entre threads, mais threads que conexões e cursor aberto segurando o empréstimo.</td></tr>
+<tr><td><code>Test.Paginate</code></td><td>Paginação <strong>por texto</strong>: o corte do cursor (uma chave, duas chaves, descendente, navegação para trás), o que o keyset recusa (<code>OrderByRaw</code>, ordem de nulos, sem ordem, valor nulo), o codec do cursor (ida e volta de inteiro, texto com separadores, data com milissegundos, float sem depender de locale, cursor truncado e adulterado, e a garantia de ser url-safe) e as validações de <code>Chunk</code>/<code>ClearPaging</code>.</td></tr>
+<tr><td><code>Test.Sugar</code></td><td>O açúcar do builder por texto: <code>WhereAny</code>/<code>WhereAll</code> (grupo fechado que não contamina o <code>where</code> seguinte), <code>SelectCount</code>/<code>SelectAggregate</code>, <code>WithCount</code> (inclusive a prova de que a subquery de quem chamou não é alterada), <code>ClearPaging</code>, <code>Dump</code> e o que <code>Upsert</code>/<code>UpdateOrInsert</code> recusam.</td></tr>
+<tr><td><code>Test.Features.MySQL</code> · <code>.Postgres</code> · <code>.SQLite</code> · <code>.Firebird</code></td><td>As variações novas por dialeto, por texto: cada parte de data, JSON nos três modos, texto completo nos dois modos, ordem aleatória — e, em cada dialeto, o que ele <strong>recusa</strong> com mensagem.</td></tr>
+<tr><td><code>Test.Schema.Inspect</code></td><td>O SQL de inspeção de catálogo de cada dialeto: <code>Tables</code>, <code>Columns</code> e <code>HasIndex</code> em <code>information_schema</code>, <code>pg_index</code>, <code>pragma_index_list</code> e <code>rdb$indices</code>.</td></tr>
+<tr><td><code>Test.It.Paginate</code></td><td>Paginação contra banco real, nos cinco: total e janela, última página curta, página além do fim, count com <code>group by</code> e com <code>distinct</code>, <code>SimplePaginate</code>, a caminhada completa do cursor para frente e para trás, o cursor que <strong>não repete linha</strong> quando uma é inserida no meio da leitura, empate desempatado pela segunda chave, e <code>Chunk</code>/<code>ChunkById</code>/<code>Each</code>.</td></tr>
+<tr><td><code>Test.It.Sugar</code></td><td><code>FirstOrFail</code>, <code>Sole</code>, <code>DoesntExist</code>, <code>Upsert</code> e <code>UpdateOrInsert</code> contra banco real — incluindo o caso em que o update grava o mesmo valor e o MySQL devolve zero linhas afetadas, que quebraria uma implementação que decidisse por esse número.</td></tr>
+<tr><td><code>Test.It.Dialect</code></td><td>Partes de data, JSON, ordem aleatória e texto completo contra banco real, decidindo por <strong>capacidade</strong> do dialeto e não por nome de banco.</td></tr>
+<tr><td><code>Test.It.Schema</code></td><td>Inspeção contra banco real: a tabela criada aparece em <code>Tables</code>, <code>Columns</code> vem na ordem declarada, <code>HasIndex</code> acha a unique composta e não acha um conjunto sem índice.</td></tr>
+<tr><td><code>Test.It.Lease</code></td><td>A conexão volta ao pool em <strong>todo</strong> caminho de saída: commit, rollback, transação abandonada (quem desfaz é o destrutor), <code>Transact</code> que comita, <code>Transact</code> que falha e desfaz, e <code>Transact</code> que repete três vezes. Mede <code>Pool.InUse</code>, que é observável — não depende do heaptrc para acusar lease preso.</td></tr>
+<tr><td><code>Test.It.Infra</code></td><td>Query log (logger espião contando <code>LogQuery</code>/<code>LogError</code> e o tempo medido), retry de transação (<code>Transact</code> com <code>ILzNexWork</code>) e roteamento de leitura para a réplica.</td></tr>
 <tr><td><code>Test.Helper</code></td><td>Base das suítes unitárias: <code>AssertSQL</code>, <code>AssertBindings</code> e <code>AssertQuery</code>, que comparam texto gerado e lista de binds de uma vez.</td></tr>
 <tr><td><code>Probe*.lpr</code></td><td><code>ProbeValue</code> (valor), <code>ProbeAst</code> (AST), <code>ProbeQuery</code> (builder), <code>ProbeCompiler</code> (compilador de query), <code>ProbeSchema</code> (DDL), <code>ProbeMigration</code> (migrator e seeder), <code>ProbeEndToEnd</code> (fachada até o SQL) e <code>ProbeZeos</code> (conexão, pool e transação contra o Zeos).</td></tr>
 <tr><td><code>DiagPool.lpr</code></td><td>Diagnóstico, não teste: imprime <code>InUse</code> e <code>Size</code> do pool a cada passo. Serve para ver uma conexão presa.</td></tr>
@@ -190,8 +249,8 @@ run-tests: FALHOU
 
 <h2 id="cli-and-api">CLI e API no compose</h2>
 <p>
-  O serviço <code>cli</code> usa a imagem <code>runtime</code>, que é Ubuntu enxuto com
-  <code>libmariadb3</code> e o binário em <code>/usr/local/bin/lznex</code>. Qualquer
+  O serviço <code>cli</code> usa a imagem <code>runtime</code>, que é Ubuntu enxuto com as
+  quatro bibliotecas cliente e o binário em <code>/usr/local/bin/lznex</code>. Qualquer
   subcomando vai depois do nome do serviço:
 </p>
 
@@ -218,13 +277,15 @@ curl -s localhost:9000/health</pre>
 <h2 id="build">O que o build faz</h2>
 <p>
   O estágio <code>builder</code> instala <code>fpc</code>, <code>lcl-utils</code>,
-  <code>lazarus-src</code> e <code>libmariadb3</code>, baixa o Boss e resolve o ZeosLib.
-  Enquanto a coordenada for o placeholder <code>github.com/CHANGEME/zeoslib</code>, ele
-  clona o espelho direto em <code>modules/&lt;host&gt;_&lt;org&gt;_&lt;repo&gt;</code>,
-  reproduzindo à mão o layout que o Boss produziria; com uma coordenada real, chama
-  <code>scripts/boss-install.sh</code>. Esse script existe porque o Boss imprime ruído de
-  Delphi (<code>rsvars.bat</code>, <code>no Delphi installation</code>) e pode sair com
-  código diferente de zero mesmo tendo instalado: o sucesso é decidido pela linha
+  <code>lazarus-src</code> e as quatro bibliotecas cliente (<code>libmariadb3</code>,
+  <code>libpq5</code>, <code>libfbclient2</code>, <code>libsqlite3-0</code>), e clona o
+  ZeosLib do espelho oficial
+  em <code>modules/zeoslib</code>. Clona porque o pacote não vendoriza o Zeos — é
+  dependência de quem instala — e aqui não existe IDE para fornecê-lo. Boss só entra na
+  imagem do exemplo em <code>example/api</code>, que instala o Horse de verdade, e sempre
+  via <code>scripts/boss-install.sh</code>: o Boss imprime ruído de Delphi
+  (<code>rsvars.bat</code>, <code>no Delphi installation</code>) e pode sair com código
+  diferente de zero mesmo tendo instalado, então o sucesso é decidido pela linha
   <code>Installation completed successfully</code>, não pelo exit code.
 </p>
 

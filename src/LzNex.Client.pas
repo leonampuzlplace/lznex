@@ -39,7 +39,12 @@ type
     function SupportsNullsOrdering: Boolean; virtual;
     function SupportsDistinctOn: Boolean; virtual;
     function SupportsSavepoints: Boolean; virtual;
+    function SupportsJson: Boolean; virtual;
+    function SupportsFullText: Boolean; virtual;
+    function IsRetryableError(const ACode: Integer;
+      const ASQLState: string): Boolean; virtual;
     function DdlIsTransactional: Boolean; virtual;
+    function DefaultIsolation: TLzNexIsolation; virtual;
 
     function Components(const AMethod: TLzNexQueryMethod): TLzNexComponents; virtual;
     function InvalidComponents(const AMethod: TLzNexQueryMethod): TLzNexComponents; virtual;
@@ -187,9 +192,34 @@ begin
   Result := True;
 end;
 
+function TLzNexClientBase.SupportsJson: Boolean;
+begin
+  // Conservador: quem tem JSON declara ter.
+  Result := False;
+end;
+
+function TLzNexClientBase.SupportsFullText: Boolean;
+begin
+  Result := False;
+end;
+
+function TLzNexClientBase.IsRetryableError(const ACode: Integer;
+  const ASQLState: string): Boolean;
+begin
+  { SQLSTATE 40001 (falha de serializacao) e 40P01 (deadlock) sao do padrao e
+    valem para qualquer banco que os reporte; codigo numerico e por dialeto. }
+  Result := (ASQLState = '40001') or (ASQLState = '40P01');
+end;
+
 function TLzNexClientBase.DdlIsTransactional: Boolean;
 begin
   Result := True;
+end;
+
+function TLzNexClientBase.DefaultIsolation: TLzNexIsolation;
+begin
+
+  Result := ilDefault;
 end;
 
 function TLzNexClientBase.Components(const AMethod: TLzNexQueryMethod): TLzNexComponents;

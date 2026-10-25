@@ -12,13 +12,15 @@
 <tbody>
 
 <tr>
-<td><code>Requested database driver was not found</code> ao conectar</td>
+<td><code>Dialect "x" is not registered</code>, ou <code>Requested database driver was not found</code>, ao conectar</td>
 <td>
   Falta o <code>uses</code> da unit do dialeto. O FPC <strong>não linka unit que ninguém
   referencia</strong>, e é a seção <code>initialization</code> dessa unit que registra o
   driver — sem referência, o registro nunca acontece. Acrescente
-  <code>LzNex.Client.MySQL</code> (ou <code>LzNex.Client.Postgres</code>) ao
-  <code>uses</code> do programa, não só da unit que monta a query.
+  <code>LzNex.Client.MySQL</code>, <code>.Postgres</code>, <code>.Firebird</code> ou
+  <code>.SQLite</code> ao <code>uses</code> do <strong>programa</strong>, não só da unit que
+  monta a query. A primeira mensagem vem do registry do LzNex; a segunda, do Zeos, quando a
+  unit de driver dele é que ficou fora.
 </td>
 </tr>
 
@@ -55,11 +57,15 @@
 <tr>
 <td>Erro de biblioteca ao conectar, sem SQL nenhum ter rodado</td>
 <td>
-  O auto-load do Zeos procura <code>libmysqlclient</code>, e no Ubuntu 26.04 só existe
-  <code>libmariadb.so.3</code>. Informe o caminho explicitamente, por
-  <code>LibraryLocation</code> na configuração ou pela variável
-  <code>LZNEX_LIBRARY=/usr/lib/x86_64-linux-gnu/libmariadb.so.3</code>. Confira com
-  <code>ls /usr/lib/x86_64-linux-gnu/libmaria*</code> — o sufixo da versão muda.
+  O auto-load do Zeos não acerta o nome da biblioteca no Ubuntu — procura
+  <code>libmysqlclient</code>, onde só existe <code>libmariadb.so.3</code>, e erra de forma
+  parecida nos outros. Informe o caminho explicitamente, por <code>LibraryLocation</code> na
+  configuração ou pela variável <code>LZNEX_LIBRARY</code>. Vale para os quatro:
+  <code>libmariadb.so.3</code>, <code>libpq.so.5</code>, <code>libfbclient.so.2</code>,
+  <code>libsqlite3.so.0</code>, todos em <code>/usr/lib/x86_64-linux-gnu/</code> — a tabela
+  com os pacotes está em <a href="#configuration/library">Configuração</a>. Confira com
+  <code>ls /usr/lib/x86_64-linux-gnu/lib{maria,pq,fbclient,sqlite}*</code>: o sufixo da
+  versão muda.
 </td>
 </tr>
 
@@ -162,11 +168,13 @@
 <tr>
 <td><code>RETURNING is not supported by mysql. Use LastInsertId or a SELECT afterwards.</code></td>
 <td>
-  Recurso que o dialeto não tem. Em MySQL, troque <code>Returning</code> por
-  <code>InsertGetId</code>, que pega o id na <strong>mesma</strong> conexão do insert — é o
-  que torna o resultado correto sob concorrência. O builder recusa <code>Returning</code>
-  antes de compilar (<code>Returning: dialect "mysql" does not support RETURNING</code>),
-  então o erro pode vir já na montagem.
+  Recurso que o dialeto não tem — vale para MySQL e para SQLite. Troque
+  <code>Returning</code> por <code>InsertGetId</code>, que pega o id na
+  <strong>mesma</strong> conexão do insert (<code>last_insert_id()</code> no MySQL,
+  <code>last_insert_rowid()</code> no SQLite) — é o que torna o resultado correto sob
+  concorrência. O builder recusa <code>Returning</code> antes de compilar
+  (<code>Returning: dialect "mysql" does not support RETURNING</code>), então o erro pode
+  vir já na montagem. Em PostgreSQL e Firebird o <code>RETURNING</code> funciona.
 </td>
 </tr>
 
@@ -176,6 +184,29 @@
   Mesma família. Use <code>Distinct</code> simples, ou <code>group by</code> com uma função
   de agregação escolhendo a linha. Consulte <a href="#dialects">Dialetos</a> antes de usar
   recurso específico de banco — a tabela de capacidades diz o que cada um aceita.
+</td>
+</tr>
+
+<tr>
+<td>Em Firebird, uma conexão não vê o que outra acabou de commitar</td>
+<td>
+  É o default do servidor: snapshot. A conexão fica presa na foto tirada no início da
+  transação, e num pool isso vira leitura velha intermitente — depende de qual conexão o
+  pool entregou. O LzNex já se defende em dois pontos: abre a conexão em
+  <code>ilReadCommitted</code> (<code>DefaultIsolation</code> do dialeto) e passa
+  <code>hard_commit=True</code> ao driver, para o commit não reter a transação. Se você
+  sobrescreveu um dos dois por <code>Prop</code>, é aí que está.
+</td>
+</tr>
+
+<tr>
+<td>Em SQLite, <code>database is locked</code> sob concorrência</td>
+<td>
+  O lock do SQLite é do <strong>arquivo inteiro</strong>: um escritor por vez, e não há lock
+  de linha (<code>ForUpdate</code> levanta justamente por isso). Os defaults que o LzNex
+  aplica aliviam — <code>busytimeout=5000</code> faz esperar em vez de falhar na hora, e
+  <code>journal_mode=wal</code> deixa leitor e escritor conviverem. Acima disso, serialize
+  os escritores na aplicação ou use um banco com servidor.
 </td>
 </tr>
 

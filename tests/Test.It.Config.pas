@@ -9,7 +9,9 @@ uses
   LzNex,
   LzNex.Intf,
   LzNex.Client.MySQL,
-  LzNex.Client.Postgres;
+  LzNex.Client.Postgres,
+  LzNex.Client.Firebird,
+  LzNex.Client.SQLite;
 
 // Se a suite de integracao deve rodar. Sem LZNEX_IT nao ha banco por perto.
 function ItEnabled: Boolean;
@@ -17,8 +19,8 @@ function ItEnabled: Boolean;
 // O dialeto da rodada: LZNEX_CLIENT, default 'mysql'.
 function ItClient: string;
 
-// Config apontando para o banco da rodada. Host, porta e biblioteca tem
-// default por dialeto; qualquer um deles pode vir do ambiente.
+// Config apontando para o banco da rodada. Host, porta, biblioteca, charset e
+// nome do banco tem default por dialeto; qualquer um deles pode vir do ambiente.
 function ItConfig(const APoolMax: Integer = 8): ILzNexConfig;
 
 implementation
@@ -48,10 +50,27 @@ begin
   Result := (C = 'postgresql') or (C = 'postgres');
 end;
 
+function IsFirebird: Boolean;
+begin
+  Result := ItClient = 'firebird';
+end;
+
+function IsSQLite: Boolean;
+var
+  C: string;
+begin
+  C := ItClient;
+  Result := (C = 'sqlite') or (C = 'sqlite3');
+end;
+
 function DefaultHost: string;
 begin
-  if IsPostgres then
+  if IsSQLite then
+    Result := ''
+  else if IsPostgres then
     Result := 'postgres'
+  else if IsFirebird then
+    Result := 'firebird'
   else
     Result := 'mysql';
 end;
@@ -60,26 +79,57 @@ function DefaultPort: Integer;
 begin
   if IsPostgres then
     Result := 5432
+  else if IsFirebird then
+    Result := 3050
   else
     Result := 3306;
 end;
 
 function DefaultLibrary: string;
 begin
-  { Em nenhum dos dois o auto-load do Zeos acerta sozinho no Ubuntu: o MySQL so
-    tem libmariadb e a libpq vem com sufixo de versao. }
-  if IsPostgres then
+  { O auto-load do Zeos nao acerta sozinho no Ubuntu: o MySQL so tem libmariadb,
+    a libpq e a fbclient vem com sufixo de versao. }
+  if IsSQLite then
+    Result := '/usr/lib/x86_64-linux-gnu/libsqlite3.so.0'
+  else if IsPostgres then
     Result := '/usr/lib/x86_64-linux-gnu/libpq.so.5'
+  else if IsFirebird then
+    Result := '/usr/lib/x86_64-linux-gnu/libfbclient.so.2'
   else
     Result := '/usr/lib/x86_64-linux-gnu/libmariadb.so.3';
 end;
 
 function DefaultUser: string;
 begin
-  if IsPostgres then
+  if IsSQLite then
+    Result := ''
+  else if IsPostgres then
     Result := 'postgres'
+  else if IsFirebird then
+    Result := 'SYSDBA'
   else
     Result := 'root';
+end;
+
+function DefaultDatabase: string;
+begin
+  { Nos dois bancos em arquivo o "database" e um caminho, nao um nome. }
+  if IsSQLite then
+    Result := '/tmp/lznex-it.sqlite'
+  else if IsFirebird then
+    Result := '/var/lib/firebird/data/lznex.fdb'
+  else
+    Result := 'lznex';
+end;
+
+function DefaultCharset: string;
+begin
+  if IsFirebird then
+    Result := 'UTF8'
+  else if IsSQLite then
+    Result := 'UTF-8'
+  else
+    Result := 'utf8mb4';
 end;
 
 function ItConfig(const APoolMax: Integer): ILzNexConfig;
@@ -88,10 +138,11 @@ begin
     .Client(ItClient)
     .Host(EnvOr('DB_HOST', DefaultHost))
     .Port(StrToIntDef(EnvOr('DB_PORT', IntToStr(DefaultPort)), DefaultPort))
-    .Database(EnvOr('DB_NAME', 'lznex'))
+    .Database(EnvOr('DB_NAME', DefaultDatabase))
     .User(EnvOr('DB_USER', DefaultUser))
     .Password(EnvOr('DB_PASS', 'secret'))
     .LibraryLocation(EnvOr('DB_LIB', DefaultLibrary))
+    .Charset(EnvOr('DB_CHARSET', DefaultCharset))
     .Pool(2, APoolMax);
 end;
 

@@ -32,6 +32,13 @@ type
 
     function DeleteHead: string; override;
 
+    procedure DatePartWrap(const APart: TLzNexDatePart;
+      out ABefore, AAfter: string); override;
+    function CompileWhereJson(const AStmt: TLzNexJsonStmt): TLzNexFragment; override;
+    function CompileWhereFullText(const AStmt: TLzNexFullTextStmt): TLzNexFragment; override;
+
+    function RandomSQL: string; override;
+
   end;
 
   TLzNexMySQLClient = class(TLzNexClientBase)
@@ -41,12 +48,18 @@ type
     function DialectName: string; override;
     function ZeosProtocol: string; override;
 
+    function SupportsJson: Boolean; override;
+    function SupportsFullText: Boolean; override;
+
     function SupportsReturning: Boolean; override;
     function SupportsOnConflictWhere: Boolean; override;
     function SupportsNullsOrdering: Boolean; override;
     function SupportsDistinctOn: Boolean; override;
     function SupportsSavepoints: Boolean; override;
     function DdlIsTransactional: Boolean; override;
+
+    function IsRetryableError(const ACode: Integer;
+      const ASQLState: string): Boolean; override;
 
     function InvalidComponents(const AMethod: TLzNexQueryMethod): TLzNexComponents; override;
 
@@ -132,6 +145,107 @@ begin
     Result := 'delete ' + Client.WrapQualified(FAst.Single.Table.Text);
 end;
 
+procedure TLzNexMySQLCompiler.DatePartWrap(const APart: TLzNexDatePart;
+  out ABefore, AAfter: string);
+begin
+  AAfter := ')';
+  case APart of
+    dpDate: ABefore := 'date(';
+    dpTime: ABefore := 'time(';
+    dpYear: ABefore := 'year(';
+    dpMonth: ABefore := 'month(';
+    dpDay: ABefore := 'day(';
+    dpHour: ABefore := 'hour(';
+    dpMinute: ABefore := 'minute(';
+    dpSecond: ABefore := 'second(';
+  else
+    inherited DatePartWrap(APart, ABefore, AAfter);
+  end;
+end;
+
+// "a.b" -> "$.a.b"; um "$" ou "[" na frente ja e caminho valido e fica como esta.
+function MySQLJsonPath(const APath: string): string;
+begin
+  if APath = '' then
+    Exit('$');
+  if (APath[1] = '$') or (APath[1] = '[') then
+    Exit(APath);
+  Result := '$.' + APath;
+end;
+
+function TLzNexMySQLCompiler.CompileWhereJson(
+  const AStmt: TLzNexJsonStmt): TLzNexFragment;
+var
+  Col, Value: TLzNexFragment;
+  PathSQL: string;
+begin
+  Col := CompileExpr(AStmt.Column, 'where json');
+  Value := CompileBind(AStmt.Value, AStmt.Column.Text);
+
+  case AStmt.JsonOp of
+    joPath:
+      begin
+        PathSQL := MySQLJsonPath(AStmt.Path);
+        Result := Col.Wrap('json_unquote(json_extract(', ', ''' + PathSQL + '''))')
+          .Concat(Txt(AStmt.Op)).Concat(Value);
+      end;
+    joContains:
+      begin
+        { cast(... as json) aceita tanto um escalar nativo (vira o escalar JSON
+          direto) quanto uma string com um documento (o texto e interpretado).
+          Sem o cast, um parametro inteiro chega ao MySQL com tipo SQL, nao
+          JSON, e json_contains recusa. }
+        if AStmt.Path = '' then
+          Result := Col.Concat(Value.Wrap('cast(', ' as json)'), ', ')
+            .Wrap('json_contains(', ')')
+        else
+        begin
+          PathSQL := MySQLJsonPath(AStmt.Path);
+          Result := Col.Concat(Value.Wrap('cast(', ' as json)'), ', ')
+            .Wrap('json_contains(', ', ''' + PathSQL + ''')');
+        end;
+      end;
+    joLength:
+      begin
+        if AStmt.Path = '' then
+          Result := Col.Wrap('json_length(', ')')
+        else
+        begin
+          PathSQL := MySQLJsonPath(AStmt.Path);
+          Result := Col.Wrap('json_length(', ', ''' + PathSQL + ''')');
+        end;
+        Result := Result.Concat(Txt(AStmt.Op)).Concat(Value);
+      end;
+  else
+    raise ELzNexCompile.Create('Unknown JSON operation.');
+  end;
+
+  if AStmt.Negated then
+    Result := Wrapped(Result).Prefix('not ');
+end;
+
+function TLzNexMySQLCompiler.CompileWhereFullText(
+  const AStmt: TLzNexFullTextStmt): TLzNexFragment;
+var
+  ModeSQL: string;
+  Search: TLzNexFragment;
+begin
+  if AStmt.Mode = ftBoolean then
+    ModeSQL := ' in boolean mode)'
+  else
+    ModeSQL := ' in natural language mode)';
+
+  Search := CompileBind(AStmt.Search, 'full text');
+  Result := Search.Wrap('match (' + IdentListV(AStmt.Columns) + ') against (', ModeSQL);
+  if AStmt.Negated then
+    Result := Wrapped(Result).Prefix('not ');
+end;
+
+function TLzNexMySQLCompiler.RandomSQL: string;
+begin
+  Result := 'rand()';
+end;
+
 function TLzNexMySQLClient.QuoteChar: string;
 begin
 
@@ -146,6 +260,18 @@ end;
 function TLzNexMySQLClient.ZeosProtocol: string;
 begin
   Result := 'mysql';
+end;
+
+function TLzNexMySQLClient.SupportsJson: Boolean;
+begin
+  // Tipo JSON desde o 5.7; as funcoes json_* desde a mesma versao.
+  Result := True;
+end;
+
+function TLzNexMySQLClient.SupportsFullText: Boolean;
+begin
+  // Indice FULLTEXT em InnoDB desde o 5.6.
+  Result := True;
 end;
 
 function TLzNexMySQLClient.SupportsReturning: Boolean;
@@ -179,6 +305,15 @@ function TLzNexMySQLClient.DdlIsTransactional: Boolean;
 begin
 
   Result := False;
+end;
+
+function TLzNexMySQLClient.IsRetryableError(const ACode: Integer;
+  const ASQLState: string): Boolean;
+begin
+  // 1213 = deadlock found, 1205 = lock wait timeout; os dois sao transitorios.
+  if (ACode = 1213) or (ACode = 1205) then
+    Exit(True);
+  Result := inherited IsRetryableError(ACode, ASQLState);
 end;
 
 function TLzNexMySQLClient.InvalidComponents(

@@ -40,6 +40,18 @@ jobs:
       - name: Integracao e concorrencia · PostgreSQL
         run: docker compose run --rm tests-it-pg
 
+      - name: Subir Firebird 3 e Firebird 5
+        run: docker compose up -d firebird3 firebird5
+
+      - name: Integracao e concorrencia · Firebird 3
+        run: docker compose run --rm tests-it-fb3
+
+      - name: Integracao e concorrencia · Firebird 5
+        run: docker compose run --rm tests-it-fb5
+
+      - name: Integracao e concorrencia · SQLite
+        run: docker compose run --rm tests-it-sqlite
+
       - name: CLI responde
         run: docker compose run --rm tests ./bin/lznex --help
 

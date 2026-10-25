@@ -18,12 +18,15 @@
 <tr><td><code>function WithSchema(const AName: string): ILzNexSchema</code></td><td>Fixa o schema/catálogo usado pelas tabelas criadas <strong>depois</strong> desta chamada. Altera o próprio builder e devolve ele mesmo.</td></tr>
 <tr><td><code>function CreateTable(const AName: string): ILzNexTable</code></td><td>Builder em modo create. Nome vazio levanta <code>ELzNexSchema</code>.</td></tr>
 <tr><td><code>function Table(const AName: string): ILzNexTable</code></td><td>Builder em modo alter da tabela existente.</td></tr>
-<tr><td><code>function HasTable(const AName: string): Boolean</code></td><td>Consulta <code>information_schema.tables</code> com a tabela (e o schema, se houver) como bind.</td></tr>
-<tr><td><code>function HasColumn(const ATable, AColumn: string): Boolean</code></td><td>O mesmo em <code>information_schema.columns</code>.</td></tr>
+<tr><td><code>function HasTable(const AName: string): Boolean</code></td><td>Consulta <code>information_schema.tables</code> com a tabela (e o schema, se houver) como bind. Firebird lê <code>rdb$relations</code>; SQLite, <code>sqlite_master</code>.</td></tr>
+<tr><td><code>function HasColumn(const ATable, AColumn: string): Boolean</code></td><td>O mesmo em <code>information_schema.columns</code> — <code>rdb$relation_fields</code> no Firebird, <code>pragma_table_info(?)</code> no SQLite.</td></tr>
+<tr><td><code>function Tables: TLzNexStringArray</code></td><td>Nomes das tabelas de usuário do schema corrente, sem as internas do banco. Nomes com padding (o <code>char</code> do Firebird) chegam já com <code>trim</code>.</td></tr>
+<tr><td><code>function Columns(const ATable: string): TLzNexStringArray</code></td><td>Nomes das colunas na <strong>ordem de declaração</strong>, não alfabética.</td></tr>
+<tr><td><code>function HasIndex(const ATable: string; const AColumns: array of string): Boolean</code></td><td>Existe índice cobrindo exatamente estas colunas? Serve para migration idempotente.</td></tr>
 <tr><td><code>procedure DropTable(const AName: string)</code></td><td><code>drop table</code>. Tabela ausente é erro do banco.</td></tr>
-<tr><td><code>procedure DropTableIfExists(const AName: string)</code></td><td><code>drop table if exists</code>.</td></tr>
-<tr><td><code>procedure RenameTable(const AFrom, ATo: string)</code></td><td>Renomeia pelo SQL do dialeto.</td></tr>
-<tr><td><code>procedure Truncate(const AName: string)</code></td><td><code>truncate table</code>.</td></tr>
+<tr><td><code>procedure DropTableIfExists(const AName: string)</code></td><td><code>drop table if exists</code>. No Firebird 3/5 a forma não existe: sai um <code>execute block</code> que testa <code>rdb$relations</code> antes do drop.</td></tr>
+<tr><td><code>procedure RenameTable(const AFrom, ATo: string)</code></td><td>Renomeia pelo SQL do dialeto. Levanta <code>ELzNexSchema</code> no Firebird, que não tem renomear tabela no 3 nem no 5.</td></tr>
+<tr><td><code>procedure Truncate(const AName: string)</code></td><td><code>truncate table</code>; <code>delete from</code> em Firebird e SQLite, que não têm <code>truncate</code>.</td></tr>
 <tr><td><code>procedure Raw(const ASQL: string; const AArgs: array of const)</code></td><td>Escapatória: manda o DDL direto pela fachada, com a mesma gramática de binds do <a href="#raw-sql">SQL cru</a>.</td></tr>
 </tbody>
 </table>
@@ -132,6 +135,7 @@
 <tr><td><code>function Primary(const AColumns: array of string): ILzNexTable</code></td><td>Chave primária composta. Lista vazia levanta.</td></tr>
 <tr><td><code>function Unique(const AColumns: array of string): ILzNexTable</code></td><td>Índice único composto.</td></tr>
 <tr><td><code>function Index(const AColumns: array of string): ILzNexTable</code></td><td>Índice composto.</td></tr>
+<tr><td><code>function FullText(const AColumns: array of string): ILzNexTable</code></td><td>Índice de texto completo, exigido por <code>WhereFullText</code>: <code>fulltext</code> no MySQL e GIN sobre <code>to_tsvector</code> no PostgreSQL. Levanta em SQLite (seria tabela virtual FTS5) e em Firebird.</td></tr>
 <tr><td><code>function DropColumn(const AName: string): ILzNexTable</code></td><td>Remove coluna. Só em alter.</td></tr>
 <tr><td><code>function DropIndex(const AColumns: array of string): ILzNexTable</code></td><td>Remove índice pelo nome derivado das colunas. Só em alter.</td></tr>
 <tr><td><code>function DropUnique(const AColumns: array of string): ILzNexTable</code></td><td>Remove índice único. Só em alter.</td></tr>

@@ -46,6 +46,11 @@ type
     FConfig: ILzNexConfig;
     FClient: ILzNexClient;
     FPool: ILzNexPool;
+
+    // Segundo pool, so quando a configuracao declara replica de leitura.
+    FReadPool: ILzNexPool;
+
+    function RetryableError(const AError: Exception): Boolean;
   public
     constructor Create(const AConfig: ILzNexConfig);
     destructor Destroy; override;
@@ -57,6 +62,8 @@ type
     function Schema: ILzNexSchema;
     function Transaction: ILzNexTransaction; overload;
     function Transaction(const AIsolation: TLzNexIsolation): ILzNexTransaction; overload;
+    function Transact(const AWork: ILzNexWork;
+      const AAttempts: Integer = 1): Integer;
     function Migrator: ILzNexMigrator;
     function Seeder: ILzNexSeeder;
     function Execute(const ASQL: string; const AArgs: array of const): Int64;
@@ -65,6 +72,7 @@ type
     function Config: ILzNexConfig;
     function Pool: ILzNexPool;
     function Connection: ILzNexConnection;
+    function ReadConnection: ILzNexConnection;
     function IsTransaction: Boolean;
     procedure Shutdown;
   end;
@@ -87,10 +95,22 @@ begin
   FConfig.Validate;
   FClient := CreateClient(FConfig.GetClient);
   FPool := NewPool(FConfig, FClient);
+
+  { A replica tem config propria -- e por isso tem pool, host e dialeto
+    proprios. Validada aqui, no mesmo lugar que a primaria. }
+  if FConfig.GetReadReplica <> nil then
+  begin
+    FConfig.GetReadReplica.Validate;
+    FReadPool := NewPool(FConfig.GetReadReplica,
+      CreateClient(FConfig.GetReadReplica.GetClient));
+  end;
 end;
 
 destructor TLzNexDb.Destroy;
 begin
+  if FReadPool <> nil then
+    FReadPool.Shutdown;
+  FReadPool := nil;
   if FPool <> nil then
     FPool.Shutdown;
   FPool := nil;
@@ -134,6 +154,67 @@ begin
   Result := NewTransaction(Self, FPool.Acquire, AIsolation);
 end;
 
+function TLzNexDb.RetryableError(const AError: Exception): Boolean;
+begin
+  Result := False;
+  if FClient = nil then
+    Exit;
+
+  { Só o que o driver classificou. Erro sem codigo nem SQLSTATE nao e tratado
+    como transitorio: repetir um erro definitivo so multiplica o estrago. }
+  if AError is ELzNexQuery then
+    Result := FClient.IsRetryableError(ELzNexQuery(AError).ErrorCode,
+      ELzNexQuery(AError).SQLState);
+end;
+
+function TLzNexDb.Transact(const AWork: ILzNexWork;
+  const AAttempts: Integer): Integer;
+var
+  Trx: ILzNexTransaction;
+  Attempt, Limit_: Integer;
+begin
+  if AWork = nil then
+    raise ELzNexTransaction.Create('Transact without a unit of work');
+
+  Limit_ := AAttempts;
+  if Limit_ < 1 then
+    Limit_ := 1;
+
+  Attempt := 0;
+  while True do
+  begin
+    Inc(Attempt);
+
+    { Trx fica fora do try por um motivo: se abrir a transacao falhar (pool
+      esgotado, servidor fora), nao ha transacao para desfazer -- e o except
+      abaixo nao pode tocar numa referencia nil. }
+    Trx := nil;
+    try
+      Trx := Transaction;
+      AWork.Execute(Trx);
+      Trx.Commit;
+      Exit(Attempt);
+    except
+      on E: Exception do
+      begin
+        { Rollback explicito: sem ele a transacao so seria desfeita quando a
+          interface morresse, e a conexao ficaria presa ate la. }
+        if (Trx <> nil) and (not Trx.IsCompleted) then
+        begin
+          try
+            Trx.Rollback;
+          except
+          end;
+        end;
+        Trx := nil;
+
+        if (Attempt >= Limit_) or (not RetryableError(E)) then
+          raise;
+      end;
+    end;
+  end;
+end;
+
 function TLzNexDb.Migrator: ILzNexMigrator;
 begin
   Result := NewMigrator(Self);
@@ -175,6 +256,14 @@ begin
   Result := FPool.Acquire;
 end;
 
+function TLzNexDb.ReadConnection: ILzNexConnection;
+begin
+  // Sem replica, leitura e escrita saem do mesmo pool.
+  if FReadPool = nil then
+    Exit(FPool.Acquire);
+  Result := FReadPool.Acquire;
+end;
+
 function TLzNexDb.IsTransaction: Boolean;
 begin
   Result := False;
@@ -182,6 +271,8 @@ end;
 
 procedure TLzNexDb.Shutdown;
 begin
+  if FReadPool <> nil then
+    FReadPool.Shutdown;
   if FPool <> nil then
     FPool.Shutdown;
 end;

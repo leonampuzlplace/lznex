@@ -112,16 +112,181 @@ select * from `t` where `name` not like ?</pre>
 </div>
 
 <p>
-  <code>WhereILike</code> usa <code>ilike</code> nativo onde existe. Em MySQL, onde a
-  comparação já é insensível a caixa por collation, cai em <code>like</code>.
+  <code>WhereILike</code> usa <code>ilike</code> nativo onde existe — e só o PostgreSQL tem.
+  Nos outros três o dialeto resolve de forma diferente, porque a razão é diferente em cada um.
 </p>
 
 <div class="code" data-tabs>
   <div class="pane on" data-pane="mysql" data-label="MySQL">
     <pre data-lang="sql">select * from `users` where `name` like ?</pre>
+    <p class="code-note">a comparação já é insensível a caixa por collation</p>
   </div>
   <div class="pane" data-pane="pg" data-label="PostgreSQL">
     <pre data-lang="sql">select * from "users" where "name" ilike ?</pre>
+  </div>
+  <div class="pane" data-pane="fb" data-label="Firebird">
+    <pre data-lang="sql">select * from "users" where upper("name") like upper(?)</pre>
+    <p class="code-note">não há ilike: o upper vai nos dois lados — e o índice de "name" não serve mais</p>
+  </div>
+  <div class="pane" data-pane="sqlite" data-label="SQLite">
+    <pre data-lang="sql">select * from "users" where "name" like ?</pre>
+    <p class="code-note">o like do SQLite já ignora caixa em ASCII — e só em ASCII, então acento continua diferenciando</p>
+  </div>
+</div>
+
+<h2 id="dates">Partes de data</h2>
+<p>
+  Comparar "o dia 2024-01-02" com uma coluna <code>datetime</code> não funciona com
+  <code>=</code>: a hora entra na comparação. A família <code>WhereDate</code> extrai a parte
+  que interessa — e cada banco extrai de um jeito, então o texto muda e o resultado não.
+</p>
+
+<div class="code"><pre data-lang="pascal">Db.Table('orders').WhereDate('created_at', EncodeDate(2024, 1, 2))
+Db.Table('orders').WhereYear('created_at', 2024)
+Db.Table('orders').WhereMonth('created_at', '&gt;=', 6)
+Db.Table('orders').WhereDatePart('created_at', dpMinute, '=', 30)</pre></div>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">select * from `orders` where date(`created_at`) = ?
+select * from `orders` where year(`created_at`) = ?
+select * from `orders` where month(`created_at`) >= ?
+select * from `orders` where minute(`created_at`) = ?</pre>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">select * from "orders" where cast("created_at" as date) = ?
+select * from "orders" where extract(year from "created_at") = ?
+select * from "orders" where extract(month from "created_at") >= ?
+select * from "orders" where extract(minute from "created_at") = ?</pre>
+  </div>
+  <div class="pane" data-pane="fb" data-label="Firebird">
+    <pre data-lang="sql">select * from "orders" where cast("created_at" as date) = ?
+select * from "orders" where extract(year from "created_at") = ?
+select * from "orders" where extract(month from "created_at") >= ?
+select * from "orders" where extract(minute from "created_at") = ?
+select * from "orders" where cast(extract(second from "created_at") as integer) = ?</pre>
+    <p class="code-note">
+      só o segundo leva <code>cast</code>: no Firebird <code>extract(second …)</code> devolve
+      <code>numeric(*,4)</code> — <code>28.7630</code>, não <code>28</code> —, e sem o cast a
+      igualdade com um inteiro nunca casaria. Verificado no <code>isql</code> do 3 e do 5.
+    </p>
+  </div>
+  <div class="pane" data-pane="sqlite" data-label="SQLite">
+    <pre data-lang="sql">select * from "orders" where date("created_at") = ?
+select * from "orders" where cast(strftime('%Y', "created_at") as integer) = ?
+select * from "orders" where cast(strftime('%m', "created_at") as integer) >= ?
+select * from "orders" where cast(strftime('%M', "created_at") as integer) = ?</pre>
+    <p class="code-note">o <code>cast</code> não é enfeite: <code>strftime</code> devolve texto, e sem ele a comparação com inteiro nunca casaria</p>
+  </div>
+</div>
+
+<p>
+  Há <code>WhereDate</code>, <code>WhereTime</code>, <code>WhereYear</code>,
+  <code>WhereMonth</code>, <code>WhereDay</code> e <code>WhereHour</code>, cada um com overload
+  de operador; <code>WhereDatePart</code> é a forma geral e cobre também
+  <code>dpMinute</code> e <code>dpSecond</code>.
+</p>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">Função na coluna atrapalha o índice</span>
+    <p>
+      <code>where year(created_at) = 2024</code> impede o banco de usar um índice comum em
+      <code>created_at</code> — ele teria de calcular a função para cada linha. Para intervalo
+      grande em tabela grande, prefira a faixa:
+      <code>WhereBetween('created_at', Inicio, Fim)</code>, que usa o índice.
+    </p>
+  </div>
+</div>
+
+<h2 id="json">JSON</h2>
+<p>
+  Três perguntas, três métodos: o valor <strong>no caminho</strong>, se o documento
+  <strong>contém</strong> um valor, e o <strong>tamanho</strong> do array. O caminho é escrito em
+  notação de ponto (<code>'address.city'</code>, <code>'tags[0]'</code>) e cada dialeto o
+  traduz.
+</p>
+
+<div class="code"><pre data-lang="pascal">Db.Table('users').WhereJsonPath('meta', 'address.city', '=', 'Recife')
+Db.Table('users').WhereJsonContains('meta', 'tags', 2)
+Db.Table('users').WhereJsonLength('meta', 'tags', '&gt;', 3)</pre></div>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">select * from `users` where json_unquote(json_extract(`meta`, '$.address.city')) = ?
+select * from `users` where json_contains(`meta`, cast(? as json), '$.tags')
+select * from `users` where json_length(`meta`, '$.tags') > ?</pre>
+    <p class="code-note">o <code>cast(? as json)</code> é necessário: um bind chega com tipo SQL, e <code>json_contains</code> recusa o que não é JSON</p>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">select * from "users" where "meta" #>> '{address,city}' = ?
+select * from "users" where ("meta" #> '{tags}')::jsonb @> to_jsonb(?)
+select * from "users" where jsonb_array_length(("meta" #> '{tags}')::jsonb) > ?</pre>
+    <p class="code-note">valor de texto vira <code>?::jsonb</code> (e o conteúdo é lido como documento); escalar nativo vira <code>to_jsonb(?)</code>, que converte sem tentar interpretar texto</p>
+  </div>
+  <div class="pane" data-pane="sqlite" data-label="SQLite">
+    <pre data-lang="sql">select * from "users" where cast(json_extract("meta", '$.address.city') as text) = ?
+select * from "users" where exists (select 1 from json_each("meta", '$.tags') where value = ?)
+select * from "users" where json_array_length("meta", '$.tags') > ?</pre>
+    <p class="code-note">
+      <code>json_extract</code> devolve o <strong>tipo nativo</strong> do documento (42 fica
+      inteiro), e no SQLite <code>42 = '42'</code> é falso — o <code>cast … as text</code>
+      alinha a comparação com os outros dialetos, que já devolvem texto. E não há
+      <code>json_contains</code>: a pergunta vira um <code>exists</code> sobre
+      <code>json_each</code>, que responde por <strong>valor escalar</strong> dentro do
+      array/objeto; comparar um sub-documento inteiro é recusado com mensagem, em vez de
+      devolver zero linhas em silêncio.
+    </p>
+  </div>
+  <div class="pane" data-pane="fb" data-label="Firebird">
+    <pre data-lang="out">ELzNexCompile: Dialect "firebird" has no JSON support …</pre>
+    <p class="code-note">não há tipo nem função de JSON no 3 nem no 5; o builder recusa antes de gerar SQL</p>
+  </div>
+</div>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">O caminho vai no texto do SQL, não como bind</span>
+    <p>
+      Nenhum dos bancos aceita o caminho como parâmetro. Por isso o builder valida o caminho
+      contra uma lista fechada — letra, dígito, <code>_</code>, <code>$</code>, <code>.</code> e
+      índice entre colchetes — e levanta <code>ELzNexBuilder</code> em qualquer outro caractere.
+      Sem essa checagem, caminho vindo de requisição seria injeção de SQL. O
+      <strong>valor</strong> continua sendo bind, sempre.
+    </p>
+  </div>
+</div>
+
+<h2 id="fulltext">Texto completo</h2>
+<p>
+  <code>WhereFullText</code> depende de um índice criado por
+  <a href="#indexes">ILzNexTable.FullText</a> — sem ele o MySQL recusa a query e o PostgreSQL
+  faz varredura completa. Existe em dois dos quatro bancos.
+</p>
+
+<div class="code"><pre data-lang="pascal">Db.Schema.CreateTable('articles')
+  .Increments('id').Str('title', 200).Text('body')
+  .FullText(['title', 'body'])
+  .Execute;
+
+Db.Table('articles').WhereFullText(['title', 'body'], 'pascal lazarus')</pre></div>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">select * from `articles` where match (`title`, `body`) against (? in natural language mode)</pre>
+    <p class="code-note">com <code>ftBoolean</code> sai <code>in boolean mode</code>, que habilita <code>+obrigatorio -excluido</code></p>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">select * from "articles" where to_tsvector('simple', coalesce("title", '') || ' ' || coalesce("body", '')) @@ plainto_tsquery('simple', ?)</pre>
+    <p class="code-note">a expressão é igual à do índice GIN que <code>FullText</code> cria — se divergisse, o índice não seria usado</p>
+  </div>
+  <div class="pane" data-pane="sqlite" data-label="SQLite">
+    <pre data-lang="out">ELzNexCompile: SQLite has no full text search on a regular table …</pre>
+  </div>
+  <div class="pane" data-pane="fb" data-label="Firebird">
+    <pre data-lang="out">ELzNexCompile: Dialect "firebird" has no full text search …</pre>
   </div>
 </div>
 
@@ -180,6 +345,32 @@ Db.Table('t')
 select * from `t` where (`a` = ? or `b` = ?) and `c` = ?</pre>
 </div>
 </div>
+
+<h3 id="any-all">O mesmo teste em várias colunas</h3>
+<p>
+  O caso mais comum de grupo é "procure este valor em qualquer uma destas colunas".
+  <code>WhereAny</code> monta o grupo de <code>or</code> e <code>WhereAll</code> o de
+  <code>and</code> — já fechados, então não contaminam o que vem depois.
+</p>
+
+<div class="code"><pre data-lang="pascal">Db.Table('users')
+  .WhereAny(['name', 'email', 'phone'], 'like', '%ana%')
+  .Where('active', True);
+
+Db.Table('posts').WhereAll(['title', 'body'], '<>', '');</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `users` where (`name` like ? or `email` like ? or `phone` like ?) and `active` = ?
+select * from `posts` where (`title` <> ? and `body` <> ?)</pre>
+  <p class="code-note">o valor é repetido como bind, um por coluna</p>
+</div>
+</div>
+
+<p>
+  O operador passa pela mesma lista fechada de <a href="#where/operators">operadores
+  aceitos</a>, e lista de colunas vazia levanta <code>ELzNexBuilder</code> — um grupo vazio
+  mudaria o sentido do <code>where</code> em silêncio.
+</p>
 
 <div class="table-wrap">
 <table class="api">

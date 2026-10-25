@@ -47,10 +47,34 @@ type
     skHavingGroup,
     skOrderBy,
     skOrderByRaw,
+    skOrderByRandom,
     skUnion,
     skWith,
-    skHint
+    skHint,
+    skWhereDatePart,
+    skWhereJson,
+    skWhereFullText
   );
+
+  { Parte da data a comparar. Cada banco extrai de um jeito (extract, year(),
+    strftime), por isso e o compilador do dialeto que resolve. }
+  TLzNexDatePart = (
+    dpDate,
+    dpTime,
+    dpYear,
+    dpMonth,
+    dpDay,
+    dpHour,
+    dpMinute,
+    dpSecond
+  );
+
+  { joPath compara o valor no caminho; joContains pergunta se o documento
+    contem o valor; joLength compara o tamanho do array. }
+  TLzNexJsonOp = (joPath, joContains, joLength);
+
+  // Natural: as palavras como texto. Boolean: a sintaxe de operadores do banco.
+  TLzNexFullTextMode = (ftNatural, ftBoolean);
 
   TLzNexBoolOp = (boAnd, boOr);
 
@@ -186,7 +210,7 @@ type
 
   TLzNexTableMethod = (tmCreate, tmAlter);
 
-  TLzNexIndexKind = (ixIndex, ixUnique, ixPrimary, ixForeign);
+  TLzNexIndexKind = (ixIndex, ixUnique, ixPrimary, ixForeign, ixFullText);
 
   TLzNexConflictAction = (caNone, caIgnore, caMerge);
 

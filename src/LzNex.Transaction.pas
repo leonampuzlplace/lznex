@@ -52,6 +52,8 @@ type
     function Schema: ILzNexSchema;
     function Transaction: ILzNexTransaction; overload;
     function Transaction(const AIsolation: TLzNexIsolation): ILzNexTransaction; overload;
+    function Transact(const AWork: ILzNexWork;
+      const AAttempts: Integer = 1): Integer;
     function Migrator: ILzNexMigrator;
     function Seeder: ILzNexSeeder;
     function Execute(const ASQL: string; const AArgs: array of const): Int64;
@@ -60,6 +62,7 @@ type
     function Config: ILzNexConfig;
     function Pool: ILzNexPool;
     function Connection: ILzNexConnection;
+    function ReadConnection: ILzNexConnection;
     function IsTransaction: Boolean;
     procedure Shutdown;
   end;
@@ -314,6 +317,17 @@ begin
   Result := Savepoint;
 end;
 
+function TLzNexTransaction.Transact(const AWork: ILzNexWork;
+  const AAttempts: Integer): Integer;
+begin
+  { Repetir aqui nao faria o que o nome promete: o bloco de fora continuaria
+    valendo, e o savepoint sozinho nao desfaz o que ele ja escreveu. }
+  raise ELzNexTransaction.Create(
+    'Transact inside a transaction. The retry has to own the transaction to be ' +
+    'able to run the block again -- call Transact on the facade, and inside ' +
+    'the block use Savepoint if you need a nested scope.');
+end;
+
 function TLzNexTransaction.Migrator: ILzNexMigrator;
 begin
   Result := NeedDb.Migrator;
@@ -365,6 +379,13 @@ begin
       'Connection on a transaction already completed: Commit/Rollback returned ' +
       'the connection to the pool. Open a new transaction to keep working.');
   Result := NeedConn;
+end;
+
+function TLzNexTransaction.ReadConnection: ILzNexConnection;
+begin
+  { Dentro de transacao nao existe leitura noutra conexao: a replica nao veria
+    o que esta transacao ainda nao commitou. }
+  Result := Connection;
 end;
 
 function TLzNexTransaction.IsTransaction: Boolean;

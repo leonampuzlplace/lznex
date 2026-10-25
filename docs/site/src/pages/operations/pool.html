@@ -93,6 +93,67 @@ Writeln(Db.Pool.Size, ' conexoes, ', Db.Pool.InUse, ' em uso');</pre></div>
   equivalentes.
 </p>
 
+<h2 id="read-replica">Réplica de leitura: dois pools</h2>
+<p>
+  <code>ReadReplica</code> recebe uma <strong>configuração própria</strong> — host, usuário e até
+  dialeto próprios — e abre um segundo pool. A partir daí o roteamento é automático: leitura vai
+  para a réplica, escrita vai para o primário.
+</p>
+
+<div class="code"><pre data-lang="pascal">Db := Connect(NewConfig
+  .Client('mysql').Host('db-primary').Database('app')
+  .User('app').Password(Secret)
+  .Pool(2, 8)
+  .ReadReplica(NewConfig
+    .Client('mysql').Host('db-replica').Database('app')
+    .User('app_ro').Password(Secret)
+    .Pool(2, 16)));</pre></div>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>O que a query faz</th><th>Vai para</th><th>Por quê</th></tr></thead>
+<tbody>
+<tr><td><code>Get</code>, <code>First</code>, <code>Count</code>, <code>Pluck</code>, <code>Paginate</code></td><td class="yes">réplica</td><td>leitura pura</td></tr>
+<tr><td><code>Insert</code>, <code>Update</code>, <code>Delete</code>, <code>Upsert</code></td><td>primário</td><td>escrita</td></tr>
+<tr><td>qualquer coisa dentro de <code>Db.Transaction</code></td><td>primário</td><td>é a conexão fixada da transação; a réplica não veria o que ela ainda não commitou</td></tr>
+<tr><td><code>ForUpdate</code> / <code>ForShare</code></td><td>primário</td><td>travar linha numa réplica não protege quem escreve no primário</td></tr>
+<tr><td>qualquer query com <code>UsePrimary</code></td><td>primário</td><td>decisão explícita de quem chamou</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  Sem réplica configurada, <code>ReadConnection</code> é a mesma coisa que
+  <code>Connection</code> — o código da aplicação não muda ao ligar ou desligar a réplica.
+</p>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Ler depois de escrever exige UsePrimary</span>
+    <p>
+      Replicação tem atraso. Inserir uma linha e, logo depois, procurá-la numa leitura comum
+      pode não achar nada — a réplica ainda não recebeu. Não há "sticky" automático aqui: quem
+      precisa do dado recém-escrito usa <code>UsePrimary</code> ou faz as duas operações na mesma
+      transação.
+    </p>
+    <div class="code"><pre data-lang="pascal">Db.Table('users').Insert(Vals(['email', AMail]));
+
+// Esta leitura pode nao achar: a replica talvez nao tenha recebido ainda.
+Row := Db.Table('users').Where('email', AMail).First;
+
+// Esta acha sempre.
+Row := Db.Table('users').Where('email', AMail).UsePrimary.First;</pre></div>
+  </div>
+</div>
+
+<p>
+  Os dois pools são independentes: <code>Db.Pool</code> é o do primário, e cada um tem o seu
+  <code>min</code>/<code>max</code>. <code>Shutdown</code> encerra os dois.
+  <code>ReadReplica</code> apontando para a própria configuração levanta
+  <code>ELzNexConfig</code> — seriam dois pools para o mesmo banco sem nenhum ganho.
+</p>
+
 <h2 id="normal-use">No uso normal ninguém toca no pool</h2>
 <p>
   <code>Db.Pool</code> existe para diagnóstico e para teste. No código de aplicação você não

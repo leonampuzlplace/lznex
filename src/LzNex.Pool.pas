@@ -74,6 +74,9 @@ type
     FLock: TCriticalSection;
     FClient: ILzNexClient;
     FParams: TLzNexConnectionParams;
+
+    // Repassado a cada conexao aberta: e lá que a query e cronometrada.
+    FLogger: ILzNexLogger;
     FIdle: array of ILzNexConnection;
     FIdleCount: Integer;
     FInUse: Integer;
@@ -89,7 +92,8 @@ type
   public
     constructor Create(const AClient: ILzNexClient;
       const AParams: TLzNexConnectionParams;
-      const AMin, AMax, ATimeoutMs: Integer);
+      const AMin, AMax, ATimeoutMs: Integer;
+      const ALogger: ILzNexLogger = nil);
     destructor Destroy; override;
 
     function Acquire: ILzNexConnection;
@@ -104,7 +108,8 @@ type
 
 function NewPool(const AClient: ILzNexClient;
   const AParams: TLzNexConnectionParams;
-  const AMin, AMax, ATimeoutMs: Integer): ILzNexPool; overload;
+  const AMin, AMax, ATimeoutMs: Integer;
+  const ALogger: ILzNexLogger = nil): ILzNexPool; overload;
 
 function NewPool(const AConfig: ILzNexConfig;
   const AClient: ILzNexClient): ILzNexPool; overload;
@@ -304,7 +309,8 @@ begin
 end;
 
 constructor TLzNexPool.Create(const AClient: ILzNexClient;
-  const AParams: TLzNexConnectionParams; const AMin, AMax, ATimeoutMs: Integer);
+  const AParams: TLzNexConnectionParams; const AMin, AMax, ATimeoutMs: Integer;
+  const ALogger: ILzNexLogger);
 var
   I: Integer;
 begin
@@ -321,6 +327,7 @@ begin
 
   FClient := AClient;
   FParams := AParams;
+  FLogger := ALogger;
   FMin := AMin;
   FMax := AMax;
   if ATimeoutMs < 0 then
@@ -344,7 +351,7 @@ end;
 
 function TLzNexPool.OpenNew: ILzNexConnection;
 begin
-  Result := NewConnection(FClient, FParams);
+  Result := NewConnection(FClient, FParams, FLogger);
 end;
 
 function TLzNexPool.Lend(const AConn: ILzNexConnection): ILzNexConnection;
@@ -564,9 +571,11 @@ end;
 
 function NewPool(const AClient: ILzNexClient;
   const AParams: TLzNexConnectionParams;
-  const AMin, AMax, ATimeoutMs: Integer): ILzNexPool;
+  const AMin, AMax, ATimeoutMs: Integer;
+  const ALogger: ILzNexLogger): ILzNexPool;
 begin
-  Result := TLzNexPool.Create(AClient, AParams, AMin, AMax, ATimeoutMs) as ILzNexPool;
+  Result := TLzNexPool.Create(AClient, AParams, AMin, AMax, ATimeoutMs, ALogger)
+    as ILzNexPool;
 end;
 
 function NewPool(const AConfig: ILzNexConfig;
@@ -594,7 +603,8 @@ begin
   if Timeout_ <= 0 then
     Timeout_ := LZNEX_POOL_DEFAULT_TIMEOUT_MS;
 
-  Result := TLzNexPool.Create(AClient, P, Min_, Max_, Timeout_) as ILzNexPool;
+  Result := TLzNexPool.Create(AClient, P, Min_, Max_, Timeout_,
+    AConfig.GetLogger) as ILzNexPool;
 end;
 
 end.

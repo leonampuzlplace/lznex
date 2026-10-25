@@ -8,10 +8,13 @@
 <tbody>
 <tr><td><code>function Get: ILzNexResult</code></td><td>Executa o select e devolve o cursor forward-only.</td></tr>
 <tr><td><code>function First: ILzNexRow</code></td><td>Primeira linha materializada, ou <code>nil</code>. Acrescenta <code>limit 1</code> se não houver limite.</td></tr>
+<tr><td><code>function FirstOrFail: ILzNexRow</code></td><td>Como <code>First</code>, mas levanta <code>ELzNexQuery</code> em vez de devolver <code>nil</code>.</td></tr>
+<tr><td><code>function Sole: ILzNexRow</code></td><td>Exige exatamente uma linha: levanta se nenhuma, e levanta se mais de uma. Pede <code>limit 2</code>.</td></tr>
 <tr><td><code>function Value(const AColumn: string): TLzNexValue</code></td><td>Troca a lista de colunas pela informada e devolve o escalar da primeira linha. Sem linha: <code>Null</code>.</td></tr>
 <tr><td><code>function Scalar: TLzNexValue</code></td><td>Primeira coluna da primeira linha, sem mexer no select.</td></tr>
 <tr><td><code>function Pluck(const AColumn: string): TLzNexValues</code></td><td>Uma coluna de todas as linhas, como array.</td></tr>
 <tr><td><code>function Exists: Boolean</code></td><td><code>limit 1</code> + existe linha?</td></tr>
+<tr><td><code>function DoesntExist: Boolean</code></td><td>O complemento de <code>Exists</code>, para o <code>if</code> não precisar de <code>not</code>.</td></tr>
 <tr><td><code>function Count: Int64</code></td><td><code>count(*)</code> já convertido.</td></tr>
 <tr><td><code>function Aggregate(const AAgg: TLzNexAggregate; const AColumn: string): TLzNexValue</code></td><td><code>agCount</code>, <code>agMin</code>, <code>agMax</code>, <code>agSum</code>, <code>agAvg</code>.</td></tr>
 </tbody>
@@ -41,6 +44,34 @@ select * from `users` where `email` = ? limit ?</pre>
   O <code>limit ?</code> em <code>First</code>, <code>Value</code>, <code>Count</code> e
   <code>Aggregate</code> não é desperdício: todos leem uma linha só, e o limite evita que o
   banco materialize o resto.
+</p>
+
+<h3 id="strict">Quando "zero linha" é erro</h3>
+<p>
+  <code>First</code> devolve <code>nil</code> e obriga quem chamou a testar; é o certo numa
+  busca. Quando a ausência da linha é um defeito — o id veio de uma chave estrangeira, por
+  exemplo —, <code>FirstOrFail</code> transforma isso em exceção com o SQL anexado. E
+  <code>Sole</code> vai além: afirma que o filtro identifica <strong>uma</strong> linha, e
+  levanta também quando vêm duas.
+</p>
+
+<div class="code"><pre data-lang="pascal">Row := Db.Table('users').Where('id', 7).FirstOrFail;       // levanta se nao existe
+Row := Db.Table('users').Where('email', AMail).Sole;       // levanta se 0 ou se 2+
+if Db.Table('users').Where('email', AMail).DoesntExist then
+  Db.Table('users').Insert(Vals(['email', AMail]));</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from `users` where `id` = ? limit ?
+select * from `users` where `email` = ? limit ?
+select * from `users` where `email` = ? limit ?</pre>
+  <p class="code-note"><code>Sole</code> pede <code>limit 2</code>: duas linhas bastam para saber que há mais de uma</p>
+</div>
+</div>
+
+<p>
+  Para ler muitas linhas sem carregar tudo na memória, nenhum destes serve: veja
+  <a href="#pagination/chunks">Chunk e Each</a>. Para janelas de tela, veja
+  <a href="#pagination">Paginação</a>.
 </p>
 
 <h2 id="aggregates">Agregados</h2>

@@ -142,7 +142,8 @@
       Se a unit do dialeto não aparece no <code>uses</code> de ninguém, o
       <code>initialization</code> dela nunca roda e <code>CreateClient('mysql')</code> falha
       com "dialect is not registered" — mesmo que o arquivo esteja no projeto. Inclua
-      <code>LzNex.Client.MySQL</code> (ou <code>.Postgres</code>) explicitamente no programa
+      <code>LzNex.Client.MySQL</code> (ou <code>.Postgres</code>, <code>.Firebird</code>,
+      <code>.SQLite</code>) explicitamente no programa
       principal. <code>RegisteredClients</code> devolve <code>&lt;none&gt;</code> quando nenhuma
       foi linkada, o que é o sintoma mais direto.
     </p>

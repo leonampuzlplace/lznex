@@ -99,6 +99,67 @@
   </div>
 </div>
 
+<h2 id="pages">As janelas de paginação</h2>
+<p>
+  Os três paginadores devolvem <code>record</code>, não interface: são retratos de uma consulta
+  já feita, sem nada para liberar. As linhas vêm em <code>TLzNexRowArray</code> — já
+  materializadas, com o cursor fechado. Veja <a href="#pagination">Paginação</a>.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<thead><tr><th>Record</th><th>Campos</th><th>Métodos</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>TLzNexPage</code></td>
+  <td><code>Rows</code>, <code>Total</code>, <code>PerPage</code>, <code>CurrentPage</code></td>
+  <td><code>Count</code>, <code>LastPage</code>, <code>HasMorePages</code>, <code>IsEmpty</code></td>
+</tr>
+<tr>
+  <td><code>TLzNexSimplePage</code></td>
+  <td><code>Rows</code>, <code>PerPage</code>, <code>CurrentPage</code>, <code>HasMorePages</code></td>
+  <td><code>Count</code>, <code>IsEmpty</code></td>
+</tr>
+<tr>
+  <td><code>TLzNexCursorPage</code></td>
+  <td><code>Rows</code>, <code>PerPage</code>, <code>NextCursor</code>, <code>PrevCursor</code></td>
+  <td><code>Count</code>, <code>HasMorePages</code>, <code>IsEmpty</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  <code>LastPage</code> é <code>ceil(Total / PerPage)</code> calculado em inteiros, e nunca menos
+  que 1 — uma lista vazia ainda é uma página (vazia). Em <code>TLzNexCursorPage</code>,
+  <code>HasMorePages</code> é simplesmente <code>NextCursor &lt;&gt; ''</code>.
+</p>
+
+<h2 id="chunks">ILzNexChunks</h2>
+<p>
+  A varredura em lotes. Cada <code>Next</code> roda uma query, materializa o lote e
+  <strong>fecha o cursor antes de devolver</strong> — nenhuma conexão do pool fica presa entre
+  dois lotes.
+</p>
+
+<div class="table-wrap">
+<table class="api">
+<tbody>
+<tr><td><code>function Next: Boolean</code></td><td>Carrega o próximo lote; <code>False</code> quando acabou.</td></tr>
+<tr><td><code>function Rows: TLzNexRowArray</code></td><td>As linhas do lote corrente.</td></tr>
+<tr><td><code>function ChunkIndex: Int64</code></td><td>Número do lote, 1-based; zero antes do primeiro <code>Next</code>.</td></tr>
+<tr><td><code>function RowsSeen: Int64</code></td><td>Total de linhas lidas até agora.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  O handler de <code>Each</code> é <code>TLzNexRowProc</code>:
+  <code>procedure(const ARow: ILzNexRow; var AStop: Boolean) of object</code>. É ponteiro de
+  método porque o FPC 3.2 não tem função anônima — o destino tem de ser um método de alguma
+  classe.
+</p>
+
 <p>
   <code>TLzNexValue</code> — <code>AsString</code>, <code>AsInt64</code>, <code>IsNull</code> e os
   demais acessores — está em <a href="#values">Valores</a>.

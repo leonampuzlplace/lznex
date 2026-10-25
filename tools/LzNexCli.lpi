@@ -4,9 +4,9 @@
      ../database e ../database/migrations entram no unit path porque o .lpr da
      `uses Migrations.All`, que agrega as migrations em Pascal do projeto.
 
-     Os paths de modules/ seguem a coordenada do boss.json: trocar
-     github.com/CHANGEME/zeoslib exige trocar github_com_CHANGEME_zeoslib aqui
-     (o Boss converte ponto e barra em "_").
+     O Zeos nao vem do boss.json (e dependencia do host, ver README): aqui ele
+     e clonado em modules/zeoslib pelo Dockerfile. Fora do container, clone na
+     mao no mesmo lugar.
 
      O `boss install` ACRESCENTA paths a <OtherUnitFiles> (nao substitui), mas
      relativos a RAIZ do projeto, nao a tools/. Logo o que ele injeta aqui fica
@@ -37,8 +37,8 @@
             <Filename Value="../bin/lznex-debug"/>
           </Target>
           <SearchPaths>
-            <IncludeFiles Value="../modules/github_com_CHANGEME_zeoslib/src"/>
-            <OtherUnitFiles Value="../src;../database;../database/migrations;../modules/github_com_CHANGEME_zeoslib/src/core;../modules/github_com_CHANGEME_zeoslib/src/parsesql;../modules/github_com_CHANGEME_zeoslib/src/plain;../modules/github_com_CHANGEME_zeoslib/src/dbc;../modules"/>
+            <IncludeFiles Value="../modules/zeoslib/src"/>
+            <OtherUnitFiles Value="../src;../database;../database/migrations;../modules/zeoslib/src/core;../modules/zeoslib/src/parsesql;../modules/zeoslib/src/plain;../modules/zeoslib/src/dbc;../modules"/>
             <UnitOutputDirectory Value="../lib/cli-debug/$(TargetCPU)-$(TargetOS)"/>
           </SearchPaths>
           <CodeGeneration>
@@ -83,8 +83,8 @@
       <Filename Value="../bin/lznex"/>
     </Target>
     <SearchPaths>
-      <IncludeFiles Value="../modules/github_com_CHANGEME_zeoslib/src"/>
-      <OtherUnitFiles Value="../src;../database;../database/migrations;../modules/github_com_CHANGEME_zeoslib/src/core;../modules/github_com_CHANGEME_zeoslib/src/parsesql;../modules/github_com_CHANGEME_zeoslib/src/plain;../modules/github_com_CHANGEME_zeoslib/src/dbc;../modules"/>
+      <IncludeFiles Value="../modules/zeoslib/src"/>
+      <OtherUnitFiles Value="../src;../database;../database/migrations;../modules/zeoslib/src/core;../modules/zeoslib/src/parsesql;../modules/zeoslib/src/plain;../modules/zeoslib/src/dbc;../modules"/>
       <UnitOutputDirectory Value="../lib/cli-release/$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>
     <CodeGeneration>

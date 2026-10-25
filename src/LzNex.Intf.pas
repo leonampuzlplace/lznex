@@ -35,11 +35,61 @@ type
   ILzNexSeeder = interface;
   ILzNexColumnDef = interface;
   ILzNexIndexDef = interface;
+  ILzNexChunks = interface;
   ILzNex = interface;
 
   TLzNexStringArray = array of string;
   TLzNexRowArray = array of ILzNexRow;
   TLzNexMigrationArray = array of ILzNexMigration;
+
+  // Janela com total: custa um count a mais, e so com ele da para saber
+  // quantas paginas existem.
+  TLzNexPage = record
+    Rows: TLzNexRowArray;
+    Total: Int64;
+    PerPage: Int64;
+    CurrentPage: Int64;
+
+    function Count: Integer;
+
+    function LastPage: Int64;
+
+    function HasMorePages: Boolean;
+
+    function IsEmpty: Boolean;
+  end;
+
+  // Janela sem total: le uma linha a mais do que cabe na pagina, e e essa
+  // linha que responde se ha proxima.
+  TLzNexSimplePage = record
+    Rows: TLzNexRowArray;
+    PerPage: Int64;
+    CurrentPage: Int64;
+    HasMorePages: Boolean;
+
+    function Count: Integer;
+
+    function IsEmpty: Boolean;
+  end;
+
+  { Janela por cursor (keyset): a proxima pagina continua da ultima linha lida
+    em vez de pular N linhas, entao insercao e remocao no meio do caminho nao
+    fazem linha repetir nem desaparecer. Em troca, so navega para frente e para
+    tras -- nao existe "pagina 7". }
+  TLzNexCursorPage = record
+    Rows: TLzNexRowArray;
+    PerPage: Int64;
+
+    NextCursor: string;
+
+    PrevCursor: string;
+
+    function Count: Integer;
+
+    function HasMorePages: Boolean;
+
+    function IsEmpty: Boolean;
+  end;
 
   ILzNexRaw = interface
     ['{9A1C0E10-0001-4C2E-9B01-6E5B2A7F0001}']
@@ -89,6 +139,27 @@ type
     procedure Close;
   end;
 
+  { Varredura em lotes. Cada Next roda uma query, materializa o lote e fecha o
+    cursor antes de devolver -- nenhuma conexao do pool fica presa entre dois
+    lotes, o que importa em varredura longa. }
+  ILzNexChunks = interface
+    ['{9A1C0E10-0018-4C2E-9B01-6E5B2A7F0018}']
+
+    function Next: Boolean;
+
+    function Rows: TLzNexRowArray;
+
+    // Numero do lote corrente, 1-based. Zero antes do primeiro Next.
+    function ChunkIndex: Int64;
+
+    function RowsSeen: Int64;
+  end;
+
+  { Handler de Each. E ponteiro de metodo porque o FPC 3.2 nao tem funcao
+    anonima: o destino tem de ser um metodo de alguma classe. AStop em True
+    interrompe a varredura. }
+  TLzNexRowProc = procedure(const ARow: ILzNexRow; var AStop: Boolean) of object;
+
   ILzNexClient = interface
     ['{9A1C0E10-0004-4C2E-9B01-6E5B2A7F0004}']
 
@@ -116,7 +187,21 @@ type
 
     function SupportsSavepoints: Boolean;
 
+    // Tipo e funcoes de JSON. O Firebird nao tem nenhum dos dois.
+    function SupportsJson: Boolean;
+
+    // Indice e busca de texto completo.
+    function SupportsFullText: Boolean;
+
+    { Se vale repetir a transacao depois deste erro: deadlock e falha de
+      serializacao sao transitorios, violacao de chave nao. Cada dialeto tem
+      seu codigo e seu SQLSTATE. }
+    function IsRetryableError(const ACode: Integer; const ASQLState: string): Boolean;
+
     function DdlIsTransactional: Boolean;
+
+    // Isolamento que a conexao assume ao abrir. ilDefault deixa o do servidor.
+    function DefaultIsolation: TLzNexIsolation;
 
     function Components(const AMethod: TLzNexQueryMethod): TLzNexComponents;
 
@@ -168,6 +253,12 @@ type
     function HasTableSQL(const ATable, ASchema: string): TLzNexFragment;
     function HasColumnSQL(const ATable, AColumn, ASchema: string): TLzNexFragment;
 
+    // Inspecao: uma coluna de texto por linha, na ordem natural do catalogo.
+    function TablesSQL(const ASchema: string): TLzNexFragment;
+    function ColumnsSQL(const ATable, ASchema: string): TLzNexFragment;
+    function HasIndexSQL(const ATable: string; const AColumns: TLzNexValues;
+      const ASchema: string): TLzNexFragment;
+
     function IndexName(const ATable: string; const AColumns: TLzNexValues;
       const AKind: TLzNexIndexKind): string;
   end;
@@ -198,6 +289,17 @@ type
     function SelectRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery;
 
     function SelectSub(const ASub: ILzNexQuery; const AAlias: string): ILzNexQuery;
+
+    { Agregado como coluna do select, sem executar nada -- ao contrario de
+      Count/Aggregate, que rodam a query na hora. Serve para contar dentro de
+      uma subquery. }
+    function SelectCount(const AColumn: string = '*';
+      const AAlias: string = ''): ILzNexQuery;
+    function SelectAggregate(const AAgg: TLzNexAggregate;
+      const AColumn, AAlias: string): ILzNexQuery;
+
+    // "quantos ha para cada linha": a subquery entra no select como count(*).
+    function WithCount(const ASub: ILzNexQuery; const AAlias: string): ILzNexQuery;
 
     function Distinct: ILzNexQuery;
 
@@ -239,8 +341,53 @@ type
     function WhereExists(const ASub: ILzNexQuery): ILzNexQuery;
     function WhereNotExists(const ASub: ILzNexQuery): ILzNexQuery;
 
+    { Compara so a parte da data. WhereDate recebe a data inteira; Year, Month,
+      Day e Hour recebem o numero. }
+    function WhereDate(const AColumn: string; const AValue: TLzNexValue): ILzNexQuery; overload;
+    function WhereDate(const AColumn, AOp: string; const AValue: TLzNexValue): ILzNexQuery; overload;
+    function WhereTime(const AColumn: string; const AValue: TLzNexValue): ILzNexQuery; overload;
+    function WhereTime(const AColumn, AOp: string; const AValue: TLzNexValue): ILzNexQuery; overload;
+    function WhereYear(const AColumn: string; const AValue: Integer): ILzNexQuery; overload;
+    function WhereYear(const AColumn, AOp: string; const AValue: Integer): ILzNexQuery; overload;
+    function WhereMonth(const AColumn: string; const AValue: Integer): ILzNexQuery; overload;
+    function WhereMonth(const AColumn, AOp: string; const AValue: Integer): ILzNexQuery; overload;
+    function WhereDay(const AColumn: string; const AValue: Integer): ILzNexQuery; overload;
+    function WhereDay(const AColumn, AOp: string; const AValue: Integer): ILzNexQuery; overload;
+    function WhereHour(const AColumn: string; const AValue: Integer): ILzNexQuery; overload;
+    function WhereHour(const AColumn, AOp: string; const AValue: Integer): ILzNexQuery; overload;
+
+    function WhereDatePart(const AColumn: string; const APart: TLzNexDatePart;
+      const AOp: string; const AValue: TLzNexValue): ILzNexQuery;
+
+    { Caminho JSON em notacao de ponto ("meta.address.city"). O caminho vai
+      interpolado no SQL, e por isso e validado: so letra, digito, '_', '$',
+      '.' e indice entre colchetes. }
+    function WhereJsonPath(const AColumn, APath, AOp: string;
+      const AValue: TLzNexValue): ILzNexQuery;
+
+    // Caminho vazio pergunta pelo documento inteiro.
+    function WhereJsonContains(const AColumn, APath: string;
+      const AValue: TLzNexValue): ILzNexQuery;
+
+    function WhereJsonLength(const AColumn, APath, AOp: string;
+      const AValue: Integer): ILzNexQuery;
+
+    // Exige indice de texto completo nas colunas (ILzNexTable.FullText).
+    function WhereFullText(const AColumns: array of string;
+      const ASearch: string): ILzNexQuery; overload;
+    function WhereFullText(const AColumns: array of string;
+      const ASearch: string; const AMode: TLzNexFullTextMode): ILzNexQuery; overload;
+
     function WhereRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery;
     function OrWhereRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery;
+
+    { Mesmo teste em varias colunas. Any sai como um grupo de OR ("qualquer
+      uma casa") e All como um grupo de AND ("todas casam"); o grupo e fechado,
+      entao nao se mistura com o resto do where. }
+    function WhereAny(const AColumns: array of string; const AOp: string;
+      const AValue: TLzNexValue): ILzNexQuery;
+    function WhereAll(const AColumns: array of string; const AOp: string;
+      const AValue: TLzNexValue): ILzNexQuery;
 
     function WhereOpen: ILzNexQuery;
 
@@ -282,10 +429,18 @@ type
     function OrderByDesc(const AColumn: string): ILzNexQuery;
     function OrderByRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery;
 
+    { Ordem aleatoria. O banco ordena o conjunto inteiro antes de cortar, entao
+      em tabela grande combine com um Where que reduza as linhas. }
+    function InRandomOrder: ILzNexQuery;
+
     function Limit(const ACount: Int64): ILzNexQuery;
     function Offset(const ACount: Int64): ILzNexQuery;
 
     function Page(const APage, APerPage: Int64): ILzNexQuery;
+
+    // Desfaz Limit/Offset. Clear() so apaga grupos; limite e offset nao sao um.
+    function ClearPaging: ILzNexQuery;
+
     function ForUpdate: ILzNexQuery;
     function ForShare: ILzNexQuery;
     function SkipLocked: ILzNexQuery;
@@ -309,13 +464,28 @@ type
 
     function Transacting(const ATrx: ILzNexTransaction): ILzNexQuery;
 
+    { Forca esta query no primario mesmo sendo leitura. Use depois de escrever,
+      quando a replica pode ainda nao ter recebido a mudanca. }
+    function UsePrimary: ILzNexQuery;
+
     function ToSQL: TLzNexFragment;
 
     function ToSQLString: string;
 
+    { Despeja o SQL com os valores no lugar dos "?" e segue encadeavel. Vai
+      para o logger da configuracao quando houver um, senao para a saida
+      padrao. E depuracao: o texto nao serve para executar. }
+    function Dump: ILzNexQuery;
+
     function Get: ILzNexResult;
 
     function First: ILzNexRow;
+
+    // Como First, mas levanta em vez de devolver nil quando nada casa.
+    function FirstOrFail: ILzNexRow;
+
+    // Exige exatamente uma linha: levanta se nenhuma, e levanta se mais de uma.
+    function Sole: ILzNexRow;
 
     function Value(const AColumn: string): TLzNexValue;
 
@@ -325,9 +495,39 @@ type
 
     function Exists: Boolean;
 
+    function DoesntExist: Boolean;
+
     function Count: Int64;
 
     function Aggregate(const AAgg: TLzNexAggregate; const AColumn: string): TLzNexValue;
+
+    { Pagina com total. Roda duas queries: um count sem ordem nem janela e a
+      propria pagina. Fora de transacao as duas saem de conexoes diferentes do
+      pool, ou seja o total pode ser de uma foto e as linhas de outra; quem
+      precisa dos dois coerentes abre uma transacao. }
+    function Paginate(const APage, APerPage: Int64): TLzNexPage;
+
+    // Pagina sem count: uma query so, e um APerPage + 1 para saber se ha mais.
+    function SimplePaginate(const APage, APerPage: Int64): TLzNexSimplePage;
+
+    { Pagina por cursor. Exige OrderBy -- e a ordem que define o corte -- e que
+      a ultima coluna da ordenacao seja unica, senao a pagina pode pular linha
+      de valor repetido. Cursor vazio comeca do inicio. }
+    function CursorPaginate(const APerPage: Int64;
+      const ACursor: string = ''): TLzNexCursorPage;
+
+    // Lotes por Limit/Offset. Exige OrderBy: sem ordem a janela nao e estavel.
+    function Chunk(const ASize: Int64): ILzNexChunks;
+
+    { Lotes por chave, avancando de "chave > ultima lida". Ignora o OrderBy da
+      query (a ordem passa a ser a da chave) e nao se perde se linha for
+      inserida ou removida durante a varredura. }
+    function ChunkById(const ASize: Int64;
+      const AKeyColumn: string = 'id'): ILzNexChunks;
+
+    // Percorre tudo em lotes por chave e devolve quantas linhas visitou.
+    function Each(const AHandler: TLzNexRowProc; const AChunkSize: Int64 = 1000;
+      const AKeyColumn: string = 'id'): Int64;
 
     function Insert(const AValues: TLzNexNamedValues): Int64;
 
@@ -340,7 +540,21 @@ type
 
     function InsertMany(const ARows: array of TLzNexNamedValues): Int64;
 
+    { Insere varias linhas resolvendo colisao de chave como UPDATE. E acucar
+      sobre InsertMany + OnConflict(...).Merge. AUpdate vazio atualiza todas as
+      colunas da linha. O Firebird nao tem upsert de varias linhas e recusa
+      ARows com mais de uma. }
+    function Upsert(const ARows: array of TLzNexNamedValues;
+      const AUniqueBy: array of string;
+      const AUpdate: array of string): Int64;
+
     function Update(const AValues: TLzNexNamedValues): Int64;
+
+    { Atualiza a linha que casa com AMatch; se nenhuma casar, insere AMatch +
+      AValues. Devolve True quando inseriu. Sem chave unica no banco, duas
+      execucoes simultaneas podem inserir as duas -- com chave unica prefira
+      Upsert, que o banco resolve atomicamente. }
+    function UpdateOrInsert(const AMatch, AValues: TLzNexNamedValues): Boolean;
 
     function Increment(const AColumn: string; const ABy: Int64 = 1): Int64;
     function Decrement(const AColumn: string; const ABy: Int64 = 1): Int64;
@@ -471,6 +685,10 @@ type
     function Primary(const AColumns: array of string): ILzNexTable; overload;
     function Unique(const AColumns: array of string): ILzNexTable; overload;
     function Index(const AColumns: array of string): ILzNexTable; overload;
+
+    { Indice de texto completo, exigido por WhereFullText. Nao existe em SQLite
+      (seria tabela virtual FTS5) nem em Firebird, e nesses o DDL recusa. }
+    function FullText(const AColumns: array of string): ILzNexTable;
     function DropColumn(const AName: string): ILzNexTable;
     function DropIndex(const AColumns: array of string): ILzNexTable;
     function DropUnique(const AColumns: array of string): ILzNexTable;
@@ -513,6 +731,16 @@ type
 
     function HasTable(const AName: string): Boolean;
     function HasColumn(const ATable, AColumn: string): Boolean;
+
+    // Nomes das tabelas do schema corrente, como o catalogo os devolve.
+    function Tables: TLzNexStringArray;
+
+    // Nomes das colunas, na ordem em que a tabela as declara.
+    function Columns(const ATable: string): TLzNexStringArray;
+
+    // Se existe indice exatamente sobre estas colunas, em qualquer ordem.
+    function HasIndex(const ATable: string;
+      const AColumns: array of string): Boolean;
 
     procedure DropTable(const AName: string);
     procedure DropTableIfExists(const AName: string);
@@ -577,6 +805,10 @@ type
     function Prop(const AName, AValue: string): ILzNexConfig;
     function Logger(const AValue: ILzNexLogger): ILzNexConfig;
 
+    { Replica de leitura: um segundo pool, usado pelos SELECT que nao estao em
+      transacao nem pedindo lock. Sem ela, tudo vai para o primario. }
+    function ReadReplica(const AConfig: ILzNexConfig): ILzNexConfig;
+
     function GetClient: string;
     function GetHost: string;
     function GetPort: Integer;
@@ -593,6 +825,7 @@ type
     function GetSeedsDir: string;
     function GetProps: TLzNexNamedValues;
     function GetLogger: ILzNexLogger;
+    function GetReadReplica: ILzNexConfig;
 
     procedure Validate;
   end;
@@ -671,6 +904,15 @@ type
     function Names: TLzNexStringArray;
   end;
 
+  { Bloco de trabalho transacional. E interface, e nao callback, pelo mesmo
+    motivo de ILzNexMigration: o FPC 3.2 nao tem funcao anonima, e o retry
+    precisa poder executar o mesmo bloco outra vez. }
+  ILzNexWork = interface
+    ['{9A1C0E10-0019-4C2E-9B01-6E5B2A7F0019}']
+
+    procedure Execute(const ADb: ILzNex);
+  end;
+
   ILzNex = interface
     ['{9A1C0E10-0017-4C2E-9B01-6E5B2A7F0017}']
 
@@ -686,6 +928,12 @@ type
     function Transaction: ILzNexTransaction; overload;
     function Transaction(const AIsolation: TLzNexIsolation): ILzNexTransaction; overload;
 
+    { Roda o bloco numa transacao e commita. Se o erro for transitorio (o
+      dialeto decide em IsRetryableError), desfaz e repete ate AAttempts.
+      Devolve quantas tentativas gastou. }
+    function Transact(const AWork: ILzNexWork;
+      const AAttempts: Integer = 1): Integer;
+
     function Migrator: ILzNexMigrator;
     function Seeder: ILzNexSeeder;
 
@@ -697,6 +945,10 @@ type
     function Pool: ILzNexPool;
 
     function Connection: ILzNexConnection;
+
+    { Conexao da replica de leitura. Sem replica configurada, e a mesma coisa
+      que Connection -- quem chama nao precisa saber se existe replica. }
+    function ReadConnection: ILzNexConnection;
 
     function IsTransaction: Boolean;
     procedure Shutdown;
@@ -716,6 +968,56 @@ type
   end;
 
 implementation
+
+function TLzNexPage.Count: Integer;
+begin
+  Result := Length(Rows);
+end;
+
+function TLzNexPage.LastPage: Int64;
+begin
+  if PerPage < 1 then
+    Exit(1);
+  // Divisao para cima, sem float: 0 linhas ainda e uma pagina (vazia).
+  Result := (Total + PerPage - 1) div PerPage;
+  if Result < 1 then
+    Result := 1;
+end;
+
+function TLzNexPage.HasMorePages: Boolean;
+begin
+  Result := CurrentPage < LastPage;
+end;
+
+function TLzNexPage.IsEmpty: Boolean;
+begin
+  Result := Length(Rows) = 0;
+end;
+
+function TLzNexSimplePage.Count: Integer;
+begin
+  Result := Length(Rows);
+end;
+
+function TLzNexSimplePage.IsEmpty: Boolean;
+begin
+  Result := Length(Rows) = 0;
+end;
+
+function TLzNexCursorPage.Count: Integer;
+begin
+  Result := Length(Rows);
+end;
+
+function TLzNexCursorPage.HasMorePages: Boolean;
+begin
+  Result := NextCursor <> '';
+end;
+
+function TLzNexCursorPage.IsEmpty: Boolean;
+begin
+  Result := Length(Rows) = 0;
+end;
 
 function TLzNexDdlPlan.All: TLzNexFragments;
 var

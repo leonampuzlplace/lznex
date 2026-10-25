@@ -64,7 +64,7 @@ type
     procedure CompileIndexes(const ATable: ILzNexTable;
       var APlan: TLzNexDdlPlan; const ASkipPrimary: Boolean);
     procedure CompileComments(const ATable: ILzNexTable;
-      var APlan: TLzNexDdlPlan);
+      var APlan: TLzNexDdlPlan); virtual;
   public
     constructor Create(const AClient: ILzNexClient);
 
@@ -80,6 +80,10 @@ type
     function TruncateTableSQL(const ATable: string): TLzNexFragment; virtual;
     function HasTableSQL(const ATable, ASchema: string): TLzNexFragment; virtual;
     function HasColumnSQL(const ATable, AColumn, ASchema: string): TLzNexFragment; virtual;
+    function TablesSQL(const ASchema: string): TLzNexFragment; virtual;
+    function ColumnsSQL(const ATable, ASchema: string): TLzNexFragment; virtual;
+    function HasIndexSQL(const ATable: string; const AColumns: TLzNexValues;
+      const ASchema: string): TLzNexFragment; virtual;
     function IndexName(const ATable: string; const AColumns: TLzNexValues;
       const AKind: TLzNexIndexKind): string; virtual;
   end;
@@ -95,6 +99,7 @@ begin
     ixUnique: Result := 'unique';
     ixPrimary: Result := 'primary';
     ixForeign: Result := 'foreign';
+    ixFullText: Result := 'fulltext';
   else
     Result := 'index';
   end;
@@ -346,6 +351,15 @@ begin
     ixPrimary:
       Result := 'alter table ' + TableRef(ATable) + ' add constraint ' +
                 Wrap(Name) + ' primary key (' + ColumnList(AIndex.Columns) + ')';
+    ixFullText:
+      { Nao ha forma portavel: no MySQL e um indice FULLTEXT, no PostgreSQL um
+        GIN sobre to_tsvector, e nos outros dois nao existe. Cada dialeto que
+        tem escreve o seu. }
+      raise ELzNexSchema.CreateFmt(
+        'Dialect "%s" has no full text index on a regular table. In SQLite it ' +
+        'would be an FTS5 virtual table and in Firebird there is nothing ' +
+        'equivalent -- keep the search index outside the database, or filter ' +
+        'with WhereLike.', [FClient.DialectName]);
     ixForeign:
       begin
         if Trim(AIndex.RefTable) = '' then
@@ -737,6 +751,86 @@ begin
     S := S + ' and table_schema = ?';
     B.Add(TLzNexValue.FromString(ASchema));
   end;
+  Result := TLzNexFragment.Make(S, B);
+end;
+
+function TLzNexSchemaCompilerBase.TablesSQL(const ASchema: string): TLzNexFragment;
+var
+  B: TLzNexBindings;
+  S: string;
+begin
+  B := TLzNexBindings.Empty;
+  S := 'select table_name from information_schema.tables ' +
+       'where table_type = ''BASE TABLE''';
+  if Trim(ASchema) <> '' then
+  begin
+    S := S + ' and table_schema = ?';
+    B.Add(TLzNexValue.FromString(ASchema));
+  end;
+  S := S + ' order by table_name';
+  Result := TLzNexFragment.Make(S, B);
+end;
+
+function TLzNexSchemaCompilerBase.ColumnsSQL(
+  const ATable, ASchema: string): TLzNexFragment;
+var
+  B: TLzNexBindings;
+  S: string;
+begin
+  B := TLzNexBindings.Empty;
+  S := 'select column_name from information_schema.columns where table_name = ?';
+  B.Add(TLzNexValue.FromString(ATable));
+  if Trim(ASchema) <> '' then
+  begin
+    S := S + ' and table_schema = ?';
+    B.Add(TLzNexValue.FromString(ASchema));
+  end;
+  // Ordem de declaracao, nao alfabetica: e assim que a tabela se le.
+  S := S + ' order by ordinal_position';
+  Result := TLzNexFragment.Make(S, B);
+end;
+
+function TLzNexSchemaCompilerBase.HasIndexSQL(const ATable: string;
+  const AColumns: TLzNexValues; const ASchema: string): TLzNexFragment;
+var
+  B: TLzNexBindings;
+  S, Marks: string;
+  I: Integer;
+begin
+  if Length(AColumns) = 0 then
+    raise ELzNexSchema.Create('HasIndex without columns.');
+
+  B := TLzNexBindings.Empty;
+  Marks := '';
+  for I := 0 to High(AColumns) do
+  begin
+    if I > 0 then
+      Marks := Marks + ', ';
+    Marks := Marks + '?';
+  end;
+
+  { Conta indices que cobrem exatamente estas colunas: agrupa por nome e exige
+    que todas as colunas do grupo estejam na lista e que a contagem bata. }
+  S := 'select count(*) from (' +
+       'select i.indexname from (' +
+       'select s.index_name as indexname, s.column_name ' +
+       'from information_schema.statistics s ' +
+       'where s.table_name = ?';
+  B.Add(TLzNexValue.FromString(ATable));
+  if Trim(ASchema) <> '' then
+  begin
+    S := S + ' and s.table_schema = ?';
+    B.Add(TLzNexValue.FromString(ASchema));
+  end;
+  S := S + ') i group by i.indexname ' +
+       'having sum(case when i.column_name in (' + Marks + ') then 1 else 0 end) = ? ' +
+       'and count(*) = ?) m';
+
+  for I := 0 to High(AColumns) do
+    B.Add(TLzNexValue.FromString(AColumns[I].Text));
+  B.Add(TLzNexValue.FromInteger(Length(AColumns)));
+  B.Add(TLzNexValue.FromInteger(Length(AColumns)));
+
   Result := TLzNexFragment.Make(S, B);
 end;
 

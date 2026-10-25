@@ -192,6 +192,51 @@ type
     function Clone: TLzNexStatement; override;
   end;
 
+  // Ordem aleatoria. Sem campos: o que varia e a funcao de cada dialeto.
+  TLzNexOrderRandomStmt = class(TLzNexStatement)
+  public
+    constructor Create;
+    function Clone: TLzNexStatement; override;
+  end;
+
+  TLzNexDatePartStmt = class(TLzNexStatement)
+  public
+    Column: TLzNexValue;
+    Part: TLzNexDatePart;
+    Op: string;
+    Value: TLzNexValue;
+    constructor Create(const AGroup: TLzNexStatementGroup;
+      const AColumn: TLzNexValue; const APart: TLzNexDatePart;
+      const AOp: string; const AValue: TLzNexValue);
+    function Clone: TLzNexStatement; override;
+  end;
+
+  { Path nao e parametro: vai interpolado no SQL, por isso quem constroi tem de
+    validar o texto antes (ver ValidateJsonPath em LzNex.Query). }
+  TLzNexJsonStmt = class(TLzNexStatement)
+  public
+    Column: TLzNexValue;
+    Path: string;
+    JsonOp: TLzNexJsonOp;
+    Op: string;
+    Value: TLzNexValue;
+    constructor Create(const AGroup: TLzNexStatementGroup;
+      const AColumn: TLzNexValue; const APath: string;
+      const AJsonOp: TLzNexJsonOp; const AOp: string; const AValue: TLzNexValue);
+    function Clone: TLzNexStatement; override;
+  end;
+
+  TLzNexFullTextStmt = class(TLzNexStatement)
+  public
+    Columns: TLzNexValues;
+    Search: TLzNexValue;
+    Mode: TLzNexFullTextMode;
+    constructor Create(const AGroup: TLzNexStatementGroup;
+      const AColumns: TLzNexValues; const ASearch: TLzNexValue;
+      const AMode: TLzNexFullTextMode);
+    function Clone: TLzNexStatement; override;
+  end;
+
   TLzNexUnionStmt = class(TLzNexStatement)
   public
     UnionKind: TLzNexUnionKind;
@@ -597,6 +642,79 @@ end;
 function TLzNexWithStmt.Clone: TLzNexStatement;
 begin
   Result := TLzNexWithStmt.Create(Alias, Columns, Sub, Recursive);
+end;
+
+constructor TLzNexOrderRandomStmt.Create;
+begin
+  inherited Create(skOrderByRandom, sgOrder);
+end;
+
+function TLzNexOrderRandomStmt.Clone: TLzNexStatement;
+begin
+  Result := TLzNexOrderRandomStmt.Create;
+end;
+
+constructor TLzNexDatePartStmt.Create(const AGroup: TLzNexStatementGroup;
+  const AColumn: TLzNexValue; const APart: TLzNexDatePart; const AOp: string;
+  const AValue: TLzNexValue);
+begin
+  inherited Create(skWhereDatePart, AGroup);
+  Column := AColumn;
+  Part := APart;
+  Op := AOp;
+  Value := AValue;
+end;
+
+function TLzNexDatePartStmt.Clone: TLzNexStatement;
+var
+  C: TLzNexDatePartStmt;
+begin
+  C := TLzNexDatePartStmt.Create(Group, Column, Part, Op, Value);
+  C.BoolOp := BoolOp;
+  C.Negated := Negated;
+  Result := C;
+end;
+
+constructor TLzNexJsonStmt.Create(const AGroup: TLzNexStatementGroup;
+  const AColumn: TLzNexValue; const APath: string; const AJsonOp: TLzNexJsonOp;
+  const AOp: string; const AValue: TLzNexValue);
+begin
+  inherited Create(skWhereJson, AGroup);
+  Column := AColumn;
+  Path := APath;
+  JsonOp := AJsonOp;
+  Op := AOp;
+  Value := AValue;
+end;
+
+function TLzNexJsonStmt.Clone: TLzNexStatement;
+var
+  C: TLzNexJsonStmt;
+begin
+  C := TLzNexJsonStmt.Create(Group, Column, Path, JsonOp, Op, Value);
+  C.BoolOp := BoolOp;
+  C.Negated := Negated;
+  Result := C;
+end;
+
+constructor TLzNexFullTextStmt.Create(const AGroup: TLzNexStatementGroup;
+  const AColumns: TLzNexValues; const ASearch: TLzNexValue;
+  const AMode: TLzNexFullTextMode);
+begin
+  inherited Create(skWhereFullText, AGroup);
+  Columns := Copy(AColumns);
+  Search := ASearch;
+  Mode := AMode;
+end;
+
+function TLzNexFullTextStmt.Clone: TLzNexStatement;
+var
+  C: TLzNexFullTextStmt;
+begin
+  C := TLzNexFullTextStmt.Create(Group, Columns, Search, Mode);
+  C.BoolOp := BoolOp;
+  C.Negated := Negated;
+  Result := C;
 end;
 
 constructor TLzNexHintStmt.Create(const AText: string);
