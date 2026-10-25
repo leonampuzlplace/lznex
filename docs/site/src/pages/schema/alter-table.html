@@ -81,7 +81,7 @@ alter table `users` drop `legacy`</pre>
   </div>
   <div class="pane" data-pane="pg" data-label="PostgreSQL">
     <pre data-lang="sql">alter table "users" add column "nick" varchar(50) null, add column "age" integer not null
-alter table "users" alter column "age" integer not null
+alter table "users" alter column "age" type integer, alter column "age" set not null
 alter table "users" drop column "legacy"</pre>
   </div>
 </div>
@@ -90,6 +90,27 @@ alter table "users" drop column "legacy"</pre>
   <code>RenameColumn</code> usa a mesma forma nos dois:
   <code>alter table … rename column … to …</code>.
 </p>
+
+<h3 id="change-per-dialect">O <code>Change</code> não tem a mesma forma nos dois</h3>
+<p>
+  No MySQL, <code>modify</code> aceita a definição inteira da coluna de uma vez. O
+  PostgreSQL não: cada aspecto é uma ação própria — tipo, nulidade e default — e o
+  LzNex emite uma para cada, todas dentro do mesmo <code>alter table</code>.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Db.Schema.Table('users');
+T.Int('hits').Nullable.Default_(0).Change;</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">-- MySQL
+alter table `users` modify `hits` int null default 0
+
+-- PostgreSQL
+alter table "users" alter column "hits" type integer,
+  alter column "hits" drop not null,
+  alter column "hits" set default 0</pre>
+</div>
+</div>
 
 <div class="callout trap">
   <span class="ico">⚠</span>

@@ -261,7 +261,8 @@
 <tr><td><code>function Count: Int64</code></td><td>Atalho para <code>Aggregate(agCount, '*').AsInt64</code>.</td></tr>
 <tr><td><code>function Aggregate(const AAgg: TLzNexAggregate; const AColumn: string): TLzNexValue</code></td><td><code>agCount</code>, <code>agMin</code>, <code>agMax</code>, <code>agSum</code>, <code>agAvg</code>.</td></tr>
 <tr><td><code>function Insert(const AValues: TLzNexNamedValues): Int64</code></td><td>Uma linha; devolve linhas afetadas. A ordem das colunas informadas é preservada no SQL.</td></tr>
-<tr><td><code>function InsertGetId(const AValues: TLzNexNamedValues): Int64</code></td><td>Insere e devolve o id gerado, lido na <strong>mesma</strong> conexão do insert.</td></tr>
+<tr><td><code>function InsertGetId(const AValues: TLzNexNamedValues): Int64</code></td><td>Insere e devolve o id gerado. Onde há <code>RETURNING</code>, lê do próprio insert; onde não há, pergunta ao banco na <strong>mesma</strong> conexão. Assume a chave <code>id</code>.</td></tr>
+<tr><td><code>function InsertGetId(const AValues: TLzNexNamedValues; const AIdColumn: string): Int64</code></td><td>Idem, quando a chave tem outro nome.</td></tr>
 <tr><td><code>function InsertMany(const ARows: array of TLzNexNamedValues): Int64</code></td><td>Um <code>insert</code> com várias tuplas de <code>values</code>.</td></tr>
 <tr><td><code>function Update(const AValues: TLzNexNamedValues): Int64</code></td><td>Linhas afetadas. Lista vazia levanta <code>ELzNexBuilder</code>.</td></tr>
 <tr><td><code>function Increment(const AColumn: string; const ABy: Int64 = 1): Int64</code></td><td><code>coluna = coluna + ?</code> — soma no banco, sem ler-somar-gravar.</td></tr>

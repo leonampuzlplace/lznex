@@ -14,15 +14,35 @@ Id := Db.Table('users').InsertGetId(Vals(['name', 'Leonam', 'email', 'l@x.com'])
 </div>
 </div>
 
+<p>
+  Onde o banco tem <code>RETURNING</code>, o id vem do próprio insert — é o caminho do
+  PostgreSQL. Onde não tem, o LzNex pergunta ao banco qual foi o último id, sempre na
+  <strong>mesma conexão</strong> do insert. A coluna da chave é <code>id</code> por
+  convenção; quando não for, informe:
+</p>
+
+<div class="code"><pre data-lang="pascal">Id := Db.Table('orders').InsertGetId(Vals(['total', 10]), 'order_id');</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">-- PostgreSQL: o id sai do proprio insert
+insert into "orders" ("total") values (?) returning "order_id"
+
+-- MySQL: insert e, na mesma conexao, a pergunta
+insert into `orders` (`total`) values (?)
+select last_insert_id()</pre>
+</div>
+</div>
+
 <div class="callout note">
   <span class="ico">ℹ</span>
   <div class="body">
-    <span class="t">InsertGetId e o pool</span>
+    <span class="t">Por que a mesma conexão importa</span>
     <p>
-      O <code>InsertGetId</code> faz o insert e lê <code>LastInsertId</code> na
-      <strong>mesma conexão</strong>. Com pool, duas chamadas independentes poderiam cair em
-      conexões diferentes e devolver o id de outra thread. Isso está testado com 8 threads,
-      cada id conferido contra a linha daquela thread.
+      Com pool, duas chamadas independentes poderiam cair em conexões diferentes e devolver
+      o id de outra thread. Isso está testado com 8 threads, cada id conferido contra a
+      linha daquela thread — nos dois bancos. O caminho do <code>RETURNING</code> é imune a
+      esse problema por construção, e também não se confunde com sequência que um gatilho
+      tenha avançado noutra tabela.
     </p>
   </div>
 </div>

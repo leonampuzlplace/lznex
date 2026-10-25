@@ -6,19 +6,27 @@
   necessária.
 </p>
 
-<h2 id="commands">Os quatro comandos</h2>
+<h2 id="commands">Os comandos</h2>
 <div class="code"><pre data-lang="sh">docker compose run --rm tests          # unitários, sem banco
 docker compose run --rm tests-it       # integração + concorrência (MySQL real)
+docker compose run --rm tests-it-pg    # a mesma suíte, contra PostgreSQL real
 docker compose run --rm cli migrate:latest
 docker compose up -d api &amp;&amp; curl localhost:9000/health</pre></div>
 
 <p>
-  <code>tests</code> e <code>tests-it</code> rodam o <strong>mesmo</strong> binário
-  (<code>./bin/lznex-tests-debug</code>, build mode <code>Debug</code>). A diferença é a
-  variável <code>LZNEX_IT</code>: sem ela, <code>Test.Integration</code> e
+  Os três primeiros rodam o <strong>mesmo</strong> binário
+  (<code>./bin/lznex-tests-debug</code>, build mode <code>Debug</code>). O que muda é o
+  ambiente: sem <code>LZNEX_IT</code>, <code>Test.Integration</code> e
   <code>Test.Concurrency</code> chamam <code>Ignore</code> e os casos aparecem como
-  ignorados — não como falha. Só <code>tests-it</code> define
-  <code>LZNEX_IT=1</code> e declara <code>depends_on: mysql (service_healthy)</code>.
+  ignorados — não como falha. Com ela, o dialeto sai de <code>LZNEX_CLIENT</code> e cada
+  serviço declara <code>depends_on</code> do seu banco com
+  <code>condition: service_healthy</code>.
+</p>
+
+<p>
+  As tabelas de teste nascem pelo <strong>schema builder</strong>, não por DDL cru — é o
+  que permite a mesma suíte rodar nos dois bancos e, de quebra, põe o DDL de cada dialeto
+  sob teste a cada execução.
 </p>
 
 <h3 id="services">Serviços do compose</h3>
@@ -67,20 +75,38 @@ LZNEX_LIBRARY=/usr/lib/x86_64-linux-gnu/libmariadb.so.3</pre>
 </div>
 
 <h2 id="observed-output">Saída observada</h2>
-<p>Última execução completa, com MySQL real, exatamente como saiu:</p>
-
-<div class="code"><pre data-lang="out">Number of run tests: 146      core 19 | query 38 | security 4 | dialect 5
-Number of errors:    0        postgres 66 | integration 9 | concurrency 5
-Number of failures:  0
-
-sondas: 870 asserções em 7 binários, todas verdes
-heaptrc: 0 unfreed memory blocks (467.958 alocados, 467.958 liberados)
-API: {"status":"ok","dialect":"mysql"}</pre>
-<p class="code-note">
-  146 = 19 + 38 + 4 + 5 + 66 + 9 + 5. Os 66 de <code>postgres</code> são todos por texto
-  de SQL — nenhum banco Postgres participou.
+<p>
+  A mesma suíte, rodada duas vezes — uma contra cada banco. Saída exatamente como saiu:
 </p>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="out">$ docker compose run --rm tests-it
+
+Number of run tests: 150
+Number of errors:    0
+Number of failures:  0</pre>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="out">$ docker compose run --rm tests-it-pg
+
+Number of run tests: 150
+Number of errors:    0
+Number of failures:  0</pre>
+    <p class="code-note">zero casos ignorados: a integração rodou mesmo</p>
+  </div>
 </div>
+
+<p>
+  Nenhum dos 150 foi ignorado em qualquer das duas execuções — é o que prova que a
+  integração rodou em vez de ter sido pulada. Depois delas, as tabelas <code>it_users</code>
+  e <code>ct_load</code> existem nos dois bancos, criadas pelo schema builder de cada
+  dialeto.
+</p>
+
+<div class="code"><pre data-lang="out">sondas: 870 asserções em 7 binários, todas verdes
+heaptrc: 0 unfreed memory blocks (467.958 alocados, 467.958 liberados)
+API: {"status":"ok","dialect":"mysql"}</pre></div>
 
 <h2 id="test-layout">Organização dos testes</h2>
 <p>

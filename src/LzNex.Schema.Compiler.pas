@@ -38,6 +38,9 @@ type
     function AddColumnPrefix: string; virtual;
     function ChangeColumnPrefix: string; virtual;
     function DropColumnPrefix: string; virtual;
+    // As acoes que um Change gera. O ANSI troca tipo e nulidade de uma vez; o
+    // PostgreSQL exige uma acao por aspecto, por isso e uma lista.
+    function ChangeColumnParts(const ACol: ILzNexColumnDef): TLzNexStringArray; virtual;
 
     function TableOptionsSQL(const ATable: ILzNexTable): string; virtual;
     function IndexNameOf(const ATable: ILzNexTable;
@@ -295,6 +298,14 @@ begin
   Result := 'alter column ';
 end;
 
+function TLzNexSchemaCompilerBase.ChangeColumnParts(
+  const ACol: ILzNexColumnDef): TLzNexStringArray;
+begin
+  Result := nil;
+  SetLength(Result, 1);
+  Result[0] := ChangeColumnPrefix + ColumnDefinitionSQL(ACol);
+end;
+
 function TLzNexSchemaCompilerBase.DropColumnPrefix: string;
 begin
   Result := 'drop column ';
@@ -506,8 +517,9 @@ procedure TLzNexSchemaCompilerBase.CompileAlter(const ATable: ILzNexTable;
 var
   Adds, Changes, Drops: TStringBuilder;
   NAdds, NChanges, NDrops: Integer;
-  I: Integer;
+  I, J: Integer;
   Col: ILzNexColumnDef;
+  Parts: TLzNexStringArray;
   Ren: TLzNexNamedValues;
   Head: string;
 begin
@@ -537,11 +549,14 @@ begin
       end
       else if Col.IsChange then
       begin
-        if NChanges > 0 then
-          Changes.Append(', ');
-        Changes.Append(ChangeColumnPrefix);
-        Changes.Append(ColumnDefinitionSQL(Col));
-        Inc(NChanges);
+        Parts := ChangeColumnParts(Col);
+        for J := 0 to High(Parts) do
+        begin
+          if NChanges > 0 then
+            Changes.Append(', ');
+          Changes.Append(Parts[J]);
+          Inc(NChanges);
+        end;
       end
       else
       begin

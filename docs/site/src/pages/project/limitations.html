@@ -11,8 +11,8 @@
 <thead><tr><th>Assunto</th><th>Implementado</th><th>Provado em banco real</th></tr></thead>
 <tbody>
 <tr><td>MySQL — query, DDL, migrations, pool, transações</td><td><span class="yes">sim</span></td><td><span class="yes">sim</span></td></tr>
-<tr><td>PostgreSQL — SQL e DDL</td><td><span class="yes">sim</span></td><td><span class="no">não</span></td></tr>
-<tr><td>PostgreSQL — <code>Change</code> de coluna</td><td><span class="no">não</span></td><td><span class="no">não</span></td></tr>
+<tr><td>PostgreSQL — query, DDL, pool, transações</td><td><span class="yes">sim</span></td><td><span class="yes">sim</span></td></tr>
+<tr><td>Migrations — <code>migrate:latest</code> e rollback</td><td><span class="yes">sim</span></td><td><span class="no">não</span></td></tr>
 <tr><td><code>on conflict ... where</code></td><td><span class="no">não</span></td><td><span class="no">não</span></td></tr>
 <tr><td>Enum nativo do PostgreSQL</td><td><span class="no">não</span></td><td><span class="no">não</span></td></tr>
 <tr><td>Seed em <code>.sql</code></td><td><span class="no">não</span></td><td><span class="no">não</span></td></tr>
@@ -23,74 +23,33 @@
 </table>
 </div>
 
-<h2 id="postgres-untested">PostgreSQL nunca rodou contra um banco</h2>
+<h2 id="migrator-untested">O migrator não tem teste de integração</h2>
 <p>
-  O dialeto PostgreSQL está escrito e testado — 66 casos em
-  <code>tests/Test.Postgres.pas</code>, a maioria comparando o texto gerado com o do MySQL
-  para a mesma entrada. Mas a comparação é <strong>por texto</strong>: o compose só tem
-  MySQL, então conexão, pool e migrator nunca abriram socket com um Postgres.
+  A suíte de integração roda nos dois bancos e cobre CRUD, <code>InsertGetId</code>,
+  transações (commit e rollback), round-trip de UTF-8, pool sob carga e oito threads
+  concorrentes. O que ela <strong>não</strong> cobre é o runner de migrations: nenhum
+  teste chama <code>migrate:latest</code>, <code>rollback</code> ou o lock contra um banco
+  de verdade — nem em MySQL, nem em PostgreSQL.
 </p>
 
-<div class="code" data-tabs>
-  <div class="pane on" data-pane="mysql" data-label="MySQL">
-    <pre data-lang="sql">select * from `t` limit ? offset ?</pre>
-    <p class="code-note">conferido contra o banco</p>
-  </div>
-  <div class="pane" data-pane="pg" data-label="PostgreSQL">
-    <pre data-lang="sql">select * from "t" limit ? offset ?</pre>
-    <p class="code-note">conferido contra a string esperada, não contra o banco</p>
-  </div>
-</div>
-
 <p>
-  Na prática: o SQL que sai é o que se espera, e aspas duplas, <code>returning</code>,
-  <code>distinct on</code>, <code>nulls first/last</code> e <code>on conflict</code> têm
-  asserção. O que ninguém viu funcionar é a camada de baixo — tipo de retorno do driver,
-  mapeamento de <code>TLzNexValue</code> na ida e na volta, comportamento do pool sob
-  carga e o <code>lock</code> da tabela de migrations nesse dialeto.
+  O que existe são as sondas de <code>tests/ProbeMigration.lpr</code>, que exercitam a
+  ordenação, o batch e a leitura das duas fontes sem tocar no servidor. A parte que falta
+  prova é justamente a mais sensível: o <code>UPDATE</code> condicional do lock sob
+  concorrência real, e o rollback de um batch com DDL no meio.
 </p>
 
 <div class="callout warn">
   <span class="ico">⚠</span>
   <div class="body">
-    <span class="t">Em produção com PostgreSQL, trate como não testado</span>
+    <span class="t">Antes de confiar o histórico a ele</span>
     <p>
-      Teste primeiro o caminho que você vai usar: conectar, uma leitura, uma escrita, uma
-      transação e <code>migrate:latest</code>. O SQL provavelmente está certo; a integração
-      é que não tem prova.
+      Rode <code>migrate:latest</code> e <code>migrate:rollback</code> no seu ambiente de
+      homologação uma vez, com o banco que você usa. É um teste de cinco minutos que cobre
+      o caminho que a suíte ainda não cobre.
     </p>
   </div>
 </div>
-
-<h2 id="change-on-postgres"><code>Change</code> gera DDL que o PostgreSQL recusa</h2>
-<p>
-  O compilador genérico de DDL monta <code>alter column</code> seguido da definição
-  completa da coluna. Funciona no MySQL, onde <code>modify</code> aceita a definição
-  inteira de uma vez. No PostgreSQL não: ele exige
-  <code>alter column ... type ...</code> e <code>set not null</code> como
-  <strong>comandos separados</strong>.
-</p>
-
-<div class="code"><pre data-lang="pascal">T := Db.Schema.Table('users');
-T.Int('age').NotNull.Change;</pre></div>
-
-<div class="code" data-tabs>
-  <div class="pane on" data-pane="mysql" data-label="MySQL">
-    <pre data-lang="sql">alter table `users` modify `age` int not null</pre>
-    <p class="code-note">aceito</p>
-  </div>
-  <div class="pane" data-pane="pg" data-label="PostgreSQL">
-    <pre data-lang="sql">alter table "users" alter column "age" integer not null</pre>
-    <p class="code-note">sintaxe inválida — o banco recusa</p>
-  </div>
-</div>
-
-<p>
-  Ou seja: o texto gerado é o que o teste espera, e o teste espera o texto errado para o
-  PostgreSQL. Enquanto não houver emissão de dois comandos, escreva essa alteração como
-  SQL cru numa migration <code>.sql</code> — veja
-  <a href="#migrations">Migrations</a>.
-</p>
 
 <h2 id="on-conflict-where">Não há como informar o <code>where</code> do <code>on conflict</code></h2>
 <p>

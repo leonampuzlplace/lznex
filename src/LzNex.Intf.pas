@@ -331,7 +331,12 @@ type
 
     function Insert(const AValues: TLzNexNamedValues): Int64;
 
-    function InsertGetId(const AValues: TLzNexNamedValues): Int64;
+    // Insere e devolve o id gerado. Onde ha RETURNING, le o id do proprio
+    // insert; nos demais, pergunta ao banco o ultimo id da MESMA conexao.
+    function InsertGetId(const AValues: TLzNexNamedValues): Int64; overload;
+    // Mesma coisa quando a chave nao se chama "id".
+    function InsertGetId(const AValues: TLzNexNamedValues;
+      const AIdColumn: string): Int64; overload;
 
     function InsertMany(const ARows: array of TLzNexNamedValues): Int64;
 

@@ -18,6 +18,7 @@ type
   TLzNexPostgresSchemaCompiler = class(TLzNexSchemaCompilerBase)
   protected
     function ColumnDefinitionSQL(const ACol: ILzNexColumnDef): string; override;
+    function ChangeColumnParts(const ACol: ILzNexColumnDef): TLzNexStringArray; override;
   public
     function ColumnTypeSQL(const AType: TLzNexColumnType;
       const AParam1, AParam2: Integer; const AItems: TLzNexValues): string; override;
@@ -115,6 +116,37 @@ begin
     Exit;
   Result := Result + ' check (' + Wrap(ACol.ColumnName) + ' in (' +
             EnumList(ACol.EnumItems) + '))';
+end;
+
+function TLzNexPostgresSchemaCompiler.ChangeColumnParts(
+  const ACol: ILzNexColumnDef): TLzNexStringArray;
+var
+  Col: string;
+  N: Integer;
+
+  procedure Add(const ASQL: string);
+  begin
+    SetLength(Result, N + 1);
+    Result[N] := Col + ASQL;
+    Inc(N);
+  end;
+
+begin
+  { O PostgreSQL nao aceita redeclarar a coluna inteira: cada aspecto e uma
+    acao propria. As tres cabem no mesmo ALTER TABLE, separadas por virgula. }
+  Result := nil;
+  N := 0;
+  Col := ChangeColumnPrefix + Wrap(ACol.ColumnName) + ' ';
+
+  Add('type ' + ColumnTypeFor(ACol));
+
+  if ACol.HasModifier(mdNullable) then
+    Add('drop not null')
+  else
+    Add('set not null');
+
+  if ACol.HasModifier(mdDefault) and SupportsDefaultOn(ACol) then
+    Add('set default ' + DefaultLiteral(ACol));
 end;
 
 function TLzNexPostgresSchemaCompiler.ModifierOrder: TLzNexColumnModifiers;

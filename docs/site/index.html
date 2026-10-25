@@ -1449,15 +1449,35 @@ Id := Db.Table('users').InsertGetId(Vals(['name', 'Leonam', 'email', 'l@x.com'])
 </div>
 </div>
 
+<p>
+  Onde o banco tem <code>RETURNING</code>, o id vem do próprio insert — é o caminho do
+  PostgreSQL. Onde não tem, o LzNex pergunta ao banco qual foi o último id, sempre na
+  <strong>mesma conexão</strong> do insert. A coluna da chave é <code>id</code> por
+  convenção; quando não for, informe:
+</p>
+
+<div class="code"><pre data-lang="pascal">Id := Db.Table('orders').InsertGetId(Vals(['total', 10]), 'order_id');</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">-- PostgreSQL: o id sai do proprio insert
+insert into "orders" ("total") values (?) returning "order_id"
+
+-- MySQL: insert e, na mesma conexao, a pergunta
+insert into `orders` (`total`) values (?)
+select last_insert_id()</pre>
+</div>
+</div>
+
 <div class="callout note">
   <span class="ico">ℹ</span>
   <div class="body">
-    <span class="t">InsertGetId e o pool</span>
+    <span class="t">Por que a mesma conexão importa</span>
     <p>
-      O <code>InsertGetId</code> faz o insert e lê <code>LastInsertId</code> na
-      <strong>mesma conexão</strong>. Com pool, duas chamadas independentes poderiam cair em
-      conexões diferentes e devolver o id de outra thread. Isso está testado com 8 threads,
-      cada id conferido contra a linha daquela thread.
+      Com pool, duas chamadas independentes poderiam cair em conexões diferentes e devolver
+      o id de outra thread. Isso está testado com 8 threads, cada id conferido contra a
+      linha daquela thread — nos dois bancos. O caminho do <code>RETURNING</code> é imune a
+      esse problema por construção, e também não se confunde com sequência que um gatilho
+      tenha avançado noutra tabela.
     </p>
   </div>
 </div>
@@ -3820,7 +3840,7 @@ alter table `users` drop `legacy`</pre>
   </div>
   <div class="pane" data-pane="pg" data-label="PostgreSQL">
     <pre data-lang="sql">alter table "users" add column "nick" varchar(50) null, add column "age" integer not null
-alter table "users" alter column "age" integer not null
+alter table "users" alter column "age" type integer, alter column "age" set not null
 alter table "users" drop column "legacy"</pre>
   </div>
 </div>
@@ -3829,6 +3849,27 @@ alter table "users" drop column "legacy"</pre>
   <code>RenameColumn</code> usa a mesma forma nos dois:
   <code>alter table … rename column … to …</code>.
 </p>
+
+<h3 id="alter-table__change-per-dialect">O <code>Change</code> não tem a mesma forma nos dois</h3>
+<p>
+  No MySQL, <code>modify</code> aceita a definição inteira da coluna de uma vez. O
+  PostgreSQL não: cada aspecto é uma ação própria — tipo, nulidade e default — e o
+  LzNex emite uma para cada, todas dentro do mesmo <code>alter table</code>.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Db.Schema.Table('users');
+T.Int('hits').Nullable.Default_(0).Change;</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">-- MySQL
+alter table `users` modify `hits` int null default 0
+
+-- PostgreSQL
+alter table "users" alter column "hits" type integer,
+  alter column "hits" drop not null,
+  alter column "hits" set default 0</pre>
+</div>
+</div>
 
 <div class="callout trap">
   <span class="ico">⚠</span>
@@ -6725,7 +6766,8 @@ Db.Table('users').Returning(['id']).Insert(Vals(['name', 'Ana']));
 <tr><td><code>function Count: Int64</code></td><td>Atalho para <code>Aggregate(agCount, '*').AsInt64</code>.</td></tr>
 <tr><td><code>function Aggregate(const AAgg: TLzNexAggregate; const AColumn: string): TLzNexValue</code></td><td><code>agCount</code>, <code>agMin</code>, <code>agMax</code>, <code>agSum</code>, <code>agAvg</code>.</td></tr>
 <tr><td><code>function Insert(const AValues: TLzNexNamedValues): Int64</code></td><td>Uma linha; devolve linhas afetadas. A ordem das colunas informadas é preservada no SQL.</td></tr>
-<tr><td><code>function InsertGetId(const AValues: TLzNexNamedValues): Int64</code></td><td>Insere e devolve o id gerado, lido na <strong>mesma</strong> conexão do insert.</td></tr>
+<tr><td><code>function InsertGetId(const AValues: TLzNexNamedValues): Int64</code></td><td>Insere e devolve o id gerado. Onde há <code>RETURNING</code>, lê do próprio insert; onde não há, pergunta ao banco na <strong>mesma</strong> conexão. Assume a chave <code>id</code>.</td></tr>
+<tr><td><code>function InsertGetId(const AValues: TLzNexNamedValues; const AIdColumn: string): Int64</code></td><td>Idem, quando a chave tem outro nome.</td></tr>
 <tr><td><code>function InsertMany(const ARows: array of TLzNexNamedValues): Int64</code></td><td>Um <code>insert</code> com várias tuplas de <code>values</code>.</td></tr>
 <tr><td><code>function Update(const AValues: TLzNexNamedValues): Int64</code></td><td>Linhas afetadas. Lista vazia levanta <code>ELzNexBuilder</code>.</td></tr>
 <tr><td><code>function Increment(const AColumn: string; const ABy: Int64 = 1): Int64</code></td><td><code>coluna = coluna + ?</code> — soma no banco, sem ler-somar-gravar.</td></tr>
@@ -8692,19 +8734,27 @@ create table "users" ("id" serial primary key, "email" varchar(191) not null)</p
   necessária.
 </p>
 
-<h2 id="tests__commands">Os quatro comandos</h2>
+<h2 id="tests__commands">Os comandos</h2>
 <div class="code"><pre data-lang="sh">docker compose run --rm tests          # unitários, sem banco
 docker compose run --rm tests-it       # integração + concorrência (MySQL real)
+docker compose run --rm tests-it-pg    # a mesma suíte, contra PostgreSQL real
 docker compose run --rm cli migrate:latest
 docker compose up -d api &amp;&amp; curl localhost:9000/health</pre></div>
 
 <p>
-  <code>tests</code> e <code>tests-it</code> rodam o <strong>mesmo</strong> binário
-  (<code>./bin/lznex-tests-debug</code>, build mode <code>Debug</code>). A diferença é a
-  variável <code>LZNEX_IT</code>: sem ela, <code>Test.Integration</code> e
+  Os três primeiros rodam o <strong>mesmo</strong> binário
+  (<code>./bin/lznex-tests-debug</code>, build mode <code>Debug</code>). O que muda é o
+  ambiente: sem <code>LZNEX_IT</code>, <code>Test.Integration</code> e
   <code>Test.Concurrency</code> chamam <code>Ignore</code> e os casos aparecem como
-  ignorados — não como falha. Só <code>tests-it</code> define
-  <code>LZNEX_IT=1</code> e declara <code>depends_on: mysql (service_healthy)</code>.
+  ignorados — não como falha. Com ela, o dialeto sai de <code>LZNEX_CLIENT</code> e cada
+  serviço declara <code>depends_on</code> do seu banco com
+  <code>condition: service_healthy</code>.
+</p>
+
+<p>
+  As tabelas de teste nascem pelo <strong>schema builder</strong>, não por DDL cru — é o
+  que permite a mesma suíte rodar nos dois bancos e, de quebra, põe o DDL de cada dialeto
+  sob teste a cada execução.
 </p>
 
 <h3 id="tests__services">Serviços do compose</h3>
@@ -8753,20 +8803,38 @@ LZNEX_LIBRARY=/usr/lib/x86_64-linux-gnu/libmariadb.so.3</pre>
 </div>
 
 <h2 id="tests__observed-output">Saída observada</h2>
-<p>Última execução completa, com MySQL real, exatamente como saiu:</p>
-
-<div class="code"><pre data-lang="out">Number of run tests: 146      core 19 | query 38 | security 4 | dialect 5
-Number of errors:    0        postgres 66 | integration 9 | concurrency 5
-Number of failures:  0
-
-sondas: 870 asserções em 7 binários, todas verdes
-heaptrc: 0 unfreed memory blocks (467.958 alocados, 467.958 liberados)
-API: {"status":"ok","dialect":"mysql"}</pre>
-<p class="code-note">
-  146 = 19 + 38 + 4 + 5 + 66 + 9 + 5. Os 66 de <code>postgres</code> são todos por texto
-  de SQL — nenhum banco Postgres participou.
+<p>
+  A mesma suíte, rodada duas vezes — uma contra cada banco. Saída exatamente como saiu:
 </p>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="out">$ docker compose run --rm tests-it
+
+Number of run tests: 150
+Number of errors:    0
+Number of failures:  0</pre>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="out">$ docker compose run --rm tests-it-pg
+
+Number of run tests: 150
+Number of errors:    0
+Number of failures:  0</pre>
+    <p class="code-note">zero casos ignorados: a integração rodou mesmo</p>
+  </div>
 </div>
+
+<p>
+  Nenhum dos 150 foi ignorado em qualquer das duas execuções — é o que prova que a
+  integração rodou em vez de ter sido pulada. Depois delas, as tabelas <code>it_users</code>
+  e <code>ct_load</code> existem nos dois bancos, criadas pelo schema builder de cada
+  dialeto.
+</p>
+
+<div class="code"><pre data-lang="out">sondas: 870 asserções em 7 binários, todas verdes
+heaptrc: 0 unfreed memory blocks (467.958 alocados, 467.958 liberados)
+API: {"status":"ok","dialect":"mysql"}</pre></div>
 
 <h2 id="tests__test-layout">Organização dos testes</h2>
 <p>
@@ -8916,8 +8984,8 @@ curl -s localhost:9000/health</pre>
 <thead><tr><th>Assunto</th><th>Implementado</th><th>Provado em banco real</th></tr></thead>
 <tbody>
 <tr><td>MySQL — query, DDL, migrations, pool, transações</td><td><span class="yes">sim</span></td><td><span class="yes">sim</span></td></tr>
-<tr><td>PostgreSQL — SQL e DDL</td><td><span class="yes">sim</span></td><td><span class="no">não</span></td></tr>
-<tr><td>PostgreSQL — <code>Change</code> de coluna</td><td><span class="no">não</span></td><td><span class="no">não</span></td></tr>
+<tr><td>PostgreSQL — query, DDL, pool, transações</td><td><span class="yes">sim</span></td><td><span class="yes">sim</span></td></tr>
+<tr><td>Migrations — <code>migrate:latest</code> e rollback</td><td><span class="yes">sim</span></td><td><span class="no">não</span></td></tr>
 <tr><td><code>on conflict ... where</code></td><td><span class="no">não</span></td><td><span class="no">não</span></td></tr>
 <tr><td>Enum nativo do PostgreSQL</td><td><span class="no">não</span></td><td><span class="no">não</span></td></tr>
 <tr><td>Seed em <code>.sql</code></td><td><span class="no">não</span></td><td><span class="no">não</span></td></tr>
@@ -8928,74 +8996,33 @@ curl -s localhost:9000/health</pre>
 </table>
 </div>
 
-<h2 id="limitations__postgres-untested">PostgreSQL nunca rodou contra um banco</h2>
+<h2 id="limitations__migrator-untested">O migrator não tem teste de integração</h2>
 <p>
-  O dialeto PostgreSQL está escrito e testado — 66 casos em
-  <code>tests/Test.Postgres.pas</code>, a maioria comparando o texto gerado com o do MySQL
-  para a mesma entrada. Mas a comparação é <strong>por texto</strong>: o compose só tem
-  MySQL, então conexão, pool e migrator nunca abriram socket com um Postgres.
+  A suíte de integração roda nos dois bancos e cobre CRUD, <code>InsertGetId</code>,
+  transações (commit e rollback), round-trip de UTF-8, pool sob carga e oito threads
+  concorrentes. O que ela <strong>não</strong> cobre é o runner de migrations: nenhum
+  teste chama <code>migrate:latest</code>, <code>rollback</code> ou o lock contra um banco
+  de verdade — nem em MySQL, nem em PostgreSQL.
 </p>
 
-<div class="code" data-tabs>
-  <div class="pane on" data-pane="mysql" data-label="MySQL">
-    <pre data-lang="sql">select * from `t` limit ? offset ?</pre>
-    <p class="code-note">conferido contra o banco</p>
-  </div>
-  <div class="pane" data-pane="pg" data-label="PostgreSQL">
-    <pre data-lang="sql">select * from "t" limit ? offset ?</pre>
-    <p class="code-note">conferido contra a string esperada, não contra o banco</p>
-  </div>
-</div>
-
 <p>
-  Na prática: o SQL que sai é o que se espera, e aspas duplas, <code>returning</code>,
-  <code>distinct on</code>, <code>nulls first/last</code> e <code>on conflict</code> têm
-  asserção. O que ninguém viu funcionar é a camada de baixo — tipo de retorno do driver,
-  mapeamento de <code>TLzNexValue</code> na ida e na volta, comportamento do pool sob
-  carga e o <code>lock</code> da tabela de migrations nesse dialeto.
+  O que existe são as sondas de <code>tests/ProbeMigration.lpr</code>, que exercitam a
+  ordenação, o batch e a leitura das duas fontes sem tocar no servidor. A parte que falta
+  prova é justamente a mais sensível: o <code>UPDATE</code> condicional do lock sob
+  concorrência real, e o rollback de um batch com DDL no meio.
 </p>
 
 <div class="callout warn">
   <span class="ico">⚠</span>
   <div class="body">
-    <span class="t">Em produção com PostgreSQL, trate como não testado</span>
+    <span class="t">Antes de confiar o histórico a ele</span>
     <p>
-      Teste primeiro o caminho que você vai usar: conectar, uma leitura, uma escrita, uma
-      transação e <code>migrate:latest</code>. O SQL provavelmente está certo; a integração
-      é que não tem prova.
+      Rode <code>migrate:latest</code> e <code>migrate:rollback</code> no seu ambiente de
+      homologação uma vez, com o banco que você usa. É um teste de cinco minutos que cobre
+      o caminho que a suíte ainda não cobre.
     </p>
   </div>
 </div>
-
-<h2 id="limitations__change-on-postgres"><code>Change</code> gera DDL que o PostgreSQL recusa</h2>
-<p>
-  O compilador genérico de DDL monta <code>alter column</code> seguido da definição
-  completa da coluna. Funciona no MySQL, onde <code>modify</code> aceita a definição
-  inteira de uma vez. No PostgreSQL não: ele exige
-  <code>alter column ... type ...</code> e <code>set not null</code> como
-  <strong>comandos separados</strong>.
-</p>
-
-<div class="code"><pre data-lang="pascal">T := Db.Schema.Table('users');
-T.Int('age').NotNull.Change;</pre></div>
-
-<div class="code" data-tabs>
-  <div class="pane on" data-pane="mysql" data-label="MySQL">
-    <pre data-lang="sql">alter table `users` modify `age` int not null</pre>
-    <p class="code-note">aceito</p>
-  </div>
-  <div class="pane" data-pane="pg" data-label="PostgreSQL">
-    <pre data-lang="sql">alter table "users" alter column "age" integer not null</pre>
-    <p class="code-note">sintaxe inválida — o banco recusa</p>
-  </div>
-</div>
-
-<p>
-  Ou seja: o texto gerado é o que o teste espera, e o teste espera o texto errado para o
-  PostgreSQL. Enquanto não houver emissão de dois comandos, escreva essa alteração como
-  SQL cru numa migration <code>.sql</code> — veja
-  <a href="#migrations">Migrations</a>.
-</p>
 
 <h2 id="limitations__on-conflict-where">Não há como informar o <code>where</code> do <code>on conflict</code></h2>
 <p>

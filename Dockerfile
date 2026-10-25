@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         lcl-utils \
         lazarus-src \
         libmariadb3 \
+        libpq5 \
         git \
         ca-certificates \
         curl \
@@ -68,6 +69,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libmariadb3 \
+        libpq5 \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --create-home --shell /usr/sbin/nologin lznex

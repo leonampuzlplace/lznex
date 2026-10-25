@@ -7,6 +7,15 @@ x-db-env: &db-env
   LZNEX_PASSWORD: secret
   LZNEX_LIBRARY: /usr/lib/x86_64-linux-gnu/libmariadb.so.3
 
+x-pg-env: &pg-env
+  LZNEX_CLIENT: postgresql
+  LZNEX_HOST: postgres
+  LZNEX_PORT: "5432"
+  LZNEX_DATABASE: lznex
+  LZNEX_USER: postgres
+  LZNEX_PASSWORD: secret
+  LZNEX_LIBRARY: /usr/lib/x86_64-linux-gnu/libpq.so.5
+
 services:
   mysql:
     image: mysql:8.4
@@ -27,6 +36,23 @@ services:
       timeout: 5s
       retries: 20
       start_period: 20s
+
+  postgres:
+    image: postgres:17
+    container_name: lznex-postgres
+    environment:
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: lznex
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d lznex"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
 
   cli:
     build:
@@ -68,6 +94,29 @@ services:
       HEAPTRC: haltonnotreleased
     depends_on:
       mysql:
+        condition: service_healthy
+    command: ["./bin/lznex-tests-debug"]
+
+  # A mesma suite contra PostgreSQL. O que muda e so o ambiente: o dialeto sai
+  # de LZNEX_CLIENT e as tabelas de teste nascem pelo schema builder.
+  tests-it-pg:
+    build:
+      context: .
+      target: builder
+    image: lznex-builder:latest
+    working_dir: /src
+    environment:
+      <<: *pg-env
+      LZNEX_IT: "1"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: lznex
+      DB_USER: postgres
+      DB_PASS: secret
+      DB_LIB: /usr/lib/x86_64-linux-gnu/libpq.so.5
+      HEAPTRC: haltonnotreleased
+    depends_on:
+      postgres:
         condition: service_healthy
     command: ["./bin/lznex-tests-debug"]
 
@@ -113,3 +162,4 @@ services:
 
 volumes:
   mysql-data:
+  pg-data:

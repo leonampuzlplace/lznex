@@ -144,6 +144,10 @@ type
     procedure MySQLKeepsColumnCommentInline;
     procedure AlterUsesAddColumn;
     procedure AlterUsesAlterColumn;
+    procedure ChangeEmitsOneActionPerAspect;
+    procedure MySQLChangeStaysOneAction;
+    procedure BooleanDefaultIsTrueOrFalse;
+    procedure MySQLBooleanDefaultIsOneOrZero;
     procedure AlterUsesDropColumn;
     procedure MySQLAlterUsesShortPrefixes;
     procedure RenameTableKeepsAlterTableForm;
@@ -817,8 +821,48 @@ var
 begin
   T := PgSchema.Table('users');
   T.Int('age').NotNull.Change;
-  AssertEquals('alter table "users" alter column "age" integer not null',
+  AssertEquals('alter table "users" alter column "age" type integer, ' +
+    'alter column "age" set not null', Stmt(T.ToSQL, 0));
+end;
+
+procedure TPostgresSchemaTest.ChangeEmitsOneActionPerAspect;
+var
+  T: ILzNexTable;
+begin
+  T := PgSchema.Table('users');
+  T.Int('hits').Nullable.Default_(0).Change;
+  AssertEquals('alter table "users" alter column "hits" type integer, ' +
+    'alter column "hits" drop not null, alter column "hits" set default 0',
     Stmt(T.ToSQL, 0));
+end;
+
+procedure TPostgresSchemaTest.MySQLChangeStaysOneAction;
+var
+  T: ILzNexTable;
+begin
+  T := MySchema.Table('users');
+  T.Int('hits').Nullable.Default_(0).Change;
+  AssertEquals('alter table `users` modify `hits` int null default 0',
+    Stmt(T.ToSQL, 0));
+end;
+
+procedure TPostgresSchemaTest.BooleanDefaultIsTrueOrFalse;
+var
+  T: ILzNexTable;
+begin
+  T := PgSchema.CreateTable('f');
+  T.Bool('active').Default_(True);
+  T.Bool('banned').Default_(False);
+  AssertEquals('create table "f" ("active" boolean null default true, ' +
+    '"banned" boolean null default false)', Stmt(T.ToSQL, 0));
+end;
+
+procedure TPostgresSchemaTest.MySQLBooleanDefaultIsOneOrZero;
+begin
+  AssertEquals('1', FMy.EscapeForLog(TLzNexValue.FromBoolean(True)));
+  AssertEquals('0', FMy.EscapeForLog(TLzNexValue.FromBoolean(False)));
+  AssertEquals('true', FPg.EscapeForLog(TLzNexValue.FromBoolean(True)));
+  AssertEquals('false', FPg.EscapeForLog(TLzNexValue.FromBoolean(False)));
 end;
 
 procedure TPostgresSchemaTest.AlterUsesDropColumn;

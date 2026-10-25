@@ -28,6 +28,10 @@ type
     function DialectName: string; override;
     function ZeosProtocol: string; override;
 
+    // O booleano do ANSI sai como 1/0, que o PostgreSQL recusa numa coluna
+    // boolean. Vale para o DEFAULT do DDL, que e interpolado por aqui.
+    function EscapeForLog(const AValue: TLzNexValue): string; override;
+
     function SupportsReturning: Boolean; override;
     function SupportsOnConflictWhere: Boolean; override;
     function SupportsNullsOrdering: Boolean; override;
@@ -59,6 +63,19 @@ end;
 function TLzNexPostgresClient.ZeosProtocol: string;
 begin
   Result := 'postgresql';
+end;
+
+function TLzNexPostgresClient.EscapeForLog(const AValue: TLzNexValue): string;
+begin
+  if AValue.Kind = vkBoolean then
+  begin
+    if AValue.AsBoolean then
+      Result := 'true'
+    else
+      Result := 'false';
+    Exit;
+  end;
+  Result := inherited EscapeForLog(AValue);
 end;
 
 function TLzNexPostgresClient.SupportsReturning: Boolean;

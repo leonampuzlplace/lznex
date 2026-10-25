@@ -203,7 +203,9 @@ type
     function Aggregate(const AAgg: TLzNexAggregate; const AColumn: string): TLzNexValue;
 
     function Insert(const AValues: TLzNexNamedValues): Int64;
-    function InsertGetId(const AValues: TLzNexNamedValues): Int64;
+    function InsertGetId(const AValues: TLzNexNamedValues): Int64; overload;
+    function InsertGetId(const AValues: TLzNexNamedValues;
+      const AIdColumn: string): Int64; overload;
     function InsertMany(const ARows: array of TLzNexNamedValues): Int64;
     function Update(const AValues: TLzNexNamedValues): Int64;
     function Increment(const AColumn: string; const ABy: Int64 = 1): Int64;
@@ -1442,8 +1444,15 @@ begin
 end;
 
 function TLzNexQuery.InsertGetId(const AValues: TLzNexNamedValues): Int64;
+begin
+  Result := InsertGetId(AValues, 'id');
+end;
+
+function TLzNexQuery.InsertGetId(const AValues: TLzNexNamedValues;
+  const AIdColumn: string): Int64;
 var
   Conn: ILzNexConnection;
+  Res: ILzNexResult;
 begin
   if Length(AValues) = 0 then
     raise ELzNexBuilder.Create('InsertGetId: no columns given');
@@ -1452,6 +1461,24 @@ begin
   FAst.Single.InsertRows[0] := Copy(AValues);
 
   Conn := ActiveConnection;
+
+  { Onde ha RETURNING, o id vem do proprio insert. O caminho alternativo
+    pergunta ao banco qual foi o ultimo id da sessao, o que e sensivel a
+    gatilho que escreva noutra tabela -- e o unico caminho em MySQL. }
+  if (FClient <> nil) and FClient.SupportsReturning then
+  begin
+    Returning([AIdColumn]);
+    Result := 0;
+    Res := Conn.Query(ToSQL);
+    try
+      if Res.Next then
+        Result := Res.FieldAt(0).AsInt64;
+    finally
+      Res.Close;
+    end;
+    Exit;
+  end;
+
   Conn.Execute(ToSQL);
   Result := Conn.LastInsertId;
 end;

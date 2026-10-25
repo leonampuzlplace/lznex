@@ -2,8 +2,8 @@
 
 Query builder, schema builder e migrations para **Lazarus/FPC**, com API fluente e
 encadeável. Usa [ZeosLib](https://zeoslib.sourceforge.io) por baixo (camada DBC, sem
-`TDataset`). MySQL pronto; PostgreSQL com SQL/DDL implementados; arquitetura aberta
-para Firebird.
+`TDataset`). **MySQL e PostgreSQL** prontos — a mesma suíte roda contra os dois;
+arquitetura aberta para Firebird.
 
 Instalável por [Boss](https://github.com/HashLoad/boss) em qualquer projeto Lazarus,
 inclusive os que usam [Horse](https://github.com/HashLoad/horse).
@@ -112,21 +112,24 @@ Config em `database/lznex.json` (com ambientes) ou pelas variáveis `LZNEX_HOST`
 ```sh
 docker compose run --rm tests          # unitários, sem banco
 docker compose run --rm tests-it       # integração + concorrência (MySQL real)
+docker compose run --rm tests-it-pg    # a mesma suíte, contra PostgreSQL real
 docker compose run --rm cli migrate:latest
 docker compose up -d api && curl localhost:9000/health
 ```
 
-Saída observada na última execução:
+Saída observada na última execução, a mesma suíte contra cada banco:
 
 ```
-Number of run tests: 146      core 19 | query 38 | security 4 | dialect 5
-Number of errors:    0        postgres 66 | integration 9 | concurrency 5
-Number of failures:  0
+tests-it     (MySQL)        150 testes · 0 erros · 0 falhas · 0 ignorados
+tests-it-pg  (PostgreSQL)   150 testes · 0 erros · 0 falhas · 0 ignorados
 
 sondas: 870 asserções em 7 binários, todas verdes
 heaptrc: 0 unfreed memory blocks (467.958 alocados, 467.958 liberados)
 API: {"status":"ok","dialect":"mysql"}
 ```
+
+As tabelas de teste nascem pelo schema builder, então cada execução também põe o DDL
+daquele dialeto sob teste.
 
 ## Threads
 
