@@ -13,6 +13,7 @@ uses
   LzNex.Fragment,
   LzNex.Intf,
   LzNex.Connection,
+  LzNex.Schema,
   LzNex.Exceptions;
 
 type
@@ -297,8 +298,8 @@ end;
 
 function TLzNexTransaction.Schema: ILzNexSchema;
 begin
-
-  Result := NeedDb.Schema;
+  NeedOpen('Schema');
+  Result := NewSchema(Self as ILzNex, Client);
 end;
 
 function TLzNexTransaction.Transaction: ILzNexTransaction;
@@ -320,8 +321,7 @@ end;
 function TLzNexTransaction.Transact(const AWork: ILzNexWork;
   const AAttempts: Integer): Integer;
 begin
-  { Repetir aqui nao faria o que o nome promete: o bloco de fora continuaria
-    valendo, e o savepoint sozinho nao desfaz o que ele ja escreveu. }
+
   raise ELzNexTransaction.Create(
     'Transact inside a transaction. The retry has to own the transaction to be ' +
     'able to run the block again -- call Transact on the facade, and inside ' +
@@ -383,8 +383,7 @@ end;
 
 function TLzNexTransaction.ReadConnection: ILzNexConnection;
 begin
-  { Dentro de transacao nao existe leitura noutra conexao: a replica nao veria
-    o que esta transacao ainda nao commitou. }
+
   Result := Connection;
 end;
 

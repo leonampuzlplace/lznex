@@ -277,7 +277,6 @@ end;
 
 procedure TFirebirdDialectTest.StartsInReadCommittedUnlikeTheOthers;
 begin
-  { O default do servidor e snapshot, que num pool aparece como leitura velha. }
   AssertTrue('firebird', FFb.DefaultIsolation = ilReadCommitted);
   AssertTrue('mysql', FMy.DefaultIsolation = ilDefault);
 end;
@@ -400,8 +399,7 @@ end;
 
 procedure TFirebirdWriteTest.MergeWithoutTargetMatchesThePrimaryKey;
 begin
-  { No PostgreSQL isso levanta, porque o ON CONFLICT exige a coluna. O
-    UPDATE OR INSERT sem MATCHING casa pela chave primaria. }
+
   FreshAst('users');
   FAst.Single.Method := qmInsert;
   SetLength(FAst.Single.InsertRows, 1);
@@ -588,7 +586,6 @@ procedure TFirebirdSchemaTest.DefaultComesBeforeNotNull;
 var
   T: ILzNexTable;
 begin
-  { No Firebird a ordem e obrigatoria: "not null default 0" e erro de sintaxe. }
   T := FbSchema.CreateTable('c');
   T.Int('hits').NotNull.Default_(0);
   AssertEquals('create table "c" ("hits" integer default 0 not null)',
@@ -676,8 +673,7 @@ end;
 
 procedure TFirebirdSchemaTest.DropTableIfExistsUsesExecuteBlock;
 begin
-  { Nao ha DROP TABLE IF EXISTS no 3 nem no 5, e o plano de DDL manda um
-    statement so -- dai o EXECUTE BLOCK. }
+
   AssertEquals(
     'execute block as begin ' +
     'if (exists(select 1 from rdb$relations where trim(rdb$relation_name) = ' +
@@ -736,8 +732,7 @@ procedure TFirebirdSchemaTest.LongIndexNameIsShortenedToThirtyOne;
 var
   First, Second, Again: string;
 begin
-  { O Firebird 3 para em 31 bytes. O corte leva um hash do nome inteiro no fim,
-    para que duas colunas diferentes nao desaguem no mesmo indice. }
+
   First := FFb.NewSchemaCompiler.IndexName('subscription_invoices',
     Idents(['customer_identifier']), ixIndex);
   Second := FFb.NewSchemaCompiler.IndexName('subscription_invoices',

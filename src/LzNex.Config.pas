@@ -49,7 +49,6 @@ type
     FProps: TLzNexNamedValues;
     FLogger: ILzNexLogger;
 
-    // Configuracao da replica de leitura, se houver.
     FReadReplica: ILzNexConfig;
   public
     constructor Create;
@@ -118,7 +117,6 @@ function ApplyOverrides(const AConfig: ILzNexConfig;
 
 function ApplyEnvOverrides(const AConfig: ILzNexConfig): ILzNexConfig;
 
-// Se o dialeto guarda tudo num arquivo local, caso em que host nao se aplica.
 function IsFileBasedClient(const AName: string): Boolean;
 
 function EnvOverrideNames: TLzNexStringArray;
@@ -369,7 +367,6 @@ begin
   if Trim(FClient) = '' then
     Missing := Missing + ' client';
 
-  // Banco em arquivo nao tem host: database ja e o caminho do arquivo.
   if (Trim(FHost) = '') and (not IsFileBasedClient(FClient)) then
     Missing := Missing + ' host';
   if Trim(FDatabase) = '' then

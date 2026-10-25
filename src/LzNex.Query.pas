@@ -19,6 +19,10 @@ uses
   LzNex.Chunk,
   LzNex.Exceptions;
 
+const
+
+  LZNEX_AGG_ALIAS = 'lznex_agg';
+
 type
   TLzNexGroupStack = class(TList<TLzNexGroupStmt>);
 
@@ -34,7 +38,6 @@ type
 
     FCurrentJoin: TLzNexJoinStmt;
 
-    // Leitura presa ao primario, mesmo havendo replica.
     FUsePrimary: Boolean;
 
     procedure Emit(const AStmt: TLzNexStatement);
@@ -44,7 +47,6 @@ type
     procedure AddJson(const ACol, APath: string; const AJsonOp: TLzNexJsonOp;
       const AOp: string; const AValue: TLzNexValue);
 
-    // Decide entre pool de leitura e primario. Leitura so quando e seguro.
     function WantsReadReplica: Boolean;
 
     function StackOf(const AGroup: TLzNexStatementGroup): TLzNexGroupStack;
@@ -86,11 +88,8 @@ type
 
     function RunExecute: Int64;
 
-    // Query vazia no mesmo dialeto, conexao e transacao desta.
     function FreshQuery: ILzNexQuery;
 
-    { Com group by, having, union ou distinct, um count(*) no lugar das colunas
-      contaria por grupo. Nesses casos o count vai por fora, numa subquery. }
     function NeedsCountSubquery: Boolean;
 
     function TotalForPaging: Int64;
@@ -330,6 +329,8 @@ function NewBoundQuery(const ADb: ILzNex; const ATrx: ILzNexTransaction): ILzNex
 
 implementation
 
+function AstNeedsCountSubquery(const AAst: TLzNexAst): Boolean; forward;
+
 function Ident(const AName: string): TLzNexValue;
 begin
   Result := TLzNexValue.Identifier(AName);
@@ -496,9 +497,10 @@ begin
     raise ELzNexBuilder.Create(
       'WithCount: an alias is required -- it is the name the count comes back under');
 
-  { Clone para nao mexer na subquery de quem chamou, e sem as colunas dela:
-    uma subquery no select tem de devolver uma coluna so. }
-  Counter := ASub.Clone.Clear(sgColumns).SelectCount('*');
+  if AstNeedsCountSubquery(ASub.Ast) then
+    Counter := FreshQuery.FromSub(ASub.Clone, LZNEX_AGG_ALIAS).SelectCount('*')
+  else
+    Counter := ASub.Clone.Clear(sgColumns).SelectCount('*');
   Result := SelectSub(Counter, AAlias);
 end;
 
@@ -826,14 +828,10 @@ end;
 procedure TLzNexQuery.AddDatePart(const ACol: string;
   const APart: TLzNexDatePart; const AOp: string; const AValue: TLzNexValue);
 begin
-  // Mesmo whitelist dos outros predicados: operador nao vem de fora sem passar.
   Emit(TLzNexDatePartStmt.Create(sgWhere, Ident(ACol), APart,
     NormalizeOperator(AOp), AValue));
 end;
 
-{ O caminho JSON e interpolado no SQL (nenhum banco aceita o caminho como
-  parametro), por isso passa por aqui antes. Fecha em letra, digito, '_', '$',
-  '.' e indice entre colchetes: nada de aspas, espaco ou comentario. }
 procedure ValidateJsonPath(const APath: string);
 var
   I: Integer;
@@ -1081,8 +1079,7 @@ end;
 procedure TLzNexQuery.Enclose(const AGroup: TLzNexStatementGroup;
   const AWhat: string);
 begin
-  { Com grupo aberto os statements novos iriam para dentro dele, e fechar a
-    raiz deixaria a pilha apontando para um galho que nao esta mais la. }
+
   if StackOf(AGroup).Count > 0 then
     raise ELzNexBuilder.CreateFmt(
       '%s with %d open predicate group(s). Close them first: the enclosing ' +
@@ -1687,6 +1684,7 @@ var
   Binds: TLzNexBindings;
   SB: TStringBuilder;
   Txt: string;
+  Quote: Char;
   I, N: Integer;
 begin
   Frag := ToSQL;
@@ -1696,7 +1694,24 @@ begin
   SB := TStringBuilder.Create;
   try
 
+    Quote := #0;
     for I := 1 to Length(Txt) do
+    begin
+      if Quote <> #0 then
+      begin
+        SB.Append(Txt[I]);
+        if Txt[I] = Quote then
+          Quote := #0;
+        Continue;
+      end;
+
+      if (Txt[I] = '''') or (Txt[I] = '"') or (Txt[I] = '`') then
+      begin
+        Quote := Txt[I];
+        SB.Append(Txt[I]);
+        Continue;
+      end;
+
       if (Txt[I] = '?') and (N < Binds.Count) then
       begin
         SB.Append(FClient.EscapeForLog(Binds.Items(N)));
@@ -1704,6 +1719,7 @@ begin
       end
       else
         SB.Append(Txt[I]);
+    end;
     Result := SB.ToString;
   finally
     SB.Free;
@@ -1732,8 +1748,7 @@ begin
     try
       Writeln(Text_);
     except
-      { Aplicacao GUI no Windows nao tem console, e ai Writeln levanta. Dump e
-        depuracao: nao pode ser o motivo de a aplicacao cair. }
+
     end;
 
   Result := Self as ILzNexQuery;
@@ -1741,8 +1756,7 @@ end;
 
 function TLzNexQuery.WantsReadReplica: Boolean;
 begin
-  { Leitura vai para a replica; o resto, nunca. ForUpdate/ForShare tambem nao:
-    travar linha numa replica nao protege quem escreve no primario. }
+
   Result := (not FUsePrimary) and
             (FAst.Single.Method in [qmSelect, qmFirst]) and
             (FAst.Single.Lock = lkNone);
@@ -1750,8 +1764,7 @@ end;
 
 function TLzNexQuery.ActiveConnection: ILzNexConnection;
 begin
-  { Dentro de transacao e sempre a conexao dela: a transacao vive no primario,
-    e ler noutra conexao nao veria o que ela ainda nao commitou. }
+
   if FTrx <> nil then
     Exit(FTrx.Connection);
   if FDb = nil then
@@ -1782,8 +1795,6 @@ begin
   Result := Conn.Query(ToSQL);
 end;
 
-{ Primeira linha de uma query qualquer. Fecha o cursor antes de devolver, e a
-  linha ja vem copiada (CurrentRow tira uma foto dos valores). }
 function TLzNexQuery.RowOf(const AQuery: ILzNexQuery): ILzNexRow;
 var
   Res: ILzNexResult;
@@ -1804,9 +1815,6 @@ var
 begin
   Result := nil;
 
-  { Sem janela propria o "limit 1" vai num clone: senao First deixaria o limite
-    grudado e o Get seguinte traria uma linha so. Com limit 1 explicito o SQL
-    sai igual ao de qmFirst, que so entra quando nao ha janela. }
   if not FAst.Single.HasLimit then
     Exit(RowOf(Clone.Limit(1)));
 
@@ -1832,8 +1840,6 @@ function TLzNexQuery.Sole: ILzNexRow;
 var
   Rows: TLzNexRowArray;
 begin
-  // Duas linhas bastam para saber que ha mais de uma. O limite fica no clone:
-  // Sole nao pode deixar "limit 2" grudado na query de quem chamou.
   Rows := RowsOf(Clone.Limit(2));
 
   if Length(Rows) = 0 then
@@ -1852,7 +1858,6 @@ var
   Q: ILzNexQuery;
   Row: ILzNexRow;
 begin
-  // Troca de colunas no clone: a query de quem chamou segue com o Select dela.
   Q := Clone.Clear(sgColumns).Column(AColumn);
   Row := Q.First;
   if Row = nil then
@@ -1899,7 +1904,6 @@ end;
 
 function TLzNexQuery.Exists: Boolean;
 begin
-  // Limite no clone: "if Q.Exists then Q.Get" nao pode voltar uma linha so.
   Result := Clone.Limit(1).First <> nil;
 end;
 
@@ -1919,16 +1923,18 @@ var
   Q: ILzNexQuery;
   Row: ILzNexRow;
 begin
-  { O agregado troca a lista de colunas, e no clone: senao um Q.Count deixaria
-    "select count(*)" na query e o Q.Get seguinte traria o count, nao as
-    linhas. }
-  Q := Clone.Clear(sgColumns);
+  if NeedsCountSubquery then
+  begin
 
-  { A ordem nao muda o agregado e custa sort, e no PostgreSQL "select count(*)
-    ... order by tag" e erro -- a coluna da ordem nao esta no group by. Com
-    group by ela fica: ali e a ordem que decide qual grupo o First pega. }
-  if not Q.Ast.Has(sgGroup) then
+    Q := FreshQuery.FromSub(Clone, LZNEX_AGG_ALIAS);
+  end
+  else
+  begin
+
+    Q := Clone.Clear(sgColumns);
+
     Q.Clear(sgOrder);
+  end;
 
   Q.Ast.Add(TLzNexAggregateStmt.Create(AAgg, Ident(AColumn), ''));
   Row := Q.First;
@@ -1943,31 +1949,35 @@ begin
   Result := TLzNexQuery.Create(FClient, FDb, FTrx) as ILzNexQuery;
 end;
 
-function TLzNexQuery.NeedsCountSubquery: Boolean;
+function AstNeedsCountSubquery(const AAst: TLzNexAst): Boolean;
 var
   Items: TLzNexStatementList;
   I: Integer;
 begin
-  Result := FAst.Has(sgGroup) or FAst.Has(sgHaving) or FAst.Has(sgUnion);
+  Result := AAst.Has(sgGroup) or AAst.Has(sgHaving) or AAst.Has(sgUnion);
   if Result then
     Exit;
 
-  Items := FAst.Group(sgColumns);
+  Items := AAst.Group(sgColumns);
   for I := 0 to Items.Count - 1 do
     if Items[I].Kind = skDistinct then
       Exit(True);
+end;
+
+function TLzNexQuery.NeedsCountSubquery: Boolean;
+begin
+  Result := AstNeedsCountSubquery(FAst);
 end;
 
 function TLzNexQuery.TotalForPaging: Int64;
 var
   Counter: ILzNexQuery;
 begin
-  { A ordem nao muda o total e custa sort; a janela, se ficasse, limitaria o
-    proprio count. O clone e que paga por isso -- esta query segue intacta. }
+
   Counter := Clone.Clear(sgOrder).ClearPaging;
 
   if NeedsCountSubquery then
-    Result := FreshQuery.FromSub(Counter, 'lznex_agg').Count
+    Result := FreshQuery.FromSub(Counter, LZNEX_AGG_ALIAS).Count
   else
     Result := Counter.Count;
 end;
@@ -1977,8 +1987,6 @@ begin
   Result := RowsOf(Self as ILzNexQuery);
 end;
 
-{ Le tudo e fecha o cursor antes de devolver, para a conexao nao ficar presa
-  enquanto quem chamou mexe nas linhas. }
 function TLzNexQuery.RowsOf(const AQuery: ILzNexQuery): TLzNexRowArray;
 var
   Res: ILzNexResult;
@@ -1995,9 +2003,6 @@ function TLzNexQuery.Paginate(const APage, APerPage: Int64): TLzNexPage;
 begin
   Result := Default(TLzNexPage);
 
-  { A janela vai no clone: paginar nao pode deixar limit/offset grudados na
-    query, senao a chamada seguinte (outra pagina, um Count) herdaria a janela
-    da anterior. O count ja clona por conta propria. }
   Result.Total := TotalForPaging;
   Result.PerPage := APerPage;
   Result.CurrentPage := APage;
@@ -2010,12 +2015,10 @@ var
 begin
   Result := Default(TLzNexSimplePage);
 
-  // Page valida os dois argumentos antes de o limite ser trocado.
   Q := Clone.Page(APage, APerPage);
   Result.PerPage := APerPage;
   Result.CurrentPage := APage;
 
-  // Uma linha alem da pagina: se ela vier, ha proxima.
   Q.Limit(APerPage + 1);
   Result.Rows := RowsOf(Q);
 
@@ -2042,10 +2045,6 @@ begin
   Keys := OrderKeysOf(Self as ILzNexQuery);
   Backward := False;
 
-  { Corte e inversao da ordem acontecem num clone. Na mesma query eles se
-    acumulariam: a segunda pagina sairia com os dois cortes ("id > 10 and
-    id > 20") e, voltando duas vezes, a ordem invertida duas vezes voltaria
-    ao original e a pagina viria do inicio do conjunto. }
   Q := Clone;
 
   if Trim(ACursor) <> '' then
@@ -2058,8 +2057,6 @@ begin
     ApplyKeyset(Q, Keys, Values, Backward);
   end;
 
-  { Para tras le na ordem invertida -- so assim o limite pega as linhas
-    imediatamente anteriores, e nao as primeiras do conjunto. }
   if Backward then
     FlipOrderDirection(Q);
 
@@ -2073,7 +2070,6 @@ begin
 
   if Backward then
   begin
-    // Desfaz a leitura invertida: quem chamou espera a ordem original.
     Last := High(Result.Rows);
     for I := 0 to (Last - 1) div 2 do
     begin
@@ -2086,8 +2082,6 @@ begin
   if Length(Result.Rows) = 0 then
     Exit;
 
-  { Indo para frente, "ha proxima" e a linha extra; voltando, a frente e de
-    onde viemos, e a linha extra responde pela pagina anterior. }
   if Backward then
   begin
     Result.NextCursor := EncodeCursor(
@@ -2172,9 +2166,6 @@ begin
 
   Conn := ActiveConnection;
 
-  { Onde ha RETURNING, o id vem do proprio insert. O caminho alternativo
-    pergunta ao banco qual foi o ultimo id da sessao, o que e sensivel a
-    gatilho que escreva noutra tabela -- e o unico caminho em MySQL. }
   if (FClient <> nil) and FClient.SupportsReturning then
   begin
     Returning([AIdColumn]);
@@ -2246,9 +2237,7 @@ var
   var
     K: Integer;
   begin
-    { Fecha o escopo que veio da query antes de somar a busca: num where com
-      "or" no topo a busca valeria so para o ultimo ramo, e o update acabaria
-      numa linha que nao casa. }
+
     ATarget.GroupWhere;
     for K := 0 to High(AMatch) do
       ATarget.Where(AMatch[K].Name, AMatch[K].Value);
@@ -2260,12 +2249,6 @@ begin
       'UpdateOrInsert: no columns to match on. Without them every row would ' +
       'match and the update would hit the whole table.');
 
-  { Existencia primeiro, nao "update e ve quantas linhas mudaram": no MySQL um
-    UPDATE que grava o mesmo valor devolve zero linhas afetadas, e dai sairia
-    um INSERT duplicado.
-
-    UsePrimary porque esta leitura decide uma escrita: na replica o atraso de
-    replicacao esconderia a linha recem-inserida e o insert sairia duplicado. }
   Probe := Clone.UsePrimary.Clear(sgOrder).ClearPaging;
   ApplyMatch(Probe);
 
@@ -2280,7 +2263,6 @@ begin
     Exit(False);
   end;
 
-  // A linha nova carrega as colunas de busca e as de valor.
   Merged := nil;
   SetLength(Merged, Length(AMatch) + Length(AValues));
   N := 0;
@@ -2295,7 +2277,6 @@ begin
     for J := 0 to High(AMatch) do
       if SameText(AMatch[J].Name, AValues[I].Name) then
       begin
-        // Valor explicito vence o valor de busca na coluna repetida.
         Merged[J].Value := AValues[I].Value;
         Found := True;
         Break;
@@ -2314,6 +2295,8 @@ end;
 
 function TLzNexQuery.Increment(const AColumn: string; const ABy: Int64): Int64;
 begin
+  if Trim(AColumn) = '' then
+    raise ELzNexBuilder.Create('Increment: no column given');
   FAst.Single.Method := qmUpdate;
   SetLength(FAst.Single.Counters, 1);
   FAst.Single.Counters[0].Name := AColumn;
@@ -2323,6 +2306,8 @@ end;
 
 function TLzNexQuery.Decrement(const AColumn: string; const ABy: Int64): Int64;
 begin
+  if Trim(AColumn) = '' then
+    raise ELzNexBuilder.Create('Decrement: no column given');
   FAst.Single.Method := qmUpdate;
   SetLength(FAst.Single.Counters, 1);
   FAst.Single.Counters[0].Name := AColumn;

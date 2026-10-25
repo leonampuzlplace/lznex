@@ -23,13 +23,13 @@ type
       const AIndex: ILzNexIndexDef): string; override;
     function DropIndexSQL(const ATable: ILzNexTable;
       const AIndex: ILzNexIndexDef): string; override;
-    // Mesma expressao que o CompileWhereFullText usa no "where", token a
-    // token -- senao o indice GIN nasce e nunca e usado pela busca.
     function FullTextExpr(const AColumns: TLzNexValues): string;
   public
     function ColumnTypeSQL(const AType: TLzNexColumnType;
       const AParam1, AParam2: Integer; const AItems: TLzNexValues): string; override;
     function ModifierOrder: TLzNexColumnModifiers; override;
+    function ModifierSQL(const AMod: TLzNexColumnModifier;
+      const ACol: ILzNexColumnDef): string; override;
     function TruncateTableSQL(const ATable: string): TLzNexFragment; override;
     function HasTableSQL(const ATable, ASchema: string): TLzNexFragment; override;
     function HasColumnSQL(const ATable, AColumn, ASchema: string): TLzNexFragment; override;
@@ -143,8 +143,15 @@ var
   end;
 
 begin
-  { O PostgreSQL nao aceita redeclarar a coluna inteira: cada aspecto e uma
-    acao propria. As tres cabem no mesmo ALTER TABLE, separadas por virgula. }
+
+  if ACol.ColumnType = ctEnum then
+    raise ELzNexSchema.CreateFmt(
+      'PostgreSQL cannot change column "%s" to an enum: there is no native ' +
+      'enum, so the allowed values live in a table-level CHECK constraint ' +
+      'that ALTER COLUMN cannot carry. Drop the old constraint and add the ' +
+      'new one by hand in the migration (Db.Execute with ALTER TABLE ... ' +
+      'DROP CONSTRAINT / ADD CONSTRAINT).', [ACol.ColumnName]);
+
   Result := nil;
   N := 0;
   Col := ChangeColumnPrefix + Wrap(ACol.ColumnName) + ' ';
@@ -200,7 +207,6 @@ end;
 function TLzNexPostgresSchemaCompiler.DropIndexSQL(const ATable: ILzNexTable;
   const AIndex: ILzNexIndexDef): string;
 begin
-  // O GIN e um indice avulso (create index), nao uma constraint: DROP INDEX, nao DROP CONSTRAINT.
   if AIndex.IndexKind = ixFullText then
     Exit('drop index ' + Wrap(IndexNameOf(ATable, AIndex)));
   Result := inherited DropIndexSQL(ATable, AIndex);
@@ -209,7 +215,20 @@ end;
 function TLzNexPostgresSchemaCompiler.ModifierOrder: TLzNexColumnModifiers;
 begin
 
-  Result := TLzNexColumnModifiers.Create(mdNullable, mdDefault);
+  Result := TLzNexColumnModifiers.Create(mdNullable, mdCollate, mdDefault);
+end;
+
+function TLzNexPostgresSchemaCompiler.ModifierSQL(
+  const AMod: TLzNexColumnModifier; const ACol: ILzNexColumnDef): string;
+begin
+  if AMod = mdCollate then
+  begin
+    Result := '';
+    if ACol.HasModifier(mdCollate) then
+      Result := 'collate ' + Wrap(ACol.CollateName);
+    Exit;
+  end;
+  Result := inherited ModifierSQL(AMod, ACol);
 end;
 
 function TLzNexPostgresSchemaCompiler.TruncateTableSQL(
@@ -317,10 +336,6 @@ begin
     Marks := Marks + '?';
   end;
 
-  { pg_index guarda so o numero da coluna (indkey); o join com pg_attribute
-    devolve uma linha por coluna do indice, igual ao information_schema.statistics
-    do MySQL -- dai reaproveitar a mesma logica de agrupar por indice e comparar
-    o conjunto de colunas. }
   S := 'select count(*) from (' +
        'select i.indexname from (' +
        'select ci.relname as indexname, a.attname as column_name ' +

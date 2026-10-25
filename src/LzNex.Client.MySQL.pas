@@ -48,6 +48,8 @@ type
     function DialectName: string; override;
     function ZeosProtocol: string; override;
 
+    function EscapeStringLiteral(const AText: string): string; override;
+
     function SupportsJson: Boolean; override;
     function SupportsFullText: Boolean; override;
 
@@ -163,7 +165,6 @@ begin
   end;
 end;
 
-// "a.b" -> "$.a.b"; um "$" ou "[" na frente ja e caminho valido e fica como esta.
 function MySQLJsonPath(const APath: string): string;
 begin
   if APath = '' then
@@ -191,10 +192,7 @@ begin
       end;
     joContains:
       begin
-        { cast(... as json) aceita tanto um escalar nativo (vira o escalar JSON
-          direto) quanto uma string com um documento (o texto e interpretado).
-          Sem o cast, um parametro inteiro chega ao MySQL com tipo SQL, nao
-          JSON, e json_contains recusa. }
+
         if AStmt.Path = '' then
           Result := Col.Concat(Value.Wrap('cast(', ' as json)'), ', ')
             .Wrap('json_contains(', ')')
@@ -262,15 +260,18 @@ begin
   Result := 'mysql';
 end;
 
+function TLzNexMySQLClient.EscapeStringLiteral(const AText: string): string;
+begin
+  Result := QuotedStr(StringReplace(AText, '\', '\\', [rfReplaceAll]));
+end;
+
 function TLzNexMySQLClient.SupportsJson: Boolean;
 begin
-  // Tipo JSON desde o 5.7; as funcoes json_* desde a mesma versao.
   Result := True;
 end;
 
 function TLzNexMySQLClient.SupportsFullText: Boolean;
 begin
-  // Indice FULLTEXT em InnoDB desde o 5.6.
   Result := True;
 end;
 
@@ -310,7 +311,6 @@ end;
 function TLzNexMySQLClient.IsRetryableError(const ACode: Integer;
   const ASQLState: string): Boolean;
 begin
-  // 1213 = deadlock found, 1205 = lock wait timeout; os dois sao transitorios.
   if (ACode = 1213) or (ACode = 1205) then
     Exit(True);
   Result := inherited IsRetryableError(ACode, ASQLState);

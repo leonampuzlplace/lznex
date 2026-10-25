@@ -56,8 +56,6 @@ type
     skWhereFullText
   );
 
-  { Parte da data a comparar. Cada banco extrai de um jeito (extract, year(),
-    strftime), por isso e o compilador do dialeto que resolve. }
   TLzNexDatePart = (
     dpDate,
     dpTime,
@@ -69,11 +67,8 @@ type
     dpSecond
   );
 
-  { joPath compara o valor no caminho; joContains pergunta se o documento
-    contem o valor; joLength compara o tamanho do array. }
   TLzNexJsonOp = (joPath, joContains, joLength);
 
-  // Natural: as palavras como texto. Boolean: a sintaxe de operadores do banco.
   TLzNexFullTextMode = (ftNatural, ftBoolean);
 
   TLzNexBoolOp = (boAnd, boOr);

@@ -31,9 +31,7 @@ type
     function DialectName: string; override;
     function ZeosProtocol: string; override;
 
-    // O booleano do ANSI sai como 1/0, que o PostgreSQL recusa numa coluna
-    // boolean. Vale para o DEFAULT do DDL, que e interpolado por aqui.
-    function EscapeForLog(const AValue: TLzNexValue): string; override;
+    function QuoteLiteral(const AValue: TLzNexValue): string; override;
 
     function SupportsReturning: Boolean; override;
     function SupportsOnConflictWhere: Boolean; override;
@@ -60,7 +58,6 @@ begin
   Result := Result.Concat(Txt('restart identity'));
 end;
 
-// "a.b" ou "a[0].b" -> "{a,b}" / "{a,0,b}". "$" na frente e ignorado.
 function PostgresJsonPath(const APath: string): string;
 var
   I: Integer;
@@ -113,10 +110,7 @@ begin
         .Concat(Txt(AStmt.Op)).Concat(Value);
     joContains:
       begin
-        { ::jsonb so sabe fazer cast de texto (e entao pode interpretar o
-          conteudo como um documento). Um escalar nativo (inteiro, booleano)
-          nao tem esse cast; to_jsonb() converte o valor direto, sem tentar
-          ler o texto como JSON. }
+
         if AStmt.Value.Kind = vkString then
           Candidate := Value.Wrap('', '::jsonb')
         else
@@ -180,7 +174,7 @@ begin
   Result := 'postgresql';
 end;
 
-function TLzNexPostgresClient.EscapeForLog(const AValue: TLzNexValue): string;
+function TLzNexPostgresClient.QuoteLiteral(const AValue: TLzNexValue): string;
 begin
   if AValue.Kind = vkBoolean then
   begin
@@ -190,18 +184,16 @@ begin
       Result := 'false';
     Exit;
   end;
-  Result := inherited EscapeForLog(AValue);
+  Result := inherited QuoteLiteral(AValue);
 end;
 
 function TLzNexPostgresClient.SupportsJson: Boolean;
 begin
-  // json e jsonb; os operadores de caminho valem para os dois.
   Result := True;
 end;
 
 function TLzNexPostgresClient.SupportsFullText: Boolean;
 begin
-  // tsvector com indice GIN.
   Result := True;
 end;
 

@@ -19,7 +19,6 @@ type
     FSource: ILzNexQuery;
     FSize: Int64;
 
-    // Vazio: lotes por Limit/Offset. Preenchido: lotes por chave.
     FKeyColumn: string;
     FKeys: TLzNexOrderKeys;
 
@@ -99,7 +98,6 @@ begin
   try
     Result := Res.ToRows;
   finally
-    // Fecha antes de devolver: o lease do pool nao fica preso entre lotes.
     Res.Close;
   end;
 end;
@@ -114,13 +112,11 @@ var
   Q: ILzNexQuery;
   Values: TLzNexValues;
 begin
-  { A ordem passa a ser a da chave: avancar por "chave > ultima lida" so faz
-    sentido lendo nessa ordem. }
+
   Q := FSource.Clone.ClearPaging.Clear(sgOrder);
   if not FLastKey.IsUnset then
   begin
-    { GroupWhere antes: num where com "or" no topo o avanco ficaria preso ao
-      ultimo ramo e a varredura releria o mesmo lote para sempre. }
+
     Q.GroupWhere.Where(FKeyColumn, '>', FLastKey);
   end;
   Q.OrderBy(FKeyColumn).Limit(FSize);
@@ -150,7 +146,6 @@ begin
   else
     FRows := LoadKeyChunk;
 
-  // Lote menor que o pedido significa que o conjunto acabou.
   if Int64(Length(FRows)) < FSize then
     FDone := True;
 

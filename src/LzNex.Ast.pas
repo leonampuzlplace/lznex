@@ -192,7 +192,6 @@ type
     function Clone: TLzNexStatement; override;
   end;
 
-  // Ordem aleatoria. Sem campos: o que varia e a funcao de cada dialeto.
   TLzNexOrderRandomStmt = class(TLzNexStatement)
   public
     constructor Create;
@@ -211,8 +210,6 @@ type
     function Clone: TLzNexStatement; override;
   end;
 
-  { Path nao e parametro: vai interpolado no SQL, por isso quem constroi tem de
-    validar o texto antes (ver ValidateJsonPath em LzNex.Query). }
   TLzNexJsonStmt = class(TLzNexStatement)
   public
     Column: TLzNexValue;
@@ -310,10 +307,6 @@ type
 
     procedure ClearGroup(const AGroup: TLzNexStatementGroup);
 
-    { Fecha o que ja esta no grupo dentro de um "(...)", para que o proximo
-      predicado entre como and do conjunto todo. Sem isso um "or" no topo
-      rouba o and ("a = 1 or b = 2 and novo"), e o predicado novo valeria so
-      para o ultimo ramo do or. False quando nao havia nada a fechar. }
     function EncloseGroup(const AGroup: TLzNexStatementGroup): Boolean;
 
     function Clone: TLzNexAst;
@@ -842,10 +835,6 @@ begin
   if L.Count = 0 then
     Exit;
 
-  { So ha o que fechar quando existe um "or" na raiz: e ele que rouba o and do
-    predicado novo. Com tudo em and, somar mais um and nao muda o sentido e o
-    SQL fica sem parenteses a mais. O BoolOp do primeiro item nao conta --
-    nao ha nada antes dele para ligar. }
   HasOr := False;
   for I := 1 to L.Count - 1 do
     if L[I].BoolOp = boOr then
@@ -861,14 +850,12 @@ begin
     for I := 0 to L.Count - 1 do
       G.Items.Add(L[I]);
   except
-    { Nada foi removido de L ainda, e G e dono dos mesmos ponteiros: solta a
-      posse antes de liberar o grupo, senao os statements morrem duas vezes. }
+
     G.Items.OwnsObjects := False;
     G.Free;
     raise;
   end;
 
-  // Clear sem posse: os statements agora vivem dentro de G.
   L.OwnsObjects := False;
   try
     L.Clear;

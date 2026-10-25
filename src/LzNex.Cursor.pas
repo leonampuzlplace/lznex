@@ -20,33 +20,22 @@ type
   end;
   TLzNexOrderKeys = array of TLzNexOrderKey;
 
-{ Le a ordenacao da query e devolve as chaves do keyset. Recusa o que o corte
-  por valor nao consegue reproduzir: ordem ausente, OrderByRaw e ordem de nulos
-  explicita (no MySQL ela e emulada com uma expressao extra que o WHERE nao
-  reproduz, e a pagina sairia furada). }
 function OrderKeysOf(const AQuery: ILzNexQuery): TLzNexOrderKeys;
 
-// Os valores das colunas de ordenacao numa linha ja lida.
 function KeyValuesOf(const ARow: ILzNexRow;
   const AKeys: TLzNexOrderKeys): TLzNexValues;
 
-{ Adiciona o corte "depois desta linha" como um grupo fechado de predicados.
-  Com duas chaves sai "(k1 > ? or (k1 = ? and k2 > ?))" -- forma expandida em
-  vez de "(k1, k2) > (?, ?)", que o Firebird nao tem. }
 procedure ApplyKeyset(const AQuery: ILzNexQuery; const AKeys: TLzNexOrderKeys;
   const AValues: TLzNexValues; const ABackward: Boolean);
 
-// Inverte asc/desc de toda a ordenacao, para ler a pagina anterior.
 procedure FlipOrderDirection(const AQuery: ILzNexQuery);
 
 function EncodeCursor(const AValues: TLzNexValues;
   const ABackward: Boolean): string;
 
-// False quando o texto nao e um cursor desta versao ou esta corrompido.
 function DecodeCursor(const ACursor: string; out AValues: TLzNexValues;
   out ABackward: Boolean): Boolean;
 
-// Base64 url-safe e sem padding: o cursor viaja em query string.
 function LzNexBase64Encode(const ABytes: TBytes): string;
 function LzNexBase64Decode(const AText: string; out ABytes: TBytes): Boolean;
 
@@ -62,7 +51,6 @@ const
   STAMP_PATTERN = 'yyyy-mm-dd hh:nn:ss.zzz';
 
 var
-  // Formato fixo: cursor gerado numa maquina tem de ser lido noutra.
   GFmt: TFormatSettings;
 
 function LzNexBase64Encode(const ABytes: TBytes): string;
@@ -223,7 +211,6 @@ begin
   end;
 end;
 
-// "users.id" no order by chega como "id" no resultado.
 function UnqualifiedName(const AName: string): string;
 var
   P: Integer;
@@ -261,8 +248,7 @@ end;
 
 function KeysetOperator(const ADescending, ABackward: Boolean): string;
 begin
-  { asc indo para frente e desc voltando procuram valor maior; os outros dois
-    casos procuram menor. }
+
   if ADescending = ABackward then
     Result := '>'
   else
@@ -291,10 +277,6 @@ begin
         'never true, so the next page would come back empty. Order by a NOT ' +
         'NULL column, or use Paginate/SimplePaginate.', [AKeys[I].Column]);
 
-  { O where que ja estava na query vira um grupo so. Sem isso um "or" no topo
-    ficaria com o corte preso ao ultimo ramo ("kind = 'a' or kind = 'b' and
-    (id > ?)"), o corte nao valeria para o primeiro ramo e a pagina seguinte
-    devolveria as mesmas linhas para sempre. }
   AQuery.GroupWhere;
 
   AQuery.WhereOpen;
@@ -306,7 +288,6 @@ begin
       else
         AQuery.OrWhereOpen;
 
-      // Empate em todas as chaves anteriores, e desempate na chave corrente.
       for J := 0 to I - 1 do
         AQuery.Where(AKeys[J].Column, '=', AValues[J]);
       AQuery.Where(AKeys[I].Column,
@@ -375,7 +356,6 @@ begin
   end;
 end;
 
-// Numero em posicao fixa. Levanta se nao for digito -- cursor adulterado.
 function DigitsAt(const AText: string; const AStart, ACount: Integer): Word;
 var
   I: Integer;
@@ -391,9 +371,6 @@ begin
   end;
 end;
 
-{ Data e hora sao lidas por posicao, nao por StrToDate: o formato e escrito
-  aqui mesmo, e depender do locale faria um cursor gerado num servidor ser
-  ilegivel noutro. }
 function ParseDatePart(const AText: string): TDateTime;
 begin
   Result := EncodeDate(DigitsAt(AText, 1, 4), DigitsAt(AText, 6, 2),
@@ -449,8 +426,6 @@ begin
     SB.Append(';');
     SB.Append(IntToStr(Length(AValues)));
 
-    { "tag,tamanho,dados": o tamanho resolve dados que contenham o proprio
-      separador, sem precisar de escape. }
     for I := 0 to High(AValues) do
     begin
       Payload := PayloadOf(AValues[I]);
@@ -477,7 +452,6 @@ var
   Field: string;
   Tag: Char;
 
-  // Le ate o proximo ';' e deixa Pos_ depois dele.
   function NextField(out AField: string): Boolean;
   var
     Start: Integer;
@@ -493,7 +467,6 @@ var
     Result := True;
   end;
 
-  // Le "tag,tamanho," e devolve os dados crus com o tamanho declarado.
   function NextValue(out AValue: TLzNexValue): Boolean;
   var
     Start: Integer;
@@ -524,7 +497,6 @@ var
     AValue := ValueOfPayload(Tag, Copy(Text_, Pos_, PayloadLen));
     Inc(Pos_, PayloadLen);
 
-    // Depois dos dados vem ';' ou o fim do texto.
     if Pos_ <= Len then
     begin
       if Text_[Pos_] <> ';' then
@@ -575,15 +547,13 @@ begin
         Exit(False);
       end;
 
-    // Sobra depois do ultimo valor significa texto adulterado.
     Result := Pos_ > Len;
     if not Result then
       AValues := nil;
   except
     on E: Exception do
     begin
-      { Conversao de numero ou data falhou: e cursor invalido, nao erro de
-        programa. Quem chamou transforma isso em mensagem ao usuario. }
+
       AValues := nil;
       Result := False;
     end;

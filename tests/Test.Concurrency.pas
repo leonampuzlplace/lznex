@@ -85,7 +85,6 @@ end;
 
 procedure TConcurrencyTestCase.RecreateTable(const ADb: ILzNex);
 begin
-  { Schema builder em vez de DDL cru: a mesma chamada serve aos dois dialetos. }
   ADb.Schema.DropTableIfExists(LOAD_TABLE);
   ADb.Schema.CreateTable(LOAD_TABLE)
     .Increments('id')

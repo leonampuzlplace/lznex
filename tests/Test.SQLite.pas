@@ -275,8 +275,7 @@ end;
 
 procedure TSQLitePagingTest.OffsetAloneNeedsTheNoLimitTrick;
 begin
-  { O SQLite recusa OFFSET sem LIMIT; -1 e o "sem limite" dele. O MySQL tem o
-    mesmo problema, mas resolve com o maior unsigned. }
+
   AssertQuery('select * from "t" limit -1 offset ?', '20',
     LiteQuery.Table('t').Offset(20));
 end;
@@ -337,7 +336,6 @@ end;
 
 procedure TSQLiteWriteTest.ReturningIsRefusedByTheBuilder;
 begin
-  { InsertGetId nao depende disso: usa last_insert_rowid(), que e por conexao. }
   try
     LiteQuery.Table('t').Returning(['id']);
     Fail('expected ELzNexCompile for Returning on sqlite');
@@ -370,7 +368,6 @@ end;
 
 procedure TSQLiteWriteTest.ILikeFallsBackToLike;
 begin
-  { Nao ha ILIKE, e o LIKE do SQLite ja ignora caixa em ASCII. }
   AssertQuery('select * from "t" where "name" like ?', 'ana%',
     LiteQuery.Table('t').WhereILike('name', 'ana%'));
 end;
@@ -390,8 +387,7 @@ procedure TSQLiteSchemaTest.BigIncrementsIsTheSameRowidAlias;
 var
   T: ILzNexTable;
 begin
-  { O rowid do SQLite ja e 64 bits, e so INTEGER PRIMARY KEY e apelido dele:
-    BIGINT PRIMARY KEY criaria outra coluna. }
+
   T := LiteSchema.CreateTable('events');
   T.BigIncrements('uid');
   AssertEquals(
@@ -437,8 +433,7 @@ procedure TSQLiteSchemaTest.TimestampAndDateTimeKeepTheirNames;
 var
   T: ILzNexTable;
 begin
-  { O tipo declarado e o que o driver le de volta como data: nome trocado aqui
-    viraria string no resultado. }
+
   T := LiteSchema.CreateTable('d');
   T.Timestamp('created_at');
   T.DateTime('seen_at');
@@ -454,8 +449,7 @@ var
   T: ILzNexTable;
   P: TLzNexDdlPlan;
 begin
-  { Nao existe ALTER TABLE ADD CONSTRAINT no SQLite: ou a restricao nasce com a
-    tabela, ou nao nasce. }
+
   T := LiteSchema.CreateTable('users');
   T.Increments;
   T.Str('email', 191).NotNull.Unique;
@@ -502,8 +496,7 @@ var
   T: ILzNexTable;
   P: TLzNexDdlPlan;
 begin
-  { Nao ha COMMENT ON no SQLite. O comentario e documentacao: nao vale derrubar
-    a migration por causa dele. }
+
   T := LiteSchema.CreateTable('users');
   T.Str('email', 191).Comment('login of the user');
   P := T.ToSQL;
@@ -516,7 +509,6 @@ var
   T: ILzNexTable;
   P: TLzNexDdlPlan;
 begin
-  { O SQLite aceita uma acao por ALTER TABLE: duas colunas sao dois statements. }
   T := LiteSchema.Table('users');
   T.Str('nick', 50);
   T.Int('age').Nullable;
@@ -532,7 +524,6 @@ procedure TSQLiteSchemaTest.AddNotNullWithoutDefaultRaises;
 var
   T: ILzNexTable;
 begin
-  { Restricao do proprio SQLite: as linhas que ja existem nao teriam valor. }
   T := LiteSchema.Table('users');
   T.Int('age').NotNull;
   AssertSchemaRaises(T, 'without a default');
@@ -562,7 +553,6 @@ procedure TSQLiteSchemaTest.UniqueOnExistingTableBecomesAnIndex;
 var
   T: ILzNexTable;
 begin
-  // Unique sem constraint: no SQLite um indice unico faz o mesmo papel.
   T := LiteSchema.Table('users');
   T.Unique(['email']);
   AssertEquals(

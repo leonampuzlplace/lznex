@@ -688,7 +688,7 @@ begin
   A.Add(TLzNexOrderByStmt.Create(
     TLzNexValue.Raw(RawOf('field(`s`, ?)', ['a'])), odAsc, nlDefault, True));
   CheckQ('order by raw', MyC,
-    'select * from `users` order by field(`s`, ?) asc', 'a');
+    'select * from `users` order by field(`s`, ?)', 'a');
 end;
 
 procedure TestTail;

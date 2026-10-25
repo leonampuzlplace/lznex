@@ -13,14 +13,10 @@ uses
   LzNex.Client.Firebird,
   LzNex.Client.SQLite;
 
-// Se a suite de integracao deve rodar. Sem LZNEX_IT nao ha banco por perto.
 function ItEnabled: Boolean;
 
-// O dialeto da rodada: LZNEX_CLIENT, default 'mysql'.
 function ItClient: string;
 
-// Config apontando para o banco da rodada. Host, porta, biblioteca, charset e
-// nome do banco tem default por dialeto; qualquer um deles pode vir do ambiente.
 function ItConfig(const APoolMax: Integer = 8): ILzNexConfig;
 
 implementation
@@ -87,8 +83,7 @@ end;
 
 function DefaultLibrary: string;
 begin
-  { O auto-load do Zeos nao acerta sozinho no Ubuntu: o MySQL so tem libmariadb,
-    a libpq e a fbclient vem com sufixo de versao. }
+
   if IsSQLite then
     Result := '/usr/lib/x86_64-linux-gnu/libsqlite3.so.0'
   else if IsPostgres then
@@ -113,7 +108,6 @@ end;
 
 function DefaultDatabase: string;
 begin
-  { Nos dois bancos em arquivo o "database" e um caminho, nao um nome. }
   if IsSQLite then
     Result := '/tmp/lznex-it.sqlite'
   else if IsFirebird then

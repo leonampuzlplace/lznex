@@ -17,14 +17,10 @@ uses
 
 type
 
-  { Paginacao contra banco de verdade. O mesmo teste roda nos cinco bancos: o
-    que muda e so como o dialeto escreve a janela (LIMIT/OFFSET ou
-    OFFSET/FETCH), e o resultado tem de ser identico. }
   TPaginateTest = class(TTestCase)
   protected
     FDb: ILzNex;
 
-    // Estado do Each, que recebe ponteiro de metodo e nao closure.
     FVisited: Integer;
     FFirstTag: string;
     FLastTag: string;
@@ -120,8 +116,7 @@ var
   I: Integer;
 begin
   FDb.Table(PAGING_TABLE).Truncate;
-  { Tag com dois digitos para a ordem alfabetica bater com a numerica; score
-    repetido de proposito, para o cursor ter empate para desempatar. }
+
   for I := 1 to SEED_ROWS do
     FDb.Table(PAGING_TABLE).Insert(Vals([
       'tag', Format('row-%.2d', [I]),
@@ -226,7 +221,6 @@ begin
   if SkipWithoutDatabase then Exit;
   Seed;
 
-  // score = 0 em 5 das 25 linhas (5, 10, 15, 20 e 25).
   P := FDb.Table(PAGING_TABLE).Where('score', 0).OrderBy('tag').Paginate(1, 2);
 
   AssertEquals('filtered total', 5, Integer(P.Total));
@@ -241,8 +235,6 @@ begin
   if SkipWithoutDatabase then Exit;
   Seed;
 
-  { Sem a subquery, o count(*) entraria no group by e devolveria a quantidade
-    de linhas do primeiro grupo em vez da quantidade de grupos. }
   P := FDb.Table(PAGING_TABLE)
     .Select(['score'])
     .GroupBy(['score'])
@@ -278,8 +270,6 @@ begin
   if SkipWithoutDatabase then Exit;
   Seed;
 
-  { O count roda num clone. Se vazasse para esta query, a janela voltaria com
-    count(*) no lugar das colunas. }
   Q := FDb.Table(PAGING_TABLE).OrderBy('tag');
   P := Q.Paginate(1, 3);
 
@@ -381,9 +371,6 @@ begin
   AssertEquals('first page', 'row-01,row-02,row-03,row-04,row-05',
     TagsOf(First.Rows));
 
-  { Linha nova no inicio do conjunto. Com offset a janela seguinte andaria uma
-    posicao para tras e row-05 apareceria duas vezes; o cursor continua de
-    onde parou. }
   FDb.Table(PAGING_TABLE).Insert(Vals(['tag', 'row-00', 'score', 9]));
 
   Second := FDb.Table(PAGING_TABLE).OrderBy('tag')
@@ -419,8 +406,6 @@ begin
   if SkipWithoutDatabase then Exit;
   Seed;
 
-  { score tem cinco valores para vinte e cinco linhas: cortar so por score
-    pularia ou repetiria as linhas empatadas. O id desempata. }
   Cursor := '';
   Seen := '';
   Pages := 0;
@@ -468,8 +453,6 @@ begin
   if SkipWithoutDatabase then Exit;
   Seed;
 
-  { Cursor de uma chave numa listagem de duas: tem de recusar, e nao devolver
-    uma pagina errada em silencio. }
   First := FDb.Table(PAGING_TABLE).OrderBy('tag').CursorPaginate(5);
   try
     FDb.Table(PAGING_TABLE).OrderBy('score').OrderBy('id')
@@ -480,8 +463,6 @@ begin
   end;
 end;
 
-{ Where com "or" no topo: o corte do cursor tem de valer para os dois ramos.
-  Preso ao ultimo, a pagina seguinte repetiria a primeira para sempre. }
 procedure TPaginateTest.CursorWalksAWhereWithOrWithoutRepeating;
 var
   P: TLzNexCursorPage;
@@ -509,13 +490,10 @@ begin
       Pages <= 8);
   until Cursor = '';
 
-  // score = I mod 5, 25 linhas: 5 com score 1 e 5 com score 2.
   AssertEquals('ten rows, no repeats', 10, TagCount(Seen));
   AssertFalse('no tag seen twice', HasRepeatedTag(Seen));
 end;
 
-{ Paginar duas vezes na mesma query nao pode acumular corte nem inverter a
-  ordem duas vezes: a segunda chamada tem de dar a mesma primeira pagina. }
 procedure TPaginateTest.CursorCanBeCalledTwiceOnTheSameQuery;
 var
   Q: ILzNexQuery;
@@ -609,7 +587,6 @@ begin
     Seen := Seen + TagsOf(Chunks.Rows);
     Inc(Batches);
 
-    // Linha nova no meio da varredura: a chave cresce, nada se perde.
     if Batches = 1 then
       FDb.Table(PAGING_TABLE).Insert(Vals(['tag', 'row-99', 'score', 9]));
     AssertTrue('runaway chunk walk', Batches <= 12);
@@ -620,8 +597,6 @@ begin
     TagCount(Seen));
 end;
 
-{ Mesmo risco do cursor: com "or" no topo o "id > ultimo" ficaria preso ao
-  ultimo ramo e a varredura releria o mesmo lote sem fim. }
 procedure TPaginateTest.ChunkByIdWalksAWhereWithOr;
 var
   Chunks: ILzNexChunks;

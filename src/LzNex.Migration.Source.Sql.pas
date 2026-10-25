@@ -70,9 +70,6 @@ function ReadSqlFile(const APath: string): string;
 
 implementation
 
-{ Abertura de dollar-quote do PostgreSQL ("$$" ou "$tag$") na posicao AAt, ou
-  '' se o que vem ali nao e uma abertura. A tag e vazia ou um identificador --
-  so assim um "$" solto num script MySQL continua sendo um "$" comum. }
 function DollarTagAt(const ASQL: string; const AAt: Integer): string;
 var
   I, Len: Integer;
@@ -114,8 +111,6 @@ var
     Inc(N);
   end;
 
-  { Pula um corpo "$tag$ ... $tag$" inteiro, deixando I depois do fechamento.
-    False quando a tag nunca fecha. }
   function SkipDollarBody(const ATag: string): Boolean;
   var
     P, TagLen: Integer;
@@ -237,8 +232,6 @@ begin
       Continue;
     end;
 
-    { Corpo entre "$$" ou "$tag$": e onde mora o PL/pgSQL, e ele tem ";" dentro.
-      Sem pular o corpo inteiro a funcao sairia cortada em pedacos invalidos. }
     if C = '$' then
     begin
       Tag := DollarTagAt(ASQL, I);

@@ -17,9 +17,6 @@ uses
 
 type
 
-  { Conexao emprestada tem de voltar ao pool em todo caminho de saida -- e o
-    caminho que mais escapa da atencao e o de erro. Estes testes nao olham
-    memoria: olham InUse, que e observavel e diz a mesma coisa. }
   TLeaseTest = class(TTestCase)
   protected
     FDb: ILzNex;
@@ -27,12 +24,11 @@ type
     procedure TearDown; override;
     function SkipWithoutDatabase: Boolean;
 
-    { O insert fica num metodo proprio de proposito: a query que sai de
-      Trx.Table(...) guarda a transacao, e o FPC so descarta esse temporario
-      no fim do bloco onde ele nasceu. Medir InUse no mesmo bloco mediria o
-      temporario, nao o destrutor da transacao. }
     procedure InsertAndAbandon;
+
+    procedure AbandonNestedTransaction;
   published
+    procedure ReturnedConnectionIsNotLeftInATransaction;
     procedure CommitReturnsTheConnection;
     procedure RollbackReturnsTheConnection;
     procedure AbandonedTransactionReturnsTheConnection;
@@ -44,7 +40,6 @@ type
     procedure TransactReturnsTheConnectionOnEveryRetry;
   end;
 
-  // Falha nas primeiras ATentativas execucoes; o resto comita.
   TLeaseWork = class(TInterfacedObject, ILzNexWork)
   private
     FTable: string;
@@ -85,8 +80,6 @@ begin
     Exit;
 
   if FRetryable then
-    // SQLSTATE 40001 e transitorio na base de todo dialeto: nao e preciso
-    // provocar um deadlock de verdade para exercitar o retry.
     raise ELzNexQuery.CreateDb('synthetic transient failure', 'SYNTHETIC',
       1213, '40001');
   raise Exception.Create('synthetic permanent failure');
@@ -165,7 +158,34 @@ var
 begin
   Trx := FDb.Transaction;
   Trx.Table(LEASE_TABLE).Insert(Vals(['tag', 'abandoned']));
-  // Sai sem Commit nem Rollback: quem desfaz e solta a conexao e o destrutor.
+end;
+
+procedure TLeaseTest.AbandonNestedTransaction;
+var
+  Conn: ILzNexConnection;
+begin
+  Conn := FDb.Connection;
+  Conn.StartTransaction;
+  Conn.StartTransaction;
+  Conn := nil;
+end;
+
+procedure TLeaseTest.ReturnedConnectionIsNotLeftInATransaction;
+var
+  Reused: ILzNexConnection;
+begin
+  if SkipWithoutDatabase then Exit;
+
+  AbandonNestedTransaction;
+  AssertEquals('no connection still in use', 0, FDb.Pool.InUse);
+
+  Reused := FDb.Pool.Acquire;
+  try
+    AssertFalse('a connection coming out of the pool must not be in a transaction',
+      Reused.InTransaction);
+  finally
+    Reused := nil;
+  end;
 end;
 
 procedure TLeaseTest.AbandonedTransactionReturnsTheConnection;
@@ -187,8 +207,6 @@ var
 begin
   if SkipWithoutDatabase then Exit;
 
-  { A query guarda a transacao (e a transacao, a conexao). Manter a query viva
-    depois do Commit nao pode segurar a vaga do pool. }
   Trx := FDb.Transaction;
   Q := Trx.Table(LEASE_TABLE);
   Q.Insert(Vals(['tag', 'with-query']));
@@ -210,9 +228,6 @@ begin
   Res := FDb.Table(LEASE_TABLE).Get;
   AssertEquals('an open cursor holds its lease', 1, FDb.Pool.InUse);
 
-  { Close devolve na hora. Esperar o refcount morrer prenderia a conexao ate a
-    variavel sair de escopo, e com pool pequeno a proxima query bateria em
-    "Pool exhausted". }
   Res.Close;
   AssertEquals('Close returns the connection right away', 0, FDb.Pool.InUse);
 
@@ -229,7 +244,6 @@ begin
 
   FDb.Table(LEASE_TABLE).Insert(Vals(['tag', 'one']));
 
-  // O pool desta suite tem max 4: quatro cursores fechados e ainda sobra vaga.
   A := FDb.Table(LEASE_TABLE).Get; A.Close;
   B := FDb.Table(LEASE_TABLE).Get; B.Close;
   C := FDb.Table(LEASE_TABLE).Get; C.Close;
@@ -288,7 +302,6 @@ var
 begin
   if SkipWithoutDatabase then Exit;
 
-  // Falha duas vezes, comita na terceira: tres leases, tres devolucoes.
   Spy := TLeaseWork.Create(LEASE_TABLE, 2, True);
   Work := Spy;
 

@@ -414,8 +414,6 @@ begin
   FQuiet := HasFlag('quiet');
 
   Cmd := LowerCase(Trim(ACommand));
-  // "--help" e "-h" chegam como comando, nao como flag: HasFlag so olha os
-  // argumentos depois do verbo.
   if (Cmd = '') or (Cmd = 'help') or (Cmd = '--help') or (Cmd = '-h') or
      HasFlag('help') then
     Exit(CmdHelp);

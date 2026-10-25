@@ -52,7 +52,6 @@ type
     procedure BuildsPlaceholderList;
   end;
 
-  // O split de script .sql: o separador e o ";", menos onde ele nao separa.
   TSqlSplitTest = class(TTestCase)
   published
     procedure SplitsOnSemicolon;
@@ -292,8 +291,6 @@ begin
   AssertEquals('two statements', 2, Length(Parts));
 end;
 
-{ O corpo de uma funcao PL/pgSQL tem ";" dentro; cortar ali geraria pedacos
-  invalidos e a migration morreria no meio. }
 procedure TSqlSplitTest.KeepsADollarQuotedBodyWhole;
 var
   Parts: TLzNexStringArray;
@@ -329,7 +326,6 @@ begin
   end;
 end;
 
-// Um "$" solto (variavel de sessao, identificador) nao abre dollar-quote.
 procedure TSqlSplitTest.ALoneDollarIsNotAQuote;
 var
   Parts: TLzNexStringArray;

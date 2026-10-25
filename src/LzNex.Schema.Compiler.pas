@@ -38,8 +38,6 @@ type
     function AddColumnPrefix: string; virtual;
     function ChangeColumnPrefix: string; virtual;
     function DropColumnPrefix: string; virtual;
-    // As acoes que um Change gera. O ANSI troca tipo e nulidade de uma vez; o
-    // PostgreSQL exige uma acao por aspecto, por isso e uma lista.
     function ChangeColumnParts(const ACol: ILzNexColumnDef): TLzNexStringArray; virtual;
 
     function TableOptionsSQL(const ATable: ILzNexTable): string; virtual;
@@ -158,7 +156,7 @@ begin
     begin
       if I > 0 then
         SB.Append(', ');
-      SB.Append(QuotedStr(AItems[I].AsString));
+      SB.Append(FClient.EscapeStringLiteral(AItems[I].AsString));
     end;
     Result := SB.ToString;
   finally
@@ -205,7 +203,7 @@ begin
     Exit(R.Template);
   end;
 
-  Result := FClient.EscapeForLog(V);
+  Result := FClient.QuoteLiteral(V);
 end;
 
 function TLzNexSchemaCompilerBase.ColumnTypeFor(const ACol: ILzNexColumnDef): string;
@@ -240,10 +238,10 @@ begin
         Result := 'default ' + DefaultLiteral(ACol);
     mdComment:
       if ACol.HasModifier(mdComment) and InlineComments then
-        Result := 'comment ' + QuotedStr(ACol.CommentText);
+        Result := 'comment ' + FClient.EscapeStringLiteral(ACol.CommentText);
     mdCollate:
       if ACol.HasModifier(mdCollate) then
-        Result := 'collate ' + QuotedStr(ACol.CollateName);
+        Result := 'collate ' + FClient.EscapeStringLiteral(ACol.CollateName);
     mdFirst:
       if ACol.HasModifier(mdFirst) then
         Result := 'first';
@@ -352,9 +350,7 @@ begin
       Result := 'alter table ' + TableRef(ATable) + ' add constraint ' +
                 Wrap(Name) + ' primary key (' + ColumnList(AIndex.Columns) + ')';
     ixFullText:
-      { Nao ha forma portavel: no MySQL e um indice FULLTEXT, no PostgreSQL um
-        GIN sobre to_tsvector, e nos outros dois nao existe. Cada dialeto que
-        tem escreve o seu. }
+
       raise ELzNexSchema.CreateFmt(
         'Dialect "%s" has no full text index on a regular table. In SQLite it ' +
         'would be an FTS5 virtual table and in Firebird there is nothing ' +
@@ -408,13 +404,13 @@ function TLzNexSchemaCompilerBase.ColumnCommentSQL(const ATable: ILzNexTable;
   const ACol: ILzNexColumnDef): string;
 begin
   Result := 'comment on column ' + TableRef(ATable) + '.' +
-            Wrap(ACol.ColumnName) + ' is ' + QuotedStr(ACol.CommentText);
+            Wrap(ACol.ColumnName) + ' is ' + FClient.EscapeStringLiteral(ACol.CommentText);
 end;
 
 function TLzNexSchemaCompilerBase.TableCommentSQL(const ATable: ILzNexTable): string;
 begin
   Result := 'comment on table ' + TableRef(ATable) + ' is ' +
-            QuotedStr(ATable.CommentText);
+            FClient.EscapeStringLiteral(ATable.CommentText);
 end;
 
 procedure TLzNexSchemaCompilerBase.PushStmt(var APlan: TLzNexDdlPlan;
@@ -785,7 +781,6 @@ begin
     S := S + ' and table_schema = ?';
     B.Add(TLzNexValue.FromString(ASchema));
   end;
-  // Ordem de declaracao, nao alfabetica: e assim que a tabela se le.
   S := S + ' order by ordinal_position';
   Result := TLzNexFragment.Make(S, B);
 end;
@@ -809,8 +804,6 @@ begin
     Marks := Marks + '?';
   end;
 
-  { Conta indices que cobrem exatamente estas colunas: agrupa por nome e exige
-    que todas as colunas do grupo estejam na lista e que a contagem bata. }
   S := 'select count(*) from (' +
        'select i.indexname from (' +
        'select s.index_name as indexname, s.column_name ' +

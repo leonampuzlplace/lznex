@@ -20,6 +20,8 @@ type
     FArgs: TLzNexValues;
     FNamed: TLzNexNamedValues;
 
+    function TakeInert(var AI: Integer; const ASB: TStringBuilder): Boolean;
+
     function CountPositional: Integer;
 
     procedure EmitValue(const AClient: ILzNexClient; const AValue: TLzNexValue;
@@ -61,6 +63,87 @@ begin
   Result := FSQL;
 end;
 
+function TLzNexRaw.TakeInert(var AI: Integer; const ASB: TStringBuilder): Boolean;
+var
+  L: Integer;
+  Ch, Closer: Char;
+
+  procedure Put(const AChar: Char);
+  begin
+    if ASB <> nil then
+      ASB.Append(AChar);
+  end;
+
+begin
+  Result := False;
+  L := Length(FSQL);
+  Ch := FSQL[AI];
+
+  if (Ch = '-') and (AI < L) and (FSQL[AI + 1] = '-') then
+  begin
+    while (AI <= L) and (FSQL[AI] <> #10) do
+    begin
+      Put(FSQL[AI]);
+      Inc(AI);
+    end;
+    Exit(True);
+  end;
+
+  if (Ch = '/') and (AI < L) and (FSQL[AI + 1] = '*') then
+  begin
+    Put('/'); Put('*');
+    Inc(AI, 2);
+    while AI <= L do
+    begin
+      if (FSQL[AI] = '*') and (AI < L) and (FSQL[AI + 1] = '/') then
+      begin
+        Put('*'); Put('/');
+        Inc(AI, 2);
+        Exit(True);
+      end;
+      Put(FSQL[AI]);
+      Inc(AI);
+    end;
+    Exit(True);
+  end;
+
+  if (Ch <> '''') and (Ch <> '"') and (Ch <> '`') then
+    Exit;
+
+  Closer := Ch;
+  Put(Ch);
+  Inc(AI);
+  while AI <= L do
+  begin
+
+    if (FSQL[AI] = '\') and (AI < L) and
+       ((FSQL[AI + 1] = '?') or (FSQL[AI + 1] = ':')) then
+    begin
+      Put(FSQL[AI + 1]);
+      Inc(AI, 2);
+      Continue;
+    end;
+
+    if (FSQL[AI] = Closer) and (AI < L) and (FSQL[AI + 1] = Closer) then
+    begin
+      Put(Closer); Put(Closer);
+      Inc(AI, 2);
+      Continue;
+    end;
+
+    if FSQL[AI] = Closer then
+    begin
+      Put(Closer);
+      Inc(AI);
+      Break;
+    end;
+
+    Put(FSQL[AI]);
+    Inc(AI);
+  end;
+  Result := True;
+end;
+
 function TLzNexRaw.CountPositional: Integer;
 var
   I, L: Integer;
@@ -70,6 +153,9 @@ begin
   I := 1;
   while I <= L do
   begin
+    if TakeInert(I, nil) then
+      Continue;
+
     if (FSQL[I] = '\') and (I < L) and ((FSQL[I + 1] = '?') or (FSQL[I + 1] = ':')) then
     begin
       Inc(I, 2);
@@ -163,9 +249,20 @@ begin
     I := 1;
     while I <= L do
     begin
+      if TakeInert(I, SB) then
+        Continue;
+
       Ch := FSQL[I];
 
-      if (Ch = '\') and (I < L) and ((FSQL[I + 1] = '?') or (FSQL[I + 1] = ':')) then
+      if (Ch = '\') and (I < L) and (FSQL[I + 1] = '?') then
+        raise ELzNexBuilder.CreateFmt(
+          'Raw: "\?" outside a text literal is not possible. The driver counts ' +
+          'every "?" in the SQL as a parameter marker, so a literal "?" here ' +
+          'would shift all following bindings by one. For the PostgreSQL jsonb ' +
+          'operators use the function form (jsonb_exists / jsonb_exists_any). ' +
+          'SQL: %s', [FSQL]);
+
+      if (Ch = '\') and (I < L) and (FSQL[I + 1] = ':') then
       begin
         SB.Append(FSQL[I + 1]);
         Inc(I, 2);
@@ -190,10 +287,6 @@ begin
         Continue;
       end;
 
-      { "::" e o cast do PostgreSQL ("a::int"), nao parametro -- sai literal.
-        Sem isto o segundo ":" abriria ":int" e o Build reclamaria de um
-        parametro que ninguem passou. O identificador quotado do Raw e
-        ":nome:", que tem nome entre os dois pontos. }
       if (Ch = ':') and (I < L) and (FSQL[I + 1] = ':') then
       begin
         SB.Append('::');

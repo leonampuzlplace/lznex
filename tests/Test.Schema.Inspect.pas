@@ -23,9 +23,6 @@ uses
 
 type
 
-  { SQL de inspecao e DDL de full text, por dialeto, sem banco. Cada teste
-    compara o texto gerado e as bindings, igual aos testes de HasTableSQL
-    e HasColumnSQL que ja existiam. }
   TSchemaInspectTestCase = class(TTestCase)
   protected
     function BindsOf(const AFragment: TLzNexFragment): string;
@@ -236,8 +233,7 @@ var
   T: ILzNexTable;
   P: TLzNexDdlPlan;
 begin
-  { A expressao precisa ser igual, token a token, a que o WhereFullText gera
-    no compilador de queries, senao o indice nasce e nunca e usado. }
+
   T := NewSchema(nil, FClient).CreateTable('articles');
   T.Increments;
   T.Text('title');

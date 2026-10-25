@@ -125,15 +125,10 @@ type
     function CompileWhereRaw(const AStmt: TLzNexRawStmt): TLzNexFragment; virtual;
     function CompileWhereGroup(const AStmt: TLzNexGroupStmt): TLzNexFragment; virtual;
 
-    { O que envolve a coluna para extrair a parte da data. A base usa o ANSI
-      (cast e extract); quem tem funcao propria sobrescreve. }
     procedure DatePartWrap(const APart: TLzNexDatePart;
       out ABefore, AAfter: string); virtual;
     function CompileWhereDatePart(const AStmt: TLzNexDatePartStmt): TLzNexFragment; virtual;
 
-    { JSON e texto completo nao tem forma portavel: a base recusa, e cada
-      dialeto que suporta escreve a sua. O builder ja barra antes pelas
-      capacidades do client, isto aqui e a rede de seguranca. }
     function CompileWhereJson(const AStmt: TLzNexJsonStmt): TLzNexFragment; virtual;
     function CompileWhereFullText(const AStmt: TLzNexFullTextStmt): TLzNexFragment; virtual;
 
@@ -1440,7 +1435,6 @@ end;
 
 function TLzNexCompilerBase.RandomSQL: string;
 begin
-  // ANSI nao define: random() cobre PostgreSQL e SQLite; MySQL e Firebird usam rand().
   Result := 'random()';
 end;
 
@@ -1451,6 +1445,10 @@ var
   Dir, FlagDir: string;
 begin
   E := CompileExpr(AStmt.Expr, 'order by');
+
+  if AStmt.Kind = skOrderByRaw then
+    Exit(E);
+
   Dir := DirWord(AStmt.Dir);
 
   if AStmt.Nulls = nlDefault then

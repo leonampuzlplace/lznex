@@ -75,8 +75,7 @@ begin
 
   if not GTableReady then
   begin
-    { Pelo schema builder, nao por DDL cru: assim a tabela nasce igual nos dois
-      dialetos e o proprio DDL do dialeto entra no teste. }
+
     FDb.Schema.DropTableIfExists(TEST_TABLE);
     FDb.Schema.CreateTable(TEST_TABLE)
       .Increments('id')

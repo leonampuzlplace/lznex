@@ -92,7 +92,7 @@ begin
   if Trim(ATable.CollateName) <> '' then
     Result := Result + ' collate ' + ATable.CollateName;
   if Trim(ATable.CommentText) <> '' then
-    Result := Result + ' comment = ' + QuotedStr(ATable.CommentText);
+    Result := Result + ' comment = ' + FClient.EscapeStringLiteral(ATable.CommentText);
 end;
 
 function TLzNexMySQLSchemaCompiler.IndexSQL(const ATable: ILzNexTable;
@@ -301,8 +301,6 @@ begin
     B.Add(TLzNexValue.FromString(ASchema));
   end
   else
-    // Sem schema, o escopo e o banco corrente -- senao tabela de outro banco
-    // com o mesmo nome entraria na lista.
     S := S + ' and table_schema = database()';
   S := S + ' order by table_name';
   Result := TLzNexFragment.Make(S, B);

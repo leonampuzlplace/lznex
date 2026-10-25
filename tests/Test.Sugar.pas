@@ -78,8 +78,6 @@ end;
 
 procedure TWhereGroupSugarTest.GroupsDoNotLeakIntoSurroundingPredicates;
 begin
-  // O grupo fecha sozinho: o Where que vem depois volta a ser um "and" normal,
-  // nao contaminado pelo "or" de dentro do grupo.
   AssertQuery(
     'select * from `t` where (`a` = ? or `b` = ?) and (`c` = ? and `d` = ?) and `e` = ?',
     '1|1|2|2|3',
@@ -145,8 +143,6 @@ begin
   Sub := NewTestQuery.Table('comments').Select(['id', 'body']).Where('post_id', 1);
   NewTestQuery.Table('posts').WithCount(Sub, 'comment_count');
 
-  // WithCount usa um clone sem colunas por dentro; a subquery de quem chamou
-  // continua devolvendo as colunas e o where originais.
   AssertQuery('select `id`, `body` from `comments` where `post_id` = ?', '1', Sub);
 end;
 
@@ -176,10 +172,8 @@ begin
   Query := NewTestQuery.Table('t').Where('a', 1);
   Chained := Query.Dump;
 
-  // Mesmo SQL de antes do Dump.
   AssertSQL('select * from `t` where `a` = ?', Chained);
 
-  // E a mesma query (nao uma copia): encadear depois do Dump afeta o original.
   Chained.Where('b', 2);
   AssertSQL('select * from `t` where `a` = ? and `b` = ?', Query);
 end;

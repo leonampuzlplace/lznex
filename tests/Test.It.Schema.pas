@@ -17,10 +17,6 @@ uses
 
 type
 
-  { Inspecao de catalogo (Tables/Columns/HasIndex) provada contra o banco de
-    verdade, nos cinco dialetos. A mesma suite roda em todos; quem decide o
-    caminho e a capacidade declarada pelo dialeto (SupportsFullText), nao um
-    if por nome de banco. }
   TSchemaInspectionTest = class(TTestCase)
   protected
     FDb: ILzNex;
@@ -71,9 +67,7 @@ begin
 
   if not GTableReady then
   begin
-    { Unique composta em (email, name): HasIndex(['email', 'name']) tem de
-      achar, e HasIndex(['name']) sozinho tem de nao achar -- e o "exatamente
-      estas colunas" que o contrato promete. }
+
     FDb.Schema.DropTableIfExists(INSPECT_TABLE);
     FDb.Schema.CreateTable(INSPECT_TABLE)
       .Increments('id')

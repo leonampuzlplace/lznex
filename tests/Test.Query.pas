@@ -429,8 +429,6 @@ begin
   end;
 end;
 
-{ "::" e o cast do PostgreSQL. Sem tratamento o segundo ":" abriria ":int" e o
-  Build reclamaria de um parametro que ninguem passou. }
 procedure TRawTest.PostgresCastIsNotAParameter;
 var
   Fragment: TLzNexFragment;

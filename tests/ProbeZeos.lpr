@@ -308,7 +308,6 @@ begin
   Result := FPool.Acquire;
 end;
 
-// Sem replica nesta sonda: ler e escrever saem do mesmo pool.
 function TProbeDb.ReadConnection: ILzNexConnection;
 begin
   Result := FPool.Acquire;

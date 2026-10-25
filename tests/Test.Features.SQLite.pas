@@ -169,7 +169,6 @@ end;
 
 procedure TSQLiteDatePartTest.WhereYearCastsStrftimeToInteger;
 begin
-  { strftime devolve texto; sem o cast "2024" nunca bate com o inteiro 2024. }
   AssertQuery(
     'select * from "t" where cast(strftime(''%Y'', "created_at") as integer) = ?',
     '2024', LiteQuery.Table('t').WhereYear('created_at', 2024));
@@ -214,8 +213,7 @@ end;
 
 procedure TSQLiteJsonTest.JsonPathUsesJsonExtract;
 begin
-  { cast(... as text): json_extract devolve o tipo nativo do JSON, e o bind
-    chega como texto nos outros dialetos tambem (json_unquote/#>>). }
+
   AssertQuery(
     'select * from "t" where cast(json_extract("data", ''$.a.b'') as text) = ?',
     'x', LiteQuery.Table('t').WhereJsonPath('data', '$.a.b', '=', TLzNexValue.FromString('x')));
@@ -223,8 +221,7 @@ end;
 
 procedure TSQLiteJsonTest.JsonContainsWithPathUsesJsonEach;
 begin
-  { Nao ha json_contains no SQLite: pergunta se algum elemento do array no
-    path bate com o valor. }
+
   AssertQuery(
     'select * from "t" where exists (select 1 from json_each("data", ''$.tags'') ' +
     'where value = ?)', 'vip',
@@ -269,8 +266,7 @@ end;
 
 procedure TSQLiteJsonTest.JsonContainsWithADocumentCandidateRaises;
 begin
-  { json_each(col) so compara contra escalares; um candidato que e ele mesmo
-    um documento precisa de WhereJsonPath apontando a chave. }
+
   try
     LiteQuery.Table('t').WhereJsonContains('data', '',
       TLzNexValue.FromString('{"a":{"b":42}}')).ToSQL;
@@ -290,8 +286,7 @@ end;
 
 procedure TSQLiteRandomAndFullTextTest.FullTextIsRefusedByTheBuilder;
 begin
-  { O builder ja barra pela capacidade do dialeto antes de chegar no
-    compilador: SupportsFullText e False por default no SQLite. }
+
   try
     LiteQuery.Table('t').WhereFullText(['body'], 'hello');
     Fail('expected ELzNexCompile for WhereFullText on sqlite');
@@ -304,7 +299,6 @@ end;
 
 procedure TSQLiteRandomAndFullTextTest.FullTextSafetyNetMentionsFts5;
 begin
-  { Rede de seguranca do compilador, so alcancavel contornando o builder. }
   FreshAst('t');
   FAst.Add(TLzNexFullTextStmt.Create(sgWhere, Idents(['body']),
     TLzNexValue.FromString('hello'), ftNatural));

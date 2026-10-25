@@ -21,9 +21,6 @@ uses
 
 type
 
-  { O corte do cursor sai expandido ("a > ? or (a = ? and b > ?)") em vez de
-    row value, que o Firebird nao tem -- por isso o SQL e identico nos cinco
-    bancos e pode ser conferido aqui, num dialeto so. }
   TKeysetTest = class(TLzNexTestCase)
   private
     function Keys(const AQuery: ILzNexQuery): TLzNexOrderKeys;
@@ -148,8 +145,6 @@ begin
     'True|10', Q);
 end;
 
-{ Sem os parenteses o and do corte ficaria preso ao ultimo ramo do or, o corte
-  nao valeria para o primeiro e a pagina seguinte repetiria as mesmas linhas. }
 procedure TKeysetTest.KeysetEnclosesAWhereWithOr;
 var
   Q: ILzNexQuery;
@@ -165,7 +160,6 @@ begin
     'a|b|10', Q);
 end;
 
-// Tudo em and: somar mais um and nao muda o sentido, e o SQL fica sem sobra.
 procedure TKeysetTest.KeysetDoesNotEncloseAWhereWithoutOr;
 var
   Q: ILzNexQuery;
@@ -275,7 +269,6 @@ var
   Back: TLzNexValues;
   Backward: Boolean;
 begin
-  // ';' e ',' sao os separadores do formato: o tamanho declarado tem de vencer.
   AssertTrue('decoded',
     DecodeCursor(EncodeCursor(ValueList(['a;b,c=2']), False), Back, Backward));
   AssertEquals('value', 'a;b,c=2', Back[0].AsString);
@@ -374,7 +367,6 @@ var
   Backward: Boolean;
   Bytes: TBytes;
 begin
-  // Base64 valido, conteudo de outro formato: tem de cair fora pelo prefixo.
   SetLength(Bytes, 5);
   Bytes[0] := Ord('h'); Bytes[1] := Ord('e'); Bytes[2] := Ord('l');
   Bytes[3] := Ord('l'); Bytes[4] := Ord('o');
@@ -407,8 +399,7 @@ var
   Cursor: string;
   I: Integer;
 begin
-  { O cursor viaja em query string: nada de '+', '/' ou '=' para o cliente ter
-    de escapar. }
+
   Cursor := EncodeCursor(ValueList(['um texto bem maior para forcar padding??']), False);
   for I := 1 to Length(Cursor) do
     AssertFalse('char ' + Cursor[I] + ' needs escaping',
@@ -461,7 +452,6 @@ procedure TPagingBuilderTest.ChunkByIdDoesNotRequireOrderBy;
 var
   Chunks: ILzNexChunks;
 begin
-  // A ordem vem da propria chave, entao nao se exige OrderBy.
   Chunks := NewTestQuery.Table('t').ChunkById(10, 'id');
   AssertTrue('chunks created', Chunks <> nil);
   AssertEquals('nothing read yet', 0, Chunks.ChunkIndex);

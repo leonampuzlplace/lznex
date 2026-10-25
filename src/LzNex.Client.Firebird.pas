@@ -20,31 +20,22 @@ type
   TLzNexFirebirdCompiler = class(TLzNexCompilerBase)
   protected
 
-    // Nao existe LIMIT: a paginacao e OFFSET ... ROWS / FETCH NEXT ... ROWS ONLY,
-    // e nessa ordem -- dai Components trocar cpOffset com cpLimit.
     function CompileLimit: TLzNexFragment; override;
     function CompileOffset: TLzNexFragment; override;
 
-    // O lock de linha e WITH LOCK, e vem depois do FETCH.
     function CompileLock: TLzNexFragment; override;
 
-    // Nao existe TRUNCATE; o equivalente e um DELETE sem WHERE.
     function CompileTruncate: TLzNexFragment; override;
 
-    // O upsert e UPDATE OR INSERT ... MATCHING, que troca o verbo do INSERT.
     function InsertVerb: string; override;
     function CompileConflict(const AColumns: TLzNexStringArray): TLzNexFragment; override;
 
     function LikeOperator(const ACaseInsensitive, ANegated: Boolean): string; override;
 
-    // Sem ILIKE: comparar sem caixa e upper() nos dois lados.
     function CompileWhereLike(const AStmt: TLzNexLikeStmt): TLzNexFragment; override;
 
-    // INTERSECT e EXCEPT nao existem nem no 3 nem no 5.
     function UnionWord(const AKind: TLzNexUnionKind): string; override;
 
-    // extract(second from x) devolve fracao de segundo; year/month/day/hour/
-    // minute ja saem inteiros, confirmado ao vivo no FB3 e no FB5.
     procedure DatePartWrap(const APart: TLzNexDatePart;
       out ABefore, AAfter: string); override;
 
@@ -56,19 +47,15 @@ type
     function DialectName: string; override;
     function ZeosProtocol: string; override;
 
-    // O booleano nativo do Firebird 3+ recusa 1/0. Vale para o DEFAULT do DDL,
-    // que e interpolado por aqui.
-    function EscapeForLog(const AValue: TLzNexValue): string; override;
+    function QuoteLiteral(const AValue: TLzNexValue): string; override;
 
     function SupportsReturning: Boolean; override;
     function SupportsOnConflictWhere: Boolean; override;
     function SupportsNullsOrdering: Boolean; override;
     function SupportsDistinctOn: Boolean; override;
 
-    // Snapshot com commit retido deixa a conexao do pool lendo dado velho.
     function DefaultIsolation: TLzNexIsolation; override;
 
-    // Deadlock e conflito de atualizacao: ver nota em IsRetryableError.
     function IsRetryableError(const ACode: Integer;
       const ASQLState: string): Boolean; override;
 
@@ -126,7 +113,6 @@ begin
         'of the transaction. Open the transaction with ilReadCommitted, which ' +
         'already asks the server for nowait.');
     wtSkipLocked:
-      // SKIP LOCKED entrou no Firebird 5; no 3 o servidor recusa.
       Exit(Txt('with lock skip locked'));
   end;
 
@@ -173,8 +159,6 @@ begin
       'honour a Merge with a column list or with explicit values. Use Merge ' +
       'with no arguments, or write the MERGE by hand with Raw.');
 
-  // Sem MATCHING o Firebird casa pela chave primaria, o que e justamente o
-  // default que o builder quer quando nao ha coluna de conflito.
   if Length(FAst.Single.ConflictTargets) = 0 then
     Exit(TLzNexFragment.Empty);
 
@@ -219,9 +203,7 @@ procedure TLzNexFirebirdCompiler.DatePartWrap(const APart: TLzNexDatePart;
 begin
   if APart = dpSecond then
   begin
-    { Confirmado ao vivo (FB3 e FB5): extract(second from x) devolve
-      NUMERIC(*, 4), ex. 28.7630. Sem o cast a comparacao com inteiro nunca
-      bate. }
+
     ABefore := 'cast(extract(second from ';
     AAfter := ') as integer)';
     Exit;
@@ -245,7 +227,7 @@ begin
   Result := 'firebird';
 end;
 
-function TLzNexFirebirdClient.EscapeForLog(const AValue: TLzNexValue): string;
+function TLzNexFirebirdClient.QuoteLiteral(const AValue: TLzNexValue): string;
 begin
   if AValue.Kind = vkBoolean then
   begin
@@ -255,7 +237,7 @@ begin
       Result := 'false';
     Exit;
   end;
-  Result := inherited EscapeForLog(AValue);
+  Result := inherited QuoteLiteral(AValue);
 end;
 
 function TLzNexFirebirdClient.SupportsReturning: Boolean;
@@ -282,20 +264,14 @@ end;
 
 function TLzNexFirebirdClient.DefaultIsolation: TLzNexIsolation;
 begin
-  { O default do Firebird e snapshot: a conexao fica presa na foto tirada no
-    inicio da transacao e nao ve o commit das outras. Num pool isso aparece
-    como leitura velha, por isso o dialeto nasce em read committed. }
+
   Result := ilReadCommitted;
 end;
 
 function TLzNexFirebirdClient.IsRetryableError(const ACode: Integer;
   const ASQLState: string): Boolean;
 begin
-  { O SQLSTATE 40001 (ja coberto pela base) foi confirmado ao vivo provocando
-    um conflito de metadado concorrente no FB3. Os codigos isc_* abaixo sao
-    os publicados pelo Firebird para deadlock/conflito de atualizacao, mas o
-    numero exato nao foi conferido contra o driver (o isql usado para testar
-    nao expõe o codigo isc_*, so SQLSTATE/SQLCODE). }
+
   if (ACode = 335544336) or (ACode = 335544451) then
     Exit(True);
   Result := inherited IsRetryableError(ACode, ASQLState);

@@ -146,8 +146,7 @@ end;
 
 procedure TFirebirdDatePartTest.WhereTimeUsesCastAsTime;
 begin
-  { Confirmado ao vivo no FB3 e FB5: cast(x as time) devolve um TIME valido
-    (com fracao de 1/10000s), nao precisa de ajuste. }
+
   AssertQuery('select * from "t" where cast("created_at" as time) = ?', '10:00:00',
     FbQuery.Table('t').WhereTime('created_at', TLzNexValue.FromString('10:00:00')));
 end;
@@ -185,8 +184,7 @@ end;
 
 procedure TFirebirdDatePartTest.WhereSecondCastsExtractToInteger;
 begin
-  { Confirmado ao vivo no FB3 e FB5: extract(second from x) devolve
-    NUMERIC(*, 4) (ex.: 28.7630), por isso o cast para integer. }
+
   AssertQuery(
     'select * from "t" where cast(extract(second from "created_at") as integer) = ?',
     '45', FbQuery.Table('t').WhereDatePart('created_at', dpSecond, '=',
@@ -225,8 +223,7 @@ end;
 
 procedure TFirebirdRandomAndCapabilityTest.JsonSafetyNetMentionsTheDialect;
 begin
-  { Rede de seguranca do compilador base, so alcancavel contornando o
-    builder: SupportsJson e False por default no Firebird. }
+
   FreshAst('t');
   FAst.Add(TLzNexJsonStmt.Create(sgWhere, TLzNexValue.Identifier('data'), '$.a',
     joPath, '=', TLzNexValue.FromString('x')));
@@ -243,10 +240,7 @@ end;
 
 procedure TFirebirdRandomAndCapabilityTest.DeadlockAndUpdateConflictAreRetryable;
 begin
-  { 335544336 = isc_deadlock, 335544451 = isc_update_conflict. O SQLSTATE
-    40001 (ja coberto pela base) foi confirmado ao vivo; os codigos isc_*
-    sao os publicados pelo Firebird, mas nao foram conferidos numero a
-    numero contra o driver (ver comentario em LzNex.Client.Firebird). }
+
   AssertTrue('deadlock', FFb.IsRetryableError(335544336, ''));
   AssertTrue('update conflict', FFb.IsRetryableError(335544451, ''));
 end;

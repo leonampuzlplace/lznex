@@ -205,8 +205,7 @@ var
   Stmt: TLzNexJsonStmt;
   Frag: TLzNexFragment;
 begin
-  { Negated nao tem metodo fluente para JSON: monta-se o AST na mao, como
-    nos testes de paginacao do SQLite. }
+
   Ast := TLzNexAst.Create;
   try
     Ast.Single.Table := TLzNexValue.Identifier('t');

@@ -33,6 +33,8 @@ type
     function Alias(const AExpr, AAlias: string): string; virtual;
     function Placeholder(const AIndex: Integer): string; virtual;
     function EscapeForLog(const AValue: TLzNexValue): string; virtual;
+    function QuoteLiteral(const AValue: TLzNexValue): string; virtual;
+    function EscapeStringLiteral(const AText: string): string; virtual;
 
     function SupportsReturning: Boolean; virtual;
     function SupportsOnConflictWhere: Boolean; virtual;
@@ -138,11 +140,14 @@ begin
   Result := LZNEX_PLACEHOLDER;
 end;
 
-function TLzNexClientBase.EscapeForLog(const AValue: TLzNexValue): string;
+function TLzNexClientBase.EscapeStringLiteral(const AText: string): string;
+begin
+  Result := QuotedStr(AText);
+end;
+
+function TLzNexClientBase.QuoteLiteral(const AValue: TLzNexValue): string;
 begin
   case AValue.Kind of
-    vkUnset:
-      Result := '<unset>';
     vkNull:
       Result := 'null';
     vkBoolean:
@@ -152,18 +157,37 @@ begin
     vkFloat, vkCurrency:
       Result := StringReplace(FloatToStr(AValue.AsFloat), ',', '.', [rfReplaceAll]);
     vkDate:
-      Result := QuotedStr(FormatDateTime('yyyy-mm-dd', AValue.AsDateTime));
+      Result := EscapeStringLiteral(FormatDateTime('yyyy-mm-dd', AValue.AsDateTime));
     vkTime:
-      Result := QuotedStr(FormatDateTime('hh:nn:ss', AValue.AsDateTime));
+      Result := EscapeStringLiteral(FormatDateTime('hh:nn:ss', AValue.AsDateTime));
     vkDateTime:
-      Result := QuotedStr(FormatDateTime('yyyy-mm-dd hh:nn:ss', AValue.AsDateTime));
-    vkBytes:
-      Result := '<' + IntToStr(Length(AValue.AsBytes)) + ' bytes>';
+      Result := EscapeStringLiteral(
+        FormatDateTime('yyyy-mm-dd hh:nn:ss', AValue.AsDateTime));
     vkIdentifier:
       Result := WrapQualified(AValue.Text);
+
+    vkBytes:
+      raise ELzNexCompile.Create(
+        'A byte array has no literal form in SQL text: it can be bound as a ' +
+        'parameter, but not written into DDL. Use DefaultRaw with the literal ' +
+        'your dialect accepts.');
+    vkUnset:
+      raise ELzNexCompile.Create('Unset value where a SQL literal was expected');
   else
 
-    Result := QuotedStr(AValue.AsString);
+    Result := EscapeStringLiteral(AValue.AsString);
+  end;
+end;
+
+function TLzNexClientBase.EscapeForLog(const AValue: TLzNexValue): string;
+begin
+  case AValue.Kind of
+    vkUnset:
+      Result := '<unset>';
+    vkBytes:
+      Result := '<' + IntToStr(Length(AValue.AsBytes)) + ' bytes>';
+  else
+    Result := QuoteLiteral(AValue);
   end;
 end;
 
@@ -194,7 +218,6 @@ end;
 
 function TLzNexClientBase.SupportsJson: Boolean;
 begin
-  // Conservador: quem tem JSON declara ter.
   Result := False;
 end;
 
@@ -206,8 +229,7 @@ end;
 function TLzNexClientBase.IsRetryableError(const ACode: Integer;
   const ASQLState: string): Boolean;
 begin
-  { SQLSTATE 40001 (falha de serializacao) e 40P01 (deadlock) sao do padrao e
-    valem para qualquer banco que os reporte; codigo numerico e por dialeto. }
+
   Result := (ASQLState = '40001') or (ASQLState = '40P01');
 end;
 

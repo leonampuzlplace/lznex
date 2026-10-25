@@ -186,8 +186,7 @@ end;
 
 procedure TPostgresJsonTest.JsonContainsWithScalarValueUsesToJsonb;
 begin
-  { ::jsonb so sabe fazer cast de texto; um escalar nativo (aqui um inteiro)
-    precisa de to_jsonb(), que converte o valor direto. }
+
   AssertQuery(
     'select * from "t" where ("meta" #> ''{tags}'')::jsonb @> to_jsonb(?)',
     '2',
@@ -216,8 +215,7 @@ var
   Stmt: TLzNexJsonStmt;
   Frag: TLzNexFragment;
 begin
-  { Negated nao tem metodo fluente para JSON: monta-se o AST na mao, como
-    nos testes de paginacao do SQLite. }
+
   Ast := TLzNexAst.Create;
   try
     Ast.Single.Table := TLzNexValue.Identifier('t');

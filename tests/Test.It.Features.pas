@@ -17,10 +17,6 @@ uses
 
 type
 
-  { O que cada dialeto escreve de forma diferente, provado contra o banco de
-    verdade: paginacao, ordem de nulos, like sem caixa, upsert e truncate.
-    A mesma suite roda nos cinco bancos; quem decide o caminho e a capacidade
-    declarada pelo dialeto, nao um if por nome de banco. }
   TPortableFeatureTest = class(TTestCase)
   protected
     FDb: ILzNex;
@@ -64,8 +60,7 @@ begin
 
   if not GTableReady then
   begin
-    { "tag" e unica porque o upsert precisa de uma chave de conflito: sem ela o
-      ON CONFLICT do PostgreSQL e do SQLite nao tem o que casar. }
+
     FDb.Schema.DropTableIfExists(FEATURE_TABLE);
     FDb.Schema.CreateTable(FEATURE_TABLE)
       .Increments('id')
@@ -102,8 +97,6 @@ begin
   if SkipWithoutDatabase then Exit;
   Seed;
 
-  { No Firebird isso sai como OFFSET ... ROWS FETCH NEXT ... ROWS ONLY; nos
-    outros, como LIMIT/OFFSET. O resultado tem de ser o mesmo. }
   Tags := FDb.Table(FEATURE_TABLE).OrderBy('tag').Limit(2).Offset(1).Pluck('tag');
 
   AssertEquals('window size', 2, Length(Tags));
@@ -118,8 +111,6 @@ begin
   if SkipWithoutDatabase then Exit;
   Seed;
 
-  { Offset sem limit: o MySQL e o SQLite precisam de um limite artificial para
-    aceitar a clausula, e isso nao pode mudar o resultado. }
   Tags := FDb.Table(FEATURE_TABLE).OrderBy('tag').Offset(2).Pluck('tag');
 
   AssertEquals('rows after the offset', 2, Length(Tags));
@@ -134,8 +125,6 @@ begin
   if SkipWithoutDatabase then Exit;
   Seed;
 
-  { PostgreSQL, Firebird e SQLite tem NULLS LAST; o MySQL emula com uma coluna
-    extra de ordenacao. }
   Rows := FDb.Table(FEATURE_TABLE)
     .OrderBy('score', odAsc, nlLast)
     .Pluck('tag');
@@ -168,8 +157,6 @@ begin
   if SkipWithoutDatabase then Exit;
   Seed;
 
-  { O PostgreSQL tem ILIKE, o Firebird vira upper() nos dois lados, o MySQL e o
-    SQLite ja ignoram caixa no LIKE. }
   Found := FDb.Table(FEATURE_TABLE).WhereILike('tag', 'BB%').Count;
   AssertEquals('found the lowercase row with an uppercase pattern', Int64(1), Found);
 end;
@@ -181,8 +168,6 @@ begin
   if SkipWithoutDatabase then Exit;
   Seed;
 
-  { Firebird: UPDATE OR INSERT ... MATCHING. MySQL: ON DUPLICATE KEY UPDATE.
-    PostgreSQL e SQLite: ON CONFLICT ... DO UPDATE. }
   FDb.Table(FEATURE_TABLE).OnConflict(['tag']).Merge
     .Insert(Vals(['tag', 'eee', 'score', 50]));
 
@@ -213,7 +198,6 @@ begin
   if SkipWithoutDatabase then Exit;
   Seed;
 
-  { Firebird e SQLite nao tem TRUNCATE: viram DELETE sem WHERE. }
   FDb.Table(FEATURE_TABLE).Truncate;
   AssertEquals('table is empty', Int64(0), FDb.Table(FEATURE_TABLE).Count);
 end;

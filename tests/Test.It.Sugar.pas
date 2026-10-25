@@ -17,8 +17,6 @@ uses
 
 type
 
-  { FirstOrFail, Sole, DoesntExist, Upsert, UpdateOrInsert e WithCount contra
-    banco de verdade, nos cinco dialetos. }
   TSugarFeatureTest = class(TTestCase)
   protected
     FDb: ILzNex;
@@ -79,8 +77,6 @@ begin
       .Str('tag', 60).NotNull.Unique
       .Int('score').Nullable
       .Execute;
-    // "parent_tag" e uma FK logica para it_sugar.tag -- sem constraint de
-    // verdade, so para o WithCount ter o que contar.
     FDb.Schema.CreateTable(CHILD_TABLE)
       .Increments('id')
       .Str('parent_tag', 60).NotNull
@@ -163,7 +159,6 @@ begin
   Seed;
 
   try
-    // sem Where, as tres linhas semeadas casam todas
     FDb.Table(TABLE).Sole;
     Fail('expected ELzNexQuery when more than one row matches');
   except
@@ -227,9 +222,6 @@ begin
   AssertEquals('still three rows, not four', Int64(3), FDb.Table(TABLE).Count);
 end;
 
-{ Escopo com "or" e uma busca que nao casa: tem de inserir, nao atualizar. Sem
-  fechar o escopo a busca valeria so para o ultimo ramo do or, o Exists daria
-  verdadeiro pelo primeiro e o update cairia numa linha que nao casa. }
 procedure TSugarFeatureTest.UpdateOrInsertRespectsAScopeWithOr;
 var
   Inserted: Boolean;
@@ -250,8 +242,6 @@ begin
     FDb.Table(TABLE).Where('tag', 'aaa').Value('score').AsInt64);
 end;
 
-{ Exists limita a uma linha para responder rapido; esse limite nao pode ficar
-  grudado na query, senao o Get seguinte traria uma linha so. }
 procedure TSugarFeatureTest.ExistsDoesNotLeaveALimitOnTheQuery;
 var
   Q: ILzNexQuery;
@@ -265,7 +255,6 @@ begin
     Length(Q.OrderBy('tag').Get.ToRows));
 end;
 
-// Count troca a lista de colunas por count(*); no clone, nao na query.
 procedure TSugarFeatureTest.CountDoesNotLeaveTheQueryCounting;
 var
   Q: ILzNexQuery;
@@ -302,10 +291,6 @@ begin
   if SkipWithoutDatabase then Exit;
   Seed;
 
-  { O MySQL devolve zero linhas afetadas quando o UPDATE grava o mesmo valor
-    que ja estava la. UpdateOrInsert tem de decidir pelo Exists antes do
-    update, nao pelas linhas afetadas -- senao isso aqui viraria um insert
-    duplicado. }
   Inserted := FDb.Table(TABLE).UpdateOrInsert(
     Vals(['tag', 'bbb']), Vals(['score', 20]));
 
@@ -348,12 +333,10 @@ begin
     Exit;
   end;
 
-  // Uma linha so: o Firebird aceita via UPDATE OR INSERT.
   FDb.Table(TABLE).Upsert([Vals(['tag', 'bbb', 'score', 88])], ['tag'], []);
   AssertEquals('the single row was upserted',
     Int64(88), FDb.Table(TABLE).Where('tag', 'bbb').Value('score').AsInt64);
 
-  // Duas linhas: recusa, porque o Firebird nao tem upsert de varias linhas.
   try
     FDb.Table(TABLE).Upsert(
       [Vals(['tag', 'ggg', 'score', 1]), Vals(['tag', 'hhh', 'score', 2])],

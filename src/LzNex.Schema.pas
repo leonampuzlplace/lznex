@@ -276,6 +276,8 @@ function NewSchema(const ADb: ILzNex; const AClient: ILzNexClient): ILzNexSchema
 
 function NormalizeFkAction(const AAction: string): string;
 
+procedure ValidateSchemaOptionName(const AValue, AWhat: string);
+
 implementation
 
 const
@@ -283,6 +285,29 @@ const
   LZNEX_FK_ACTIONS: array[0..4] of string = (
     'cascade', 'restrict', 'set null', 'no action', 'set default'
   );
+
+procedure ValidateSchemaOptionName(const AValue, AWhat: string);
+var
+  I: Integer;
+  C: Char;
+begin
+  if Trim(AValue) = '' then
+    Exit;
+
+  for I := 1 to Length(AValue) do
+  begin
+    C := AValue[I];
+    if ((C >= 'a') and (C <= 'z')) or ((C >= 'A') and (C <= 'Z')) or
+       ((C >= '0') and (C <= '9')) or (C = '_') then
+      Continue;
+
+    raise ELzNexSchema.CreateFmt(
+      'Invalid character "%s" in %s "%s". It goes into the DDL text, not as a ' +
+      'bound parameter, so it is restricted to letters, digits and "_" -- ' +
+      'otherwise a value coming from outside would be SQL injection.',
+      [C, AWhat, AValue]);
+  end;
+end;
 
 function NormalizeFkAction(const AAction: string): string;
 var
@@ -424,6 +449,7 @@ end;
 
 procedure TLzNexColumnDefImpl.SetCollate(const AName: string);
 begin
+  ValidateSchemaOptionName(AName, 'collation');
   FCollate := AName;
   Include(FMods, mdCollate);
 end;
@@ -1102,6 +1128,7 @@ end;
 function TLzNexTableBase.Engine(const AName: string): ILzNexTable;
 begin
   EnsureCreate('Engine');
+  ValidateSchemaOptionName(AName, 'engine name');
   FEngine := AName;
   Result := Self;
 end;
@@ -1109,6 +1136,7 @@ end;
 function TLzNexTableBase.Charset(const AName: string): ILzNexTable;
 begin
   EnsureCreate('Charset');
+  ValidateSchemaOptionName(AName, 'charset name');
   FCharset := AName;
   Result := Self;
 end;
@@ -1116,6 +1144,7 @@ end;
 function TLzNexTableBase.TableCollate(const AName: string): ILzNexTable;
 begin
   EnsureCreate('TableCollate');
+  ValidateSchemaOptionName(AName, 'collation');
   FCollate := AName;
   Result := Self;
 end;
@@ -1316,7 +1345,6 @@ begin
   Result := (R <> nil) and R.Next and (R.FieldAt(0).AsInt64 > 0);
 end;
 
-// Uma coluna de texto por linha, com trim: o Firebird devolve char com padding.
 function NamesOf(const AResult: ILzNexResult): TLzNexStringArray;
 var
   N: Integer;

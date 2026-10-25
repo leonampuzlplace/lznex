@@ -16,8 +16,6 @@ uses
 
 const
 
-  // Limite do Firebird 3. O 4 e o 5 aceitam 63, mas um nome que caiba nos tres
-  // e a unica forma de o mesmo DDL rodar em todos.
   LZNEX_FIREBIRD_MAX_IDENTIFIER = 31;
 
 type
@@ -53,14 +51,11 @@ type
 
 function NewFirebirdSchemaCompiler(const AClient: ILzNexClient): ILzNexSchemaCompiler;
 
-// Corta o nome para caber no limite do Firebird sem perder a unicidade: o que
-// sobra do corte vira um sufixo de hash do nome inteiro.
 function ShortenFirebirdIdentifier(const AName: string;
   const AMaxLength: Integer = LZNEX_FIREBIRD_MAX_IDENTIFIER): string;
 
 implementation
 
-// O estouro e o proprio algoritmo: sem {$Q-} o build com -Co derruba aqui.
 {$PUSH}{$Q-}{$R-}
 function FnvHash(const AText: string): LongWord;
 var
@@ -98,14 +93,12 @@ function TLzNexFirebirdSchemaCompiler.ModifierSQL(
 begin
   case AMod of
     mdNullable:
-      { O Firebird nao aceita NULL explicito como restricao de coluna: coluna
-        sem NOT NULL ja e anulavel. }
+
       if ACol.HasModifier(mdNullable) then
         Result := ''
       else
         Result := 'not null';
     mdCollate:
-      // A collation e um identificador, nao um literal: UNICODE_CI, nao 'UNICODE_CI'.
       if ACol.HasModifier(mdCollate) then
         Result := 'collate ' + ACol.CollateName
       else
@@ -122,7 +115,6 @@ begin
   if ACol.ColumnType <> ctEnum then
     Exit;
 
-  // Sem tipo enum: a lista vira CHECK, como no PostgreSQL.
   Result := Result + ' check (' + Wrap(ACol.ColumnName) + ' in (' +
             EnumList(ACol.EnumItems) + '))';
 end;
@@ -151,8 +143,14 @@ var
   end;
 
 begin
-  { Como no PostgreSQL, cada aspecto e uma acao propria -- aqui com a palavra
-    TYPE e com SET/DROP NOT NULL, que existem desde o Firebird 3. }
+
+  if ACol.ColumnType = ctEnum then
+    raise ELzNexSchema.CreateFmt(
+      'Firebird cannot change column "%s" to an enum: there is no native ' +
+      'enum, so the allowed values live in a table-level CHECK constraint ' +
+      'that ALTER COLUMN cannot carry. Drop the old constraint and add the ' +
+      'new one by hand in the migration.', [ACol.ColumnName]);
+
   Result := nil;
   N := 0;
   Col := ChangeColumnPrefix + Wrap(ACol.ColumnName) + ' ';
@@ -259,8 +257,7 @@ end;
 
 function TLzNexFirebirdSchemaCompiler.ModifierOrder: TLzNexColumnModifiers;
 begin
-  { O DEFAULT vem antes das restricoes no Firebird, e a collation depois de
-    todas elas. Nao ha unsigned nem comentario inline. }
+
   Result := TLzNexColumnModifiers.Create(mdDefault, mdNullable, mdCollate);
 end;
 
@@ -270,8 +267,6 @@ begin
   if not AIfExists then
     Exit(inherited DropTableSQL(ATable, False));
 
-  { Nao existe DROP TABLE IF EXISTS no Firebird 3 nem no 5: o teste de
-    existencia vai dentro de um EXECUTE BLOCK, que e um statement so. }
   Result := TLzNexFragment.Lit(
     'execute block as begin ' +
     'if (exists(select 1 from rdb$relations where trim(rdb$relation_name) = ' +
@@ -301,8 +296,7 @@ function TLzNexFirebirdSchemaCompiler.HasTableSQL(
 var
   B: TLzNexBindings;
 begin
-  { Nao ha information_schema: o catalogo e RDB$RELATIONS, e o nome vem
-    preenchido com espaco a direita, dai o trim. }
+
   B := TLzNexBindings.Empty;
   B.Add(TLzNexValue.FromString(ATable));
   Result := TLzNexFragment.Make(
@@ -325,7 +319,6 @@ end;
 function TLzNexFirebirdSchemaCompiler.TablesSQL(
   const ASchema: string): TLzNexFragment;
 begin
-  // rdb$system_flag = 0 exclui o catalogo; rdb$view_blr nulo exclui view.
   Result := TLzNexFragment.Lit(
     'select trim(rdb$relation_name) as table_name from rdb$relations ' +
     'where rdb$system_flag = 0 and rdb$view_blr is null ' +
@@ -363,7 +356,6 @@ begin
     Marks := Marks + '?';
   end;
 
-  // rdb$index_name e rdb$field_name vem com padding de char: trim nos dois.
   S := 'select count(*) from (' +
        'select i.indexname from (' +
        'select trim(ix.rdb$index_name) as indexname, ' +

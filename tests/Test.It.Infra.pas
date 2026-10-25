@@ -18,9 +18,6 @@ uses
 
 type
 
-  { Prova contra banco de verdade das tres pecas de infra mais novas: o log de
-    query (LogQuery/LogError via Config.Logger), o retry de transacao
-    (ILzNex.Transact) e o roteamento leitura/escrita (Config.ReadReplica). }
   TInfraTest = class(TTestCase)
   protected
     FDb: ILzNex;
@@ -59,8 +56,6 @@ var
 
 type
 
-  { Logger espiao: TInterfacedObject por tras de ILzNexLogger, igual ao campo
-    que a config guarda. So conta e guarda a ultima chamada de cada tipo. }
   TLzNexSpyLogger = class(TInterfacedObject, ILzNexLogger)
   private
     FQueryCount: Integer;
@@ -88,10 +83,6 @@ type
     property LastError: string read FLastError;
   end;
 
-  { Bloco de trabalho do Transact: cada chamada insere uma linha marcada com o
-    numero da tentativa e, enquanto nao passar de FFailCount, falha -- de
-    forma transitoria ou definitiva, conforme FRetryable. Isso prova retry,
-    contagem de tentativas e rollback das tentativas perdidas ao mesmo tempo. }
   TLzNexSpyWork = class(TInterfacedObject, ILzNexWork)
   private
     FTable: string;
@@ -161,8 +152,6 @@ begin
   if FExecCount <= FFailCount then
   begin
     if FRetryable then
-      // SQLSTATE 40001 (falha de serializacao) e transitorio na classe base
-      // de todo dialeto -- nao precisa de um deadlock de verdade para provar.
       raise ELzNexQuery.CreateDb('synthetic transient failure', 'SYNTHETIC', 1213, '40001')
     else
       raise Exception.Create('synthetic permanent failure');
@@ -261,9 +250,7 @@ begin
   try
     Raised := False;
     try
-      { Chave unica duplicada: falha so na execucao, nao no prepare -- por
-        isso passa pelo trecho que loga o erro antes de relancar. Um SQL
-        quebrado no prepare NAO passa por ali, veja o relato no final. }
+
       Db.Table(INFRA_TABLE).Insert(Vals(['tag', 'dup']));
     except
       on E: Exception do
@@ -282,7 +269,6 @@ begin
   if SkipWithoutDatabase then Exit;
   FDb.Table(INFRA_TABLE).Truncate;
 
-  // FDb nasceu sem Config.Logger(): nem Execute nem Query podem quebrar por isso.
   FDb.Table(INFRA_TABLE).Insert(Vals(['tag', 'nologger']));
   AssertEquals('insert worked with no logger configured', Int64(1),
     FDb.Table(INFRA_TABLE).Count);
@@ -362,8 +348,6 @@ begin
   if SkipWithoutDatabase then Exit;
   FDb.Table(INFRA_TABLE).Truncate;
 
-  { Falharia so na primeira tentativa e teria sucesso na segunda -- mas com
-    AAttempts = 0 (tratado como 1) nao ha segunda tentativa. }
   Spy := TLzNexSpyWork.Create(INFRA_TABLE, 1, True);
   Work := Spy;
   Raised := False;
@@ -459,10 +443,6 @@ begin
   FDb.Table(INFRA_TABLE).Truncate;
   FDb.Table(INFRA_TABLE).Insert(Vals(['tag', 'split-a']));
 
-  { Pool(0, N): o primario nasce sem nenhuma conexao fisica. Size (ao
-    contrario de InUse) nao volta a zero so por devolver a conexao, entao
-    continua provando depois do cursor fechado que o primario nunca foi
-    tocado -- nao precisa de thread nem de segurar o cursor aberto. }
   Db := Connect(ItConfig(4).Pool(0, 4).ReadReplica(ItConfig(4)));
   try
     AssertEquals('fresh primary pool has no physical connection yet', 0, Db.Pool.Size);
@@ -600,9 +580,6 @@ begin
   end;
 end;
 
-{ A consulta de existencia do UpdateOrInsert decide uma escrita, entao sai do
-  primario: na replica o atraso de replicacao esconderia a linha recem-escrita
-  e o insert sairia duplicado. }
 procedure TInfraTest.UpdateOrInsertProbesThePrimary;
 var
   Db: ILzNex;
@@ -615,7 +592,6 @@ begin
     AssertEquals('fresh primary pool has no physical connection yet', 0,
       Db.Pool.Size);
 
-    // Linha ausente: o probe le, nao acha e o insert escreve -- tudo no primario.
     AssertTrue('reported an insert',
       Db.Table(INFRA_TABLE).UpdateOrInsert(Vals(['tag', 'split-f']), nil));
 

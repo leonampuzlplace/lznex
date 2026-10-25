@@ -21,16 +21,12 @@ type
       const ACol: ILzNexColumnDef): string; override;
     function ColumnDefinitionSQL(const ACol: ILzNexColumnDef): string; override;
 
-    // Nao ha COMMENT ON: o comentario nao tem onde morar.
     procedure CompileComments(const ATable: ILzNexTable;
       var APlan: TLzNexDdlPlan); override;
 
-    // UNIQUE e FK so entram no corpo do CREATE TABLE: nao existe
-    // ALTER TABLE ADD CONSTRAINT.
     procedure CompileCreate(const ATable: ILzNexTable;
       var APlan: TLzNexDdlPlan); override;
 
-    // Uma acao por ALTER TABLE, e nada de alterar coluna existente.
     procedure CompileAlter(const ATable: ILzNexTable;
       var APlan: TLzNexDdlPlan); override;
 
@@ -64,13 +60,11 @@ function TLzNexSQLiteSchemaCompiler.ModifierSQL(
 begin
   case AMod of
     mdNullable:
-      // Coluna sem NOT NULL ja e anulavel; o SQLite nao tem NULL como restricao.
       if ACol.HasModifier(mdNullable) then
         Result := ''
       else
         Result := 'not null';
     mdCollate:
-      // A collation e um identificador: BINARY, NOCASE, RTRIM.
       if ACol.HasModifier(mdCollate) then
         Result := 'collate ' + ACol.CollateName
       else
@@ -87,7 +81,6 @@ begin
   if ACol.ColumnType <> ctEnum then
     Exit;
 
-  // Sem tipo enum: a lista vira CHECK, como no PostgreSQL.
   Result := Result + ' check (' + Wrap(ACol.ColumnName) + ' in (' +
             EnumList(ACol.EnumItems) + '))';
 end;
@@ -180,8 +173,6 @@ begin
       SB.Append(')');
     end;
 
-    { UNIQUE e FK entram aqui porque depois nao ha mais como: o SQLite nao
-      aceita ALTER TABLE ADD CONSTRAINT. }
     for I := 0 to ATable.IndexCount - 1 do
     begin
       Idx := ATable.IndexAt(I);
@@ -208,8 +199,7 @@ end;
 procedure TLzNexSQLiteSchemaCompiler.CheckAddable(const ATable: ILzNexTable;
   const ACol: ILzNexColumnDef);
 begin
-  { Restricao do proprio SQLite: coluna nova com NOT NULL precisa de um default
-    nao nulo, senao as linhas existentes ficariam invalidas. }
+
   if ACol.HasModifier(mdNullable) or ACol.HasModifier(mdDefault) then
     Exit;
   if ACol.ColumnType in [ctIncrements, ctBigIncrements] then
@@ -232,8 +222,6 @@ var
 begin
   Head := 'alter table ' + TableRef(ATable) + ' ';
 
-  { Uma acao por statement: o SQLite nao aceita ADD COLUMN e DROP COLUMN
-    separados por virgula no mesmo ALTER TABLE. }
   for I := 0 to ATable.ColumnCount - 1 do
   begin
     Col := ATable.ColumnAt(I);
@@ -305,7 +293,6 @@ begin
       'CONSTRAINT. Recreate the table inside the migration.',
       [IndexKindSuffix(AIndex.IndexKind), ATable.TableName]);
 
-  // Unique tambem e indice aqui, por isso os dois caem no mesmo DROP INDEX.
   Result := 'drop index ' + Wrap(IndexNameOf(ATable, AIndex));
 end;
 
@@ -316,8 +303,7 @@ var
 begin
   case AType of
     ctIncrements, ctBigIncrements:
-      { Tem de ser INTEGER PRIMARY KEY, nao BIGINT: so essa grafia e apelido do
-        rowid. AUTOINCREMENT impede o reuso de id de linha apagada. }
+
       Result := 'integer primary key autoincrement';
     ctTinyInt:
       Result := 'tinyint';
@@ -386,7 +372,6 @@ end;
 
 function TLzNexSQLiteSchemaCompiler.ModifierOrder: TLzNexColumnModifiers;
 begin
-  // Nao ha unsigned, nem comentario, nem posicao de coluna.
   Result := TLzNexColumnModifiers.Create(mdNullable, mdDefault, mdCollate);
 end;
 
@@ -402,7 +387,6 @@ function TLzNexSQLiteSchemaCompiler.HasTableSQL(
 var
   B: TLzNexBindings;
 begin
-  // O catalogo do SQLite e sqlite_master; nao ha information_schema.
   B := TLzNexBindings.Empty;
   B.Add(TLzNexValue.FromString(ATable));
   Result := TLzNexFragment.Make(
@@ -415,7 +399,6 @@ function TLzNexSQLiteSchemaCompiler.HasColumnSQL(
 var
   B: TLzNexBindings;
 begin
-  // pragma_table_info e a forma de consultar coluna por SQL (SQLite 3.16+).
   B := TLzNexBindings.Empty;
   B.Add(TLzNexValue.FromString(ATable));
   B.Add(TLzNexValue.FromString(AColumn));
@@ -425,7 +408,6 @@ end;
 
 function TLzNexSQLiteSchemaCompiler.TablesSQL(const ASchema: string): TLzNexFragment;
 begin
-  // SQLite nao tem schema nomeado: ASchema e ignorado. sqlite_% e catalogo interno.
   Result := TLzNexFragment.Lit(
     'select name from sqlite_master ' +
     'where type = ''table'' and name not like ''sqlite\_%'' escape ''\'' ' +
@@ -439,7 +421,6 @@ var
 begin
   B := TLzNexBindings.Empty;
   B.Add(TLzNexValue.FromString(ATable));
-  // cid e a ordem de declaracao da coluna.
   Result := TLzNexFragment.Make(
     'select name from pragma_table_info(?) order by cid', B);
 end;
@@ -463,9 +444,6 @@ begin
     Marks := Marks + '?';
   end;
 
-  { pragma_index_info(il.name) e correlacionado com a linha de pragma_index_list(?)
-    que vem antes na mesma clausula FROM -- o SQLite aceita essa referencia
-    entre funcoes tabulares, e assim nao precisa de uma query por indice. }
   S := 'select count(*) from (' +
        'select i.indexname from (' +
        'select il.name as indexname, ii.name as column_name ' +

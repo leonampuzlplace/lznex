@@ -20,6 +20,8 @@ const
   LZNEX_POOL_WAIT_STEP_MS = 5;
   LZNEX_POOL_DEFAULT_TIMEOUT_MS = 10000;
 
+  LZNEX_POOL_MAX_UNWIND = 64;
+
 type
   TLzNexPool = class;
 
@@ -75,7 +77,6 @@ type
     FClient: ILzNexClient;
     FParams: TLzNexConnectionParams;
 
-    // Repassado a cada conexao aberta: e lá que a query e cronometrada.
     FLogger: ILzNexLogger;
     FIdle: array of ILzNexConnection;
     FIdleCount: Integer;
@@ -186,10 +187,6 @@ begin
   if FInner <> nil then
     FInner.Close;
 
-  { Solta o lease aqui, nao no destrutor: quem chamou Close espera a conexao de
-    volta no pool na hora. Esperar o refcount morrer prenderia a conexao ate a
-    variavel sair de escopo, e com pool pequeno a proxima query bateria em
-    "Pool exhausted". }
   FLease := nil;
 end;
 
@@ -422,15 +419,11 @@ begin
       FLock.Release;
     end;
 
-    { Ping fora do lock: e ida ao servidor, e segurar o lock durante um timeout
-      de rede pararia o Acquire de todas as outras threads. A conexao ja saiu
-      do idle e conta em InUse, entao ninguem mais a pega enquanto isso. }
     if Conn <> nil then
     begin
       if Conn.Ping then
         Exit(Lend(Conn));
 
-      // Morta do outro lado: fecha, devolve a vaga e procura outra.
       try
         Conn.Close;
       except
@@ -478,19 +471,28 @@ procedure TLzNexPool.Release(const AConn: ILzNexConnection);
 var
   Keep: Boolean;
   Dead: ILzNexConnection;
+  Unwound: Integer;
 begin
   if AConn = nil then
     Exit;
 
-  { Desfazer a transacao esquecida e ida ao servidor, e acontece fora do lock:
-    uma devolucao lenta nao pode parar o Acquire das outras threads. A conexao
-    ainda conta em InUse aqui, entao ninguem a pega no meio disso. }
   Keep := True;
   try
     if AConn.IsClosed then
       Keep := False
-    else if AConn.InTransaction then
-      AConn.Rollback;
+    else
+    begin
+
+      Unwound := 0;
+      while AConn.InTransaction and (Unwound < LZNEX_POOL_MAX_UNWIND) do
+      begin
+        AConn.Rollback;
+        Inc(Unwound);
+      end;
+
+      if AConn.InTransaction then
+        Keep := False;
+    end;
   except
 
     Keep := False;

@@ -137,7 +137,7 @@ type
     procedure UuidIsNativeType;
     procedure JsonbIsItsOwnType;
     procedure EnumBecomesTextWithCheck;
-    procedure ModifierOrderIsNullableThenDefault;
+    procedure ModifierOrderIsNullableCollateThenDefault;
     procedure UnsignedIsIgnored;
     procedure MySQLStillEmitsUnsigned;
     procedure ColumnCommentIsASeparateStatement;
@@ -746,14 +746,15 @@ begin
     Stmt(T.ToSQL, 0));
 end;
 
-procedure TPostgresSchemaTest.ModifierOrderIsNullableThenDefault;
+procedure TPostgresSchemaTest.ModifierOrderIsNullableCollateThenDefault;
 var
   Order: TLzNexColumnModifiers;
 begin
   Order := FPg.NewSchemaCompiler.ModifierOrder;
-  AssertEquals('modifier count', 2, Length(Order));
+  AssertEquals('modifier count', 3, Length(Order));
   AssertTrue('first is nullable', Order[0] = mdNullable);
-  AssertTrue('second is default', Order[1] = mdDefault);
+  AssertTrue('second is collate', Order[1] = mdCollate);
+  AssertTrue('third is default', Order[2] = mdDefault);
 end;
 
 procedure TPostgresSchemaTest.UnsignedIsIgnored;

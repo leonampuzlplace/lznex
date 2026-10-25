@@ -18,10 +18,6 @@ uses
 
 type
 
-  { O que cada dialeto escreve na sua propria sintaxe -- partes de data, JSON
-    e texto completo -- provado contra o banco de verdade. A mesma suite roda
-    nos cinco bancos; quem decide o caminho e a capacidade declarada pelo
-    client (SupportsJson, SupportsFullText), nunca o nome do banco. }
   TDialectFeatureTest = class(TTestCase)
   protected
     FDb: ILzNex;
@@ -150,8 +146,7 @@ procedure TDialectFeatureTest.WhereDateFindsTheKnownInstant;
 begin
   if SkipWithoutDatabase then Exit;
   Seed;
-  { WhereDate compara a data inteira: a hora do instante nao pode entrar na
-    comparacao, por isso o valor aqui e so a data. }
+
   AssertEquals('row found by full date', Int64(1),
     FDb.Table(DIALECT_TABLE)
       .WhereDate('seen_at', TLzNexValue.FromDate(EncodeDate(2024, 3, 15)))
@@ -167,8 +162,7 @@ begin
     Exit;
   end;
   Seed;
-  { MySQL (json_unquote) e PostgreSQL (#>>) sempre devolvem texto, por isso o
-    valor comparado e string mesmo o numero sendo inteiro no documento. }
+
   AssertEquals('row found by json path', Int64(1),
     FDb.Table(DIALECT_TABLE)
       .WhereJsonPath('meta', 'a.b', '=', TLzNexValue.FromString('42'))
@@ -199,8 +193,7 @@ begin
     Exit;
   end;
   Seed;
-  { Valor escalar dentro de um array: os tres bancos que tem JSON atendem
-    essa semantica (doc inteiro contendo doc inteiro ja nao e portavel). }
+
   AssertEquals('row found by json contains (scalar in array)', Int64(1),
     FDb.Table(DIALECT_TABLE)
       .WhereJsonContains('meta', 'tags', TLzNexValue.FromInteger(2))
@@ -216,9 +209,7 @@ begin
     Exit;
   end;
   Seed;
-  { "documento contem documento" nao e universal (o SQLite nao tem
-    equivalente); o dialeto que nao suporta recusa com ELzNexCompile, e isso
-    e um resultado valido tanto quanto achar a linha. }
+
   try
     AssertEquals('row found by json contains (whole document)', Int64(1),
       FDb.Table(DIALECT_TABLE)
@@ -254,8 +245,6 @@ begin
   end;
   Seed;
 
-  { O DDL do indice de texto completo pode ainda estar em obras em outro
-    arquivo; se falhar aqui, o teste e ignorado em vez de quebrar a suite. }
   try
     FDb.Schema.Table(DIALECT_TABLE).FullText(['tag']).Execute;
   except

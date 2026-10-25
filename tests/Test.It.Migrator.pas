@@ -19,8 +19,6 @@ uses
 
 type
 
-  { A migration de teste nasce aqui, pelo schema builder, para que o mesmo
-    passo valha nos cinco bancos. }
   TItCreateThings = class(TLzNexMigration)
   public
     class function MigrationName: string; override;
@@ -28,10 +26,6 @@ type
     procedure Down(const ADb: ILzNex); override;
   end;
 
-  { O runner contra banco de verdade: tabela de controle, lock, aplicar,
-    desfazer. E onde as diferencas de dialeto mais doem -- HasTable le catalogo
-    proprio, DropTableIfExists nao existe em todo banco, e a coluna "index" da
-    tabela de lock e palavra reservada. }
   TMigratorTest = class(TTestCase)
   protected
     FDb: ILzNex;
@@ -87,8 +81,6 @@ begin
   if not ItEnabled then
     Exit;
 
-  { MigrationsDir vazio de proposito: o container tem database/migrations, e
-    aquele .sql e escrito em MySQL. A unica fonte aqui e o registro de codigo. }
   FDb := Connect(ItConfig(4)
     .MigrationsTable(MIG_TABLE)
     .MigrationsDir(''));
@@ -130,8 +122,6 @@ begin
 
   AssertEquals('first run applies', 1, FDb.Migrator.Latest);
 
-  { Rodar de novo nao reaplica nem fica preso no lock da rodada anterior: o
-    Unlock tem de ter acontecido no fim da primeira. }
   AssertEquals('second run has nothing to do', 0, FDb.Migrator.Latest);
 end;
 
@@ -178,8 +168,6 @@ begin
 
   FDb.Migrator.EnsureTables;
 
-  { Simula o processo que morreu segurando o lock. O update tem de afetar uma
-    linha so, o que tambem prova a contagem de linhas afetadas do driver. }
   AssertEquals('the lock was taken', Int64(1),
     FDb.Table(LOCK_TABLE).Update(Vals(['is_locked', 1])));
 
