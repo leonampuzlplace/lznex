@@ -35,11 +35,53 @@ type
   ILzNexSeeder = interface;
   ILzNexColumnDef = interface;
   ILzNexIndexDef = interface;
+  ILzNexChunks = interface;
   ILzNex = interface;
 
   TLzNexStringArray = array of string;
   TLzNexRowArray = array of ILzNexRow;
   TLzNexMigrationArray = array of ILzNexMigration;
+
+  TLzNexPage = record
+    Rows: TLzNexRowArray;
+    Total: Int64;
+    PerPage: Int64;
+    CurrentPage: Int64;
+
+    function Count: Integer;
+
+    function LastPage: Int64;
+
+    function HasMorePages: Boolean;
+
+    function IsEmpty: Boolean;
+  end;
+
+  TLzNexSimplePage = record
+    Rows: TLzNexRowArray;
+    PerPage: Int64;
+    CurrentPage: Int64;
+    HasMorePages: Boolean;
+
+    function Count: Integer;
+
+    function IsEmpty: Boolean;
+  end;
+
+  TLzNexCursorPage = record
+    Rows: TLzNexRowArray;
+    PerPage: Int64;
+
+    NextCursor: string;
+
+    PrevCursor: string;
+
+    function Count: Integer;
+
+    function HasMorePages: Boolean;
+
+    function IsEmpty: Boolean;
+  end;
 
   ILzNexRaw = interface
     ['{9A1C0E10-0001-4C2E-9B01-6E5B2A7F0001}']
@@ -89,6 +131,20 @@ type
     procedure Close;
   end;
 
+  ILzNexChunks = interface
+    ['{9A1C0E10-0018-4C2E-9B01-6E5B2A7F0018}']
+
+    function Next: Boolean;
+
+    function Rows: TLzNexRowArray;
+
+    function ChunkIndex: Int64;
+
+    function RowsSeen: Int64;
+  end;
+
+  TLzNexRowProc = procedure(const ARow: ILzNexRow; var AStop: Boolean) of object;
+
   ILzNexClient = interface
     ['{9A1C0E10-0004-4C2E-9B01-6E5B2A7F0004}']
 
@@ -106,6 +162,10 @@ type
 
     function EscapeForLog(const AValue: TLzNexValue): string;
 
+    function QuoteLiteral(const AValue: TLzNexValue): string;
+
+    function EscapeStringLiteral(const AText: string): string;
+
     function SupportsReturning: Boolean;
 
     function SupportsOnConflictWhere: Boolean;
@@ -116,7 +176,15 @@ type
 
     function SupportsSavepoints: Boolean;
 
+    function SupportsJson: Boolean;
+
+    function SupportsFullText: Boolean;
+
+    function IsRetryableError(const ACode: Integer; const ASQLState: string): Boolean;
+
     function DdlIsTransactional: Boolean;
+
+    function DefaultIsolation: TLzNexIsolation;
 
     function Components(const AMethod: TLzNexQueryMethod): TLzNexComponents;
 
@@ -168,6 +236,11 @@ type
     function HasTableSQL(const ATable, ASchema: string): TLzNexFragment;
     function HasColumnSQL(const ATable, AColumn, ASchema: string): TLzNexFragment;
 
+    function TablesSQL(const ASchema: string): TLzNexFragment;
+    function ColumnsSQL(const ATable, ASchema: string): TLzNexFragment;
+    function HasIndexSQL(const ATable: string; const AColumns: TLzNexValues;
+      const ASchema: string): TLzNexFragment;
+
     function IndexName(const ATable: string; const AColumns: TLzNexValues;
       const AKind: TLzNexIndexKind): string;
   end;
@@ -198,6 +271,13 @@ type
     function SelectRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery;
 
     function SelectSub(const ASub: ILzNexQuery; const AAlias: string): ILzNexQuery;
+
+    function SelectCount(const AColumn: string = '*';
+      const AAlias: string = ''): ILzNexQuery;
+    function SelectAggregate(const AAgg: TLzNexAggregate;
+      const AColumn, AAlias: string): ILzNexQuery;
+
+    function WithCount(const ASub: ILzNexQuery; const AAlias: string): ILzNexQuery;
 
     function Distinct: ILzNexQuery;
 
@@ -239,8 +319,43 @@ type
     function WhereExists(const ASub: ILzNexQuery): ILzNexQuery;
     function WhereNotExists(const ASub: ILzNexQuery): ILzNexQuery;
 
+    function WhereDate(const AColumn: string; const AValue: TLzNexValue): ILzNexQuery; overload;
+    function WhereDate(const AColumn, AOp: string; const AValue: TLzNexValue): ILzNexQuery; overload;
+    function WhereTime(const AColumn: string; const AValue: TLzNexValue): ILzNexQuery; overload;
+    function WhereTime(const AColumn, AOp: string; const AValue: TLzNexValue): ILzNexQuery; overload;
+    function WhereYear(const AColumn: string; const AValue: Integer): ILzNexQuery; overload;
+    function WhereYear(const AColumn, AOp: string; const AValue: Integer): ILzNexQuery; overload;
+    function WhereMonth(const AColumn: string; const AValue: Integer): ILzNexQuery; overload;
+    function WhereMonth(const AColumn, AOp: string; const AValue: Integer): ILzNexQuery; overload;
+    function WhereDay(const AColumn: string; const AValue: Integer): ILzNexQuery; overload;
+    function WhereDay(const AColumn, AOp: string; const AValue: Integer): ILzNexQuery; overload;
+    function WhereHour(const AColumn: string; const AValue: Integer): ILzNexQuery; overload;
+    function WhereHour(const AColumn, AOp: string; const AValue: Integer): ILzNexQuery; overload;
+
+    function WhereDatePart(const AColumn: string; const APart: TLzNexDatePart;
+      const AOp: string; const AValue: TLzNexValue): ILzNexQuery;
+
+    function WhereJsonPath(const AColumn, APath, AOp: string;
+      const AValue: TLzNexValue): ILzNexQuery;
+
+    function WhereJsonContains(const AColumn, APath: string;
+      const AValue: TLzNexValue): ILzNexQuery;
+
+    function WhereJsonLength(const AColumn, APath, AOp: string;
+      const AValue: Integer): ILzNexQuery;
+
+    function WhereFullText(const AColumns: array of string;
+      const ASearch: string): ILzNexQuery; overload;
+    function WhereFullText(const AColumns: array of string;
+      const ASearch: string; const AMode: TLzNexFullTextMode): ILzNexQuery; overload;
+
     function WhereRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery;
     function OrWhereRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery;
+
+    function WhereAny(const AColumns: array of string; const AOp: string;
+      const AValue: TLzNexValue): ILzNexQuery;
+    function WhereAll(const AColumns: array of string; const AOp: string;
+      const AValue: TLzNexValue): ILzNexQuery;
 
     function WhereOpen: ILzNexQuery;
 
@@ -249,6 +364,10 @@ type
     function WhereNotOpen: ILzNexQuery;
 
     function WhereClose: ILzNexQuery;
+
+    function GroupWhere: ILzNexQuery;
+
+    function GroupHaving: ILzNexQuery;
 
     function Join(const ATable: string): ILzNexJoin;
     function JoinAs(const ATable, AAlias: string): ILzNexJoin;
@@ -282,10 +401,15 @@ type
     function OrderByDesc(const AColumn: string): ILzNexQuery;
     function OrderByRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery;
 
+    function InRandomOrder: ILzNexQuery;
+
     function Limit(const ACount: Int64): ILzNexQuery;
     function Offset(const ACount: Int64): ILzNexQuery;
 
     function Page(const APage, APerPage: Int64): ILzNexQuery;
+
+    function ClearPaging: ILzNexQuery;
+
     function ForUpdate: ILzNexQuery;
     function ForShare: ILzNexQuery;
     function SkipLocked: ILzNexQuery;
@@ -309,13 +433,21 @@ type
 
     function Transacting(const ATrx: ILzNexTransaction): ILzNexQuery;
 
+    function UsePrimary: ILzNexQuery;
+
     function ToSQL: TLzNexFragment;
 
     function ToSQLString: string;
 
+    function Dump: ILzNexQuery;
+
     function Get: ILzNexResult;
 
     function First: ILzNexRow;
+
+    function FirstOrFail: ILzNexRow;
+
+    function Sole: ILzNexRow;
 
     function Value(const AColumn: string): TLzNexValue;
 
@@ -325,17 +457,42 @@ type
 
     function Exists: Boolean;
 
+    function DoesntExist: Boolean;
+
     function Count: Int64;
 
     function Aggregate(const AAgg: TLzNexAggregate; const AColumn: string): TLzNexValue;
 
+    function Paginate(const APage, APerPage: Int64): TLzNexPage;
+
+    function SimplePaginate(const APage, APerPage: Int64): TLzNexSimplePage;
+
+    function CursorPaginate(const APerPage: Int64;
+      const ACursor: string = ''): TLzNexCursorPage;
+
+    function Chunk(const ASize: Int64): ILzNexChunks;
+
+    function ChunkById(const ASize: Int64;
+      const AKeyColumn: string = 'id'): ILzNexChunks;
+
+    function Each(const AHandler: TLzNexRowProc; const AChunkSize: Int64 = 1000;
+      const AKeyColumn: string = 'id'): Int64;
+
     function Insert(const AValues: TLzNexNamedValues): Int64;
 
-    function InsertGetId(const AValues: TLzNexNamedValues): Int64;
+    function InsertGetId(const AValues: TLzNexNamedValues): Int64; overload;
+    function InsertGetId(const AValues: TLzNexNamedValues;
+      const AIdColumn: string): Int64; overload;
 
     function InsertMany(const ARows: array of TLzNexNamedValues): Int64;
 
+    function Upsert(const ARows: array of TLzNexNamedValues;
+      const AUniqueBy: array of string;
+      const AUpdate: array of string): Int64;
+
     function Update(const AValues: TLzNexNamedValues): Int64;
+
+    function UpdateOrInsert(const AMatch, AValues: TLzNexNamedValues): Boolean;
 
     function Increment(const AColumn: string; const ABy: Int64 = 1): Int64;
     function Decrement(const AColumn: string; const ABy: Int64 = 1): Int64;
@@ -466,6 +623,8 @@ type
     function Primary(const AColumns: array of string): ILzNexTable; overload;
     function Unique(const AColumns: array of string): ILzNexTable; overload;
     function Index(const AColumns: array of string): ILzNexTable; overload;
+
+    function FullText(const AColumns: array of string): ILzNexTable;
     function DropColumn(const AName: string): ILzNexTable;
     function DropIndex(const AColumns: array of string): ILzNexTable;
     function DropUnique(const AColumns: array of string): ILzNexTable;
@@ -508,6 +667,13 @@ type
 
     function HasTable(const AName: string): Boolean;
     function HasColumn(const ATable, AColumn: string): Boolean;
+
+    function Tables: TLzNexStringArray;
+
+    function Columns(const ATable: string): TLzNexStringArray;
+
+    function HasIndex(const ATable: string;
+      const AColumns: array of string): Boolean;
 
     procedure DropTable(const AName: string);
     procedure DropTableIfExists(const AName: string);
@@ -572,6 +738,8 @@ type
     function Prop(const AName, AValue: string): ILzNexConfig;
     function Logger(const AValue: ILzNexLogger): ILzNexConfig;
 
+    function ReadReplica(const AConfig: ILzNexConfig): ILzNexConfig;
+
     function GetClient: string;
     function GetHost: string;
     function GetPort: Integer;
@@ -588,6 +756,7 @@ type
     function GetSeedsDir: string;
     function GetProps: TLzNexNamedValues;
     function GetLogger: ILzNexLogger;
+    function GetReadReplica: ILzNexConfig;
 
     procedure Validate;
   end;
@@ -666,6 +835,12 @@ type
     function Names: TLzNexStringArray;
   end;
 
+  ILzNexWork = interface
+    ['{9A1C0E10-0019-4C2E-9B01-6E5B2A7F0019}']
+
+    procedure Execute(const ADb: ILzNex);
+  end;
+
   ILzNex = interface
     ['{9A1C0E10-0017-4C2E-9B01-6E5B2A7F0017}']
 
@@ -681,6 +856,9 @@ type
     function Transaction: ILzNexTransaction; overload;
     function Transaction(const AIsolation: TLzNexIsolation): ILzNexTransaction; overload;
 
+    function Transact(const AWork: ILzNexWork;
+      const AAttempts: Integer = 1): Integer;
+
     function Migrator: ILzNexMigrator;
     function Seeder: ILzNexSeeder;
 
@@ -692,6 +870,8 @@ type
     function Pool: ILzNexPool;
 
     function Connection: ILzNexConnection;
+
+    function ReadConnection: ILzNexConnection;
 
     function IsTransaction: Boolean;
     procedure Shutdown;
@@ -711,6 +891,55 @@ type
   end;
 
 implementation
+
+function TLzNexPage.Count: Integer;
+begin
+  Result := Length(Rows);
+end;
+
+function TLzNexPage.LastPage: Int64;
+begin
+  if PerPage < 1 then
+    Exit(1);
+  Result := (Total + PerPage - 1) div PerPage;
+  if Result < 1 then
+    Result := 1;
+end;
+
+function TLzNexPage.HasMorePages: Boolean;
+begin
+  Result := CurrentPage < LastPage;
+end;
+
+function TLzNexPage.IsEmpty: Boolean;
+begin
+  Result := Length(Rows) = 0;
+end;
+
+function TLzNexSimplePage.Count: Integer;
+begin
+  Result := Length(Rows);
+end;
+
+function TLzNexSimplePage.IsEmpty: Boolean;
+begin
+  Result := Length(Rows) = 0;
+end;
+
+function TLzNexCursorPage.Count: Integer;
+begin
+  Result := Length(Rows);
+end;
+
+function TLzNexCursorPage.HasMorePages: Boolean;
+begin
+  Result := NextCursor <> '';
+end;
+
+function TLzNexCursorPage.IsEmpty: Boolean;
+begin
+  Result := Length(Rows) = 0;
+end;
 
 function TLzNexDdlPlan.All: TLzNexFragments;
 var

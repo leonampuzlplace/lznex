@@ -7,6 +7,47 @@ x-db-env: &db-env
   LZNEX_PASSWORD: secret
   LZNEX_LIBRARY: /usr/lib/x86_64-linux-gnu/libmariadb.so.3
 
+x-pg-env: &pg-env
+  LZNEX_CLIENT: postgresql
+  LZNEX_HOST: postgres
+  LZNEX_PORT: "5432"
+  LZNEX_DATABASE: lznex
+  LZNEX_USER: postgres
+  LZNEX_PASSWORD: secret
+  LZNEX_LIBRARY: /usr/lib/x86_64-linux-gnu/libpq.so.5
+
+# No Firebird o "database" e o caminho do arquivo dentro do container, nao um
+# nome logico. LZNEX_HOST fica de fora: cada suite aponta para o seu servidor.
+x-fb-env: &fb-env
+  LZNEX_CLIENT: firebird
+  LZNEX_PORT: "3050"
+  LZNEX_DATABASE: /var/lib/firebird/data/lznex.fdb
+  LZNEX_USER: SYSDBA
+  LZNEX_PASSWORD: secret
+  LZNEX_LIBRARY: /usr/lib/x86_64-linux-gnu/libfbclient.so.2
+  LZNEX_CHARSET: UTF8
+
+# SQLite nao tem servidor: o banco e um arquivo no proprio container de teste.
+x-sqlite-env: &sqlite-env
+  LZNEX_CLIENT: sqlite
+  LZNEX_DATABASE: /tmp/lznex-it.sqlite
+  LZNEX_LIBRARY: /usr/lib/x86_64-linux-gnu/libsqlite3.so.0
+  LZNEX_CHARSET: UTF-8
+
+# Fica saudavel so quando o servidor responde a SQL — o processo sobe antes de
+# o banco existir, e "porta aberta" deixaria a suite conectar cedo demais.
+#
+# O caminho vai com "localhost:" na frente de proposito: sem isso o isql abre o
+# arquivo em modo embedded, o engine do servidor ja o tem aberto e o Firebird
+# recusa os dois com "Database already opened with engine instance". Como o
+# healthcheck repete a cada 5s, isso derrubava a suite de forma intermitente.
+x-fb-healthcheck: &fb-healthcheck
+  test: ["CMD-SHELL", "echo 'select 1 from rdb$$database;' | /opt/firebird/bin/isql -b -user SYSDBA -password secret localhost:/var/lib/firebird/data/lznex.fdb"]
+  interval: 5s
+  timeout: 5s
+  retries: 20
+  start_period: 20s
+
 services:
   mysql:
     image: mysql:8.4
@@ -27,6 +68,51 @@ services:
       timeout: 5s
       retries: 20
       start_period: 20s
+
+  postgres:
+    image: postgres:17
+    container_name: lznex-postgres
+    environment:
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: lznex
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d lznex"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # Firebird 3 e 5 lado a lado: o dialeto tem de valer nas duas versoes, que
+  # diferem em syntax de paginacao e em tipos (BOOLEAN, IDENTITY).
+  firebird3:
+    image: firebirdsql/firebird:3
+    container_name: lznex-firebird3
+    environment:
+      FIREBIRD_ROOT_PASSWORD: secret
+      FIREBIRD_DATABASE: lznex.fdb
+      FIREBIRD_DATABASE_DEFAULT_CHARSET: UTF8
+    ports:
+      - "3051:3050"
+    volumes:
+      - fb3-data:/var/lib/firebird/data
+    healthcheck: *fb-healthcheck
+
+  firebird5:
+    image: firebirdsql/firebird:5
+    container_name: lznex-firebird5
+    environment:
+      FIREBIRD_ROOT_PASSWORD: secret
+      FIREBIRD_DATABASE: lznex.fdb
+      FIREBIRD_DATABASE_DEFAULT_CHARSET: UTF8
+    ports:
+      - "3053:3050"
+    volumes:
+      - fb5-data:/var/lib/firebird/data
+    healthcheck: *fb-healthcheck
 
   cli:
     build:
@@ -71,6 +157,91 @@ services:
         condition: service_healthy
     command: ["./bin/lznex-tests-debug"]
 
+  # A mesma suite contra PostgreSQL. O que muda e so o ambiente: o dialeto sai
+  # de LZNEX_CLIENT e as tabelas de teste nascem pelo schema builder.
+  tests-it-pg:
+    build:
+      context: .
+      target: builder
+    image: lznex-builder:latest
+    working_dir: /src
+    environment:
+      <<: *pg-env
+      LZNEX_IT: "1"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: lznex
+      DB_USER: postgres
+      DB_PASS: secret
+      DB_LIB: /usr/lib/x86_64-linux-gnu/libpq.so.5
+      HEAPTRC: haltonnotreleased
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["./bin/lznex-tests-debug"]
+
+  tests-it-fb3:
+    build:
+      context: .
+      target: builder
+    image: lznex-builder:latest
+    working_dir: /src
+    environment:
+      <<: *fb-env
+      LZNEX_HOST: firebird3
+      LZNEX_IT: "1"
+      DB_HOST: firebird3
+      DB_PORT: "3050"
+      DB_NAME: /var/lib/firebird/data/lznex.fdb
+      DB_USER: SYSDBA
+      DB_PASS: secret
+      DB_LIB: /usr/lib/x86_64-linux-gnu/libfbclient.so.2
+      DB_CHARSET: UTF8
+      HEAPTRC: haltonnotreleased
+    depends_on:
+      firebird3:
+        condition: service_healthy
+    command: ["./bin/lznex-tests-debug"]
+
+  tests-it-fb5:
+    build:
+      context: .
+      target: builder
+    image: lznex-builder:latest
+    working_dir: /src
+    environment:
+      <<: *fb-env
+      LZNEX_HOST: firebird5
+      LZNEX_IT: "1"
+      DB_HOST: firebird5
+      DB_PORT: "3050"
+      DB_NAME: /var/lib/firebird/data/lznex.fdb
+      DB_USER: SYSDBA
+      DB_PASS: secret
+      DB_LIB: /usr/lib/x86_64-linux-gnu/libfbclient.so.2
+      DB_CHARSET: UTF8
+      HEAPTRC: haltonnotreleased
+    depends_on:
+      firebird5:
+        condition: service_healthy
+    command: ["./bin/lznex-tests-debug"]
+
+  # Sem depends_on: o arquivo nasce dentro deste container e morre com ele.
+  tests-it-sqlite:
+    build:
+      context: .
+      target: builder
+    image: lznex-builder:latest
+    working_dir: /src
+    environment:
+      <<: *sqlite-env
+      LZNEX_IT: "1"
+      DB_NAME: /tmp/lznex-it.sqlite
+      DB_LIB: /usr/lib/x86_64-linux-gnu/libsqlite3.so.0
+      DB_CHARSET: UTF-8
+      HEAPTRC: haltonnotreleased
+    command: ["./bin/lznex-tests-debug"]
+
   api:
     build:
       context: .
@@ -113,3 +284,6 @@ services:
 
 volumes:
   mysql-data:
+  pg-data:
+  fb3-data:
+  fb5-data:

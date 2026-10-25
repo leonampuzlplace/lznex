@@ -57,6 +57,9 @@ type
     function Config: ILzNexConfig;
     function Pool: ILzNexPool;
     function Connection: ILzNexConnection;
+    function ReadConnection: ILzNexConnection;
+    function Transact(const AWork: ILzNexWork;
+      const AAttempts: Integer = 1): Integer;
     function IsTransaction: Boolean;
     procedure Shutdown;
   end;
@@ -303,6 +306,18 @@ end;
 function TProbeDb.Connection: ILzNexConnection;
 begin
   Result := FPool.Acquire;
+end;
+
+function TProbeDb.ReadConnection: ILzNexConnection;
+begin
+  Result := FPool.Acquire;
+end;
+
+function TProbeDb.Transact(const AWork: ILzNexWork;
+  const AAttempts: Integer): Integer;
+begin
+  Result := 0;
+  raise NotHere('Transact');
 end;
 
 function TProbeDb.IsTransaction: Boolean;

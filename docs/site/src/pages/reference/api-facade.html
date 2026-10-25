@@ -85,9 +85,17 @@
 <tbody>
 <tr><td><code>function Transaction: ILzNexTransaction</code></td><td>Abre transação no nível de isolamento do servidor (<code>ilDefault</code>).</td></tr>
 <tr><td><code>function Transaction(const AIsolation: TLzNexIsolation): ILzNexTransaction</code></td><td>Abre com isolamento explícito: <code>ilReadUncommitted</code>, <code>ilReadCommitted</code>, <code>ilRepeatableRead</code>, <code>ilSerializable</code>.</td></tr>
+<tr><td><code>function Transact(const AWork: ILzNexWork; const AAttempts: Integer = 1): Integer</code></td><td>Abre, roda o bloco, commita; em erro transitório desfaz e repete até <code>AAttempts</code>. Devolve quantas tentativas gastou. Chamado dentro de uma transação, levanta. Veja <a href="#transactions/transact">Transact</a>.</td></tr>
 </tbody>
 </table>
 </div>
+
+<p>
+  <code>ILzNexWork</code> é a unidade de trabalho que <code>Transact</code> executa — uma
+  interface com <code>procedure Execute(const ADb: ILzNex)</code>. É interface e não callback
+  pelo mesmo motivo de <code>ILzNexMigration</code>: sem função anônima no FPC 3.2, e o retry
+  precisa rodar o mesmo bloco mais de uma vez.
+</p>
 
 <h2 id="raw-sql">SQL direto</h2>
 <p>
@@ -117,6 +125,7 @@
 <tr><td><code>function Config: ILzNexConfig</code></td><td>A configuração já validada por <code>Connect</code>.</td></tr>
 <tr><td><code>function Pool: ILzNexPool</code></td><td>O pool, para ler <code>Size</code> / <code>InUse</code> em diagnóstico.</td></tr>
 <tr><td><code>function Connection: ILzNexConnection</code></td><td>Pega uma conexão emprestada do pool. Ela volta sozinha quando a referência sai de escopo.</td></tr>
+<tr><td><code>function ReadConnection: ILzNexConnection</code></td><td>Conexão do pool da <a href="#pool/read-replica">réplica de leitura</a>. Sem réplica configurada, é o mesmo que <code>Connection</code>; em <code>ILzNexTransaction</code>, é sempre a conexão da transação.</td></tr>
 <tr><td><code>function IsTransaction: Boolean</code></td><td><code>False</code> na facade, <code>True</code> em <code>ILzNexTransaction</code>. Para código que recebe <code>ILzNex</code> e precisa saber onde está.</td></tr>
 <tr><td><code>procedure Shutdown</code></td><td>Fecha as conexões ociosas e encerra o pool. <code>Acquire</code> depois disso levanta <code>ELzNexPool</code>.</td></tr>
 </tbody>

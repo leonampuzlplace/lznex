@@ -4,12 +4,13 @@ Consome o LzNex pelo Boss, sem caminho relativo para o repositorio da lib.
 
 ## Trocar a coordenada do Boss
 
-`boss.json` aponta para placeholders que precisam virar os forks reais:
+`boss.json` aponta para `github.com/leonampuzlplace/lznex`, que precisa virar a
+coordenada real onde o LzNex foi publicado.
 
-- `github.com/leonampuzlplace/lznex` -> onde o LzNex foi publicado
-- `github.com/CHANGEME/zeoslib` -> o fork do Zeos **com `boss.json`** (o Boss
-  aborta se uma dependencia nao tiver o manifesto). Vem transitivo pelo lznex,
-  por isso nao aparece no `boss.json` daqui.
+O Zeos nao vem pelo Boss: o LzNex nao o vendoriza, e o projeto que consome que o
+fornece. Aqui o Dockerfile clona o repositorio oficial em `modules/zeoslib`, e e
+para la que o `Api.lpi` aponta. Num projeto seu, vale igual ter o pacote `zdbc`
+instalado na IDE -- o que nao vale e ter as duas copias.
 
 Em `Api.lpi` os unit paths usam o nome da pasta que o Boss cria,
 `modules/<host>_<org>_<repo>` (ponto e barra viram `_`). Trocar
@@ -20,7 +21,6 @@ No Docker isso e automatico via `--build-arg`:
 ```sh
 docker build -f example/api/Dockerfile \
   --build-arg LZNEX_COORD=github.com/ACME/lznex \
-  --build-arg ZEOS_COORD=github.com/ACME/zeoslib \
   -t lznex-example-api .
 ```
 

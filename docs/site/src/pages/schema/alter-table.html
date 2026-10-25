@@ -57,10 +57,25 @@ alter table `users` drop index `users_age_index`</pre>
   chamadas — declarar o <code>DropColumn</code> antes do <code>Str</code> dá o mesmo plano.
 </p>
 
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">No SQLite não há agregação: uma ação por statement</span>
+    <p>
+      O <code>ALTER TABLE</code> do SQLite aceita <strong>uma</strong> ação por comando. Duas
+      colunas novas e um <code>DropColumn</code> saem como três statements, não um por balde.
+      O plano continua correto; o que muda é a contagem — e, no MySQL, o custo (lá cada
+      <code>alter table</code> pode reescrever a tabela inteira, então agregar economiza
+      reescritas).
+    </p>
+  </div>
+</div>
+
 <h2 id="prefixes">Prefixos por dialeto</h2>
 <p>
-  A diferença entre os dois bancos no alter é só o prefixo de cada operação. O MySQL usa a forma
-  curta; o PostgreSQL exige a palavra <code>column</code>:
+  Em três dos quatro bancos, a diferença no alter é só o prefixo de cada operação. O MySQL usa
+  a forma curta, o PostgreSQL exige a palavra <code>column</code>, e o Firebird é ainda mais
+  curto — <code>add</code> e <code>drop</code> sem <code>column</code>:
 </p>
 
 <div class="code"><pre data-lang="pascal">T := Sch.Table('users');
@@ -81,15 +96,76 @@ alter table `users` drop `legacy`</pre>
   </div>
   <div class="pane" data-pane="pg" data-label="PostgreSQL">
     <pre data-lang="sql">alter table "users" add column "nick" varchar(50) null, add column "age" integer not null
-alter table "users" alter column "age" integer not null
+alter table "users" alter column "age" type integer, alter column "age" set not null
 alter table "users" drop column "legacy"</pre>
+  </div>
+  <div class="pane" data-pane="fb" data-label="Firebird">
+    <pre data-lang="sql">alter table "users" add "nick" varchar(50), add "age" integer not null
+alter table "users" alter column "age" type integer, alter column "age" set not null
+alter table "users" drop "legacy"</pre>
+  </div>
+  <div class="pane" data-pane="sqlite" data-label="SQLite">
+    <pre data-lang="sql">alter table "users" add column "nick" varchar(50)
+-- o segundo add levanta: not null sem default, veja abaixo.
+-- com .Default_(0) sairia:
+alter table "users" add column "age" integer not null default 0
+
+-- Change levanta: nao existe ALTER COLUMN
+
+alter table "users" drop column "legacy"</pre>
+    <p class="code-note">uma ação por statement, e nunca duas no mesmo <code>alter table</code></p>
   </div>
 </div>
 
 <p>
-  <code>RenameColumn</code> usa a mesma forma nos dois:
-  <code>alter table … rename column … to …</code>.
+  <code>RenameColumn</code> é <code>alter table … rename column … to …</code> em MySQL,
+  PostgreSQL e SQLite. O Firebird escreve <code>alter table "users" alter column "nick" to
+  "nickname"</code>.
 </p>
+
+<h3 id="change-per-dialect">O <code>Change</code> não tem a mesma forma em todos</h3>
+<p>
+  No MySQL, <code>modify</code> aceita a definição inteira da coluna de uma vez. PostgreSQL e
+  Firebird não: cada aspecto é uma ação própria — tipo, nulidade e default — e o LzNex emite
+  uma para cada, todas dentro do mesmo <code>alter table</code>. No SQLite
+  <code>Change</code> <strong>levanta</strong>: não existe <code>ALTER COLUMN</code> ali.
+</p>
+
+<div class="code"><pre data-lang="pascal">T := Db.Schema.Table('users');
+T.Int('hits').Nullable.Default_(0).Change;</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">-- MySQL
+alter table `users` modify `hits` int null default 0
+
+-- PostgreSQL
+alter table "users" alter column "hits" type integer,
+  alter column "hits" drop not null,
+  alter column "hits" set default 0
+
+-- Firebird: a mesma decomposicao
+alter table "users" alter column "hits" type integer,
+  alter column "hits" drop not null,
+  alter column "hits" set default 0
+
+-- SQLite: ELzNexSchema mencionando 'no ALTER COLUMN'</pre>
+</div>
+</div>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Duas restrições do SQLite que viram erro de montagem</span>
+    <p>
+      <code>add column … not null</code> <strong>sem default</strong> levanta: as linhas que já
+      existem não teriam valor, e é o próprio SQLite que recusa. E <code>Primary</code> ou
+      chave estrangeira em tabela <strong>existente</strong> levanta citando a falta de
+      <code>ADD CONSTRAINT</code> — ou a restrição nasce no <code>create table</code>, ou não
+      nasce. <code>Unique</code> escapa, virando <code>create unique index</code>. A saída para
+      o resto é recriar a tabela na migration: criar a nova, copiar, apagar, renomear.
+    </p>
+  </div>
+</div>
 
 <div class="callout trap">
   <span class="ico">⚠</span>
@@ -137,13 +213,14 @@ T.Engine('InnoDB').Charset('utf8mb4').TableCollate('utf8mb4_bin').TableComment('
 <div class="callout note">
   <span class="ico">ℹ</span>
   <div class="body">
-    <span class="t">No PostgreSQL a cláusula sai vazia</span>
+    <span class="t">Fora do MySQL a cláusula sai vazia</span>
     <p>
       Nada de <code>engine</code>, <code>character set</code> ou <code>collate</code> de tabela
-      existe lá, então a cláusula de opções é string vazia e as três chamadas são ignoradas em
-      silêncio — a mesma escolha de <code>Unsigned</code>, para a migration rodar nos dois bancos.
-      <code>TableComment</code> é a exceção: volta como <code>comment on table "opt" is 'oi'</code>
-      no <code>Post</code>.
+      existe em PostgreSQL, Firebird ou SQLite, então a cláusula de opções é string vazia e as
+      três chamadas são ignoradas em silêncio — a mesma escolha de <code>Unsigned</code>, para a
+      migration rodar nos quatro bancos. <code>TableComment</code> é a exceção: volta como
+      <code>comment on table "opt" is 'oi'</code> no <code>Post</code> em PostgreSQL e Firebird,
+      e desaparece no SQLite, que não tem <code>comment on</code>.
     </p>
   </div>
 </div>
@@ -155,12 +232,12 @@ T.Engine('InnoDB').Charset('utf8mb4').TableCollate('utf8mb4_bin').TableComment('
 <tr><td><code>function WithSchema(const AName: string): ILzNexSchema</code></td><td>Qualifica as tabelas criadas daqui para frente (<code>create table `outro`.`q` (…)</code>) e o filtro de <code>HasTable</code>/<code>HasColumn</code>. Vale só nesta instância.</td></tr>
 <tr><td><code>function CreateTable(const AName: string): ILzNexTable</code></td><td>Abre um builder em modo create.</td></tr>
 <tr><td><code>function Table(const AName: string): ILzNexTable</code></td><td>Abre um builder em modo alter.</td></tr>
-<tr><td><code>function HasTable(const AName: string): Boolean</code></td><td>Consulta <code>information_schema.tables</code>. Executa na hora.</td></tr>
-<tr><td><code>function HasColumn(const ATable, AColumn: string): Boolean</code></td><td>Consulta <code>information_schema.columns</code>. Executa na hora.</td></tr>
+<tr><td><code>function HasTable(const AName: string): Boolean</code></td><td>Consulta <code>information_schema.tables</code> — ou <code>rdb$relations</code> no Firebird e <code>sqlite_master</code> no SQLite, que não têm <code>information_schema</code>. Executa na hora.</td></tr>
+<tr><td><code>function HasColumn(const ATable, AColumn: string): Boolean</code></td><td>Consulta <code>information_schema.columns</code> — <code>rdb$relation_fields</code> no Firebird, <code>pragma_table_info(?)</code> no SQLite. Executa na hora.</td></tr>
 <tr><td><code>procedure DropTable(const AName: string)</code></td><td><code>drop table `users`</code>. Sem <code>if exists</code>: se a tabela não existir, o erro vem do banco.</td></tr>
-<tr><td><code>procedure DropTableIfExists(const AName: string)</code></td><td><code>drop table if exists `users`</code>.</td></tr>
-<tr><td><code>procedure RenameTable(const AFrom, ATo: string)</code></td><td>MySQL: <code>rename table `a` to `b`</code>. PostgreSQL: <code>alter table "a" rename to "b"</code>.</td></tr>
-<tr><td><code>procedure Truncate(const AName: string)</code></td><td>MySQL: <code>truncate `users`</code>. PostgreSQL: <code>truncate "users" restart identity</code> — sem isso a sequência continuaria de onde parou, ao contrário do MySQL.</td></tr>
+<tr><td><code>procedure DropTableIfExists(const AName: string)</code></td><td><code>drop table if exists `users`</code>. O Firebird 3/5 não tem essa forma: ali sai um <code>execute block</code> que consulta <code>rdb$relations</code> antes de executar o drop.</td></tr>
+<tr><td><code>procedure RenameTable(const AFrom, ATo: string)</code></td><td>MySQL: <code>rename table `a` to `b`</code>. PostgreSQL e SQLite: <code>alter table "a" rename to "b"</code>. Firebird: <strong>levanta</strong> <code>ELzNexSchema</code> — não existe no 3 nem no 5, a tabela tem de ser recriada, copiada e apagada.</td></tr>
+<tr><td><code>procedure Truncate(const AName: string)</code></td><td>MySQL: <code>truncate `users`</code>. PostgreSQL: <code>truncate "users" restart identity</code> — sem isso a sequência continuaria de onde parou, ao contrário do MySQL. Firebird e SQLite não têm <code>truncate</code>: sai <code>delete from "users"</code>.</td></tr>
 <tr><td><code>procedure Raw(const ASQL: string; const AArgs: array of const)</code></td><td>Escapatória para DDL que o builder não cobre. Mesma gramática de <a href="#raw-sql">SQL cru</a>.</td></tr>
 </tbody>
 </table>
@@ -188,7 +265,7 @@ T.Engine('InnoDB').Charset('utf8mb4').TableCollate('utf8mb4_bin').TableComment('
 
 <h2 id="existence">Consultas de existência</h2>
 <p>
-  Sem <code>WithSchema</code>, o filtro do schema vem do banco corrente — e é aí que os dois
+  Sem <code>WithSchema</code>, o filtro do schema vem do banco corrente — e é aí que os
   dialetos divergem. O nome da tabela e da coluna vão como bind; só a função do schema é texto.
 </p>
 
@@ -206,9 +283,22 @@ select count(*) from information_schema.columns where table_name = ? and column_
 select count(*) from information_schema.columns where table_name = ? and column_name = ? and table_schema = current_schema()</pre>
     <p class="code-note">binds: users · users | email</p>
   </div>
+  <div class="pane" data-pane="fb" data-label="Firebird">
+    <pre data-lang="sql">select count(*) from rdb$relations where trim(rdb$relation_name) = ?
+select count(*) from rdb$relation_fields where trim(rdb$relation_name) = ? and trim(rdb$field_name) = ?</pre>
+    <p class="code-note">não há information_schema; o <code>trim</code> está ali porque o Firebird guarda o nome preenchido com espaços</p>
+  </div>
+  <div class="pane" data-pane="sqlite" data-label="SQLite">
+    <pre data-lang="sql">select count(*) from sqlite_master where type in ('table', 'view') and name = ?
+select count(*) from pragma_table_info(?) where name = ?</pre>
+    <p class="code-note">binds: users · users | email</p>
+  </div>
 </div>
 
-<p>Com schema explícito, a função dá lugar a mais um bind nos dois bancos:</p>
+<p>
+  Com schema explícito, a função dá lugar a mais um bind em MySQL e PostgreSQL. Firebird e
+  SQLite não têm schema nesse sentido, e a consulta deles não muda.
+</p>
 
 <div class="code"><pre data-lang="pascal">Sch := Db.Schema.WithSchema('public');
 Sch.HasTable('users');</pre>
@@ -251,8 +341,9 @@ alter table `users` add `nick` varchar(50) null</pre>
       No MySQL cada comando de DDL encerra a transação aberta. Um plano com vários comandos
       (create + índices, ou os quatro statements de um alter) <strong>não</strong> é atômico lá:
       se o terceiro falhar, os dois primeiros já estão aplicados. Escreva o <code>down</code> da
-      <a href="#migrations">migration</a> supondo estado parcial. No PostgreSQL o DDL é
-      transacional e o plano inteiro cabe num <code>rollback</code>.
+      <a href="#migrations">migration</a> supondo estado parcial. O MySQL é o único dos quatro
+      assim: em PostgreSQL, Firebird e SQLite o DDL é transacional e o plano inteiro cabe num
+      <code>rollback</code>.
     </p>
   </div>
 </div>

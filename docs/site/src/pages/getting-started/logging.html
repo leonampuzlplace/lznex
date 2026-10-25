@@ -28,6 +28,60 @@ Db := Connect(NewConfig
   </div>
 </div>
 
+<h2 id="what-gets-logged">O que é registrado, e quando</h2>
+<p>
+  Quem chama o logger é a camada de conexão: todo <code>Execute</code>, <code>Query</code> e
+  <code>ExecuteScript</code> é cronometrado e passa por <code>LogQuery</code> ao terminar; se
+  levantar, passa por <code>LogError</code> <strong>antes</strong> de a exceção subir. O pool
+  repassa o logger da configuração a cada conexão que abre, então nada precisa ser ligado query
+  por query.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Chamada</th><th>Quando</th><th>O que chega</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>LogQuery</code></td>
+  <td>depois de cada execução concluída</td>
+  <td>o SQL com os <code>?</code> no lugar (nunca interpolado), as bindings cruas e o tempo em ms</td>
+</tr>
+<tr>
+  <td><code>LogError</code></td>
+  <td>quando o banco recusa</td>
+  <td>o mesmo SQL e a mensagem do driver; a exceção continua subindo</td>
+</tr>
+<tr>
+  <td><code>LogInfo</code></td>
+  <td><code>Query.Dump</code>, migrations e seeds</td>
+  <td>texto pronto</td>
+</tr>
+<tr>
+  <td><code>LogWarning</code></td>
+  <td>situações como DDL não transacional no MySQL</td>
+  <td>texto pronto</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout note">
+  <span class="ico">ℹ</span>
+  <div class="body">
+    <span class="t">O tempo medido é o da ida ao banco, não o da leitura das linhas</span>
+    <p>
+      Num <code>Query</code> o cronômetro para quando o cursor volta — e o cursor volta antes de
+      as linhas serem consumidas. Uma query que devolve dez mil linhas pode aparecer com
+      <code>2ms</code> no log e levar bem mais que isso para ser percorrida. Para medir o
+      consumo, meça em volta do seu laço.
+    </p>
+    <p>
+      Exceção lançada <strong>pelo logger</strong> é engolida de propósito: log quebrado não
+      pode derrubar quem só queria executar uma query.
+    </p>
+  </div>
+</div>
+
 <h2 id="custom-logger">Logger próprio</h2>
 <div class="code"><pre data-lang="pascal">type
   TMyLogger = class(TInterfacedObject, ILzNexLogger)

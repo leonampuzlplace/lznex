@@ -12,6 +12,8 @@ uses
   LzNex.Value,
   LzNex.Bindings,
   LzNex.Fragment,
+  LzNex.Intf,
+  LzNex.Migration.Source.Sql,
   LzNex.Exceptions;
 
 type
@@ -48,6 +50,17 @@ type
     procedure JoinSkipsEmptyFragments;
     procedure WrapKeepsBindings;
     procedure BuildsPlaceholderList;
+  end;
+
+  TSqlSplitTest = class(TTestCase)
+  published
+    procedure SplitsOnSemicolon;
+    procedure IgnoresSemicolonInsideALiteral;
+    procedure IgnoresSemicolonInsideAComment;
+    procedure KeepsADollarQuotedBodyWhole;
+    procedure KeepsATaggedDollarBodyWhole;
+    procedure UnclosedDollarBodyRaises;
+    procedure ALoneDollarIsNotAQuote;
   end;
 
 implementation
@@ -251,10 +264,82 @@ begin
   AssertEquals(3, Fragment.Bindings.Count);
 end;
 
+procedure TSqlSplitTest.SplitsOnSemicolon;
+var
+  Parts: TLzNexStringArray;
+begin
+  Parts := SplitSqlStatements('create table a (id int); insert into a values (1);');
+  AssertEquals('two statements', 2, Length(Parts));
+  AssertEquals('create table a (id int)', Parts[0]);
+  AssertEquals('insert into a values (1)', Parts[1]);
+end;
+
+procedure TSqlSplitTest.IgnoresSemicolonInsideALiteral;
+var
+  Parts: TLzNexStringArray;
+begin
+  Parts := SplitSqlStatements('insert into a values (''x; y'')');
+  AssertEquals('one statement', 1, Length(Parts));
+  AssertEquals('insert into a values (''x; y'')', Parts[0]);
+end;
+
+procedure TSqlSplitTest.IgnoresSemicolonInsideAComment;
+var
+  Parts: TLzNexStringArray;
+begin
+  Parts := SplitSqlStatements('select 1 -- a; b' + sLineBreak + '; select 2');
+  AssertEquals('two statements', 2, Length(Parts));
+end;
+
+procedure TSqlSplitTest.KeepsADollarQuotedBodyWhole;
+var
+  Parts: TLzNexStringArray;
+begin
+  Parts := SplitSqlStatements(
+    'create function f() returns int as $$ begin return 1; end; $$ language plpgsql;' +
+    sLineBreak + 'select f();');
+  AssertEquals('two statements', 2, Length(Parts));
+  AssertEquals(
+    'create function f() returns int as $$ begin return 1; end; $$ language plpgsql',
+    Parts[0]);
+  AssertEquals('select f()', Parts[1]);
+end;
+
+procedure TSqlSplitTest.KeepsATaggedDollarBodyWhole;
+var
+  Parts: TLzNexStringArray;
+begin
+  Parts := SplitSqlStatements(
+    'do $body$ begin perform 1; perform 2; end $body$;' + sLineBreak +
+    'select 3;');
+  AssertEquals('two statements', 2, Length(Parts));
+  AssertEquals('do $body$ begin perform 1; perform 2; end $body$', Parts[0]);
+end;
+
+procedure TSqlSplitTest.UnclosedDollarBodyRaises;
+begin
+  try
+    SplitSqlStatements('create function f() as $$ begin return 1;');
+    Fail('expected ELzNexMigration for an unclosed dollar body');
+  except
+    on E: ELzNexMigration do ;
+  end;
+end;
+
+procedure TSqlSplitTest.ALoneDollarIsNotAQuote;
+var
+  Parts: TLzNexStringArray;
+begin
+  Parts := SplitSqlStatements('select ''a$b''; select 2;');
+  AssertEquals('two statements', 2, Length(Parts));
+  AssertEquals('select ''a$b''', Parts[0]);
+end;
+
 initialization
   RegisterTest('core', TValueTest);
   RegisterTest('core', TArrayOfConstTest);
   RegisterTest('core', TBindingsTest);
   RegisterTest('core', TFragmentTest);
+  RegisterTest('core', TSqlSplitTest);
 
 end.

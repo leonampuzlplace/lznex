@@ -66,6 +66,90 @@ update `accounts` set `balance` = `balance` + ? where `id` = ?</pre>
   </div>
 </div>
 
+<h2 id="transact">Transact: o bloco que se repete sozinho</h2>
+<p>
+  O <code>try/except</code> acima é o mesmo em todo lugar, e ainda deixa de fora o caso em que o
+  banco aborta a transação por conta própria — deadlock, falha de serialização. Esses erros são
+  <strong>transitórios</strong>: a resposta correta é desfazer e tentar de novo, não propagar.
+  <code>Transact</code> faz os dois.
+</p>
+
+<div class="code"><pre data-lang="pascal">type
+  TTransfer = class(TInterfacedObject, ILzNexWork)
+  private
+    FFrom, FTo, FCents: Int64;
+  public
+    constructor Create(const AFrom, ATo, ACents: Int64);
+    procedure Execute(const ADb: ILzNex);
+  end;
+
+procedure TTransfer.Execute(const ADb: ILzNex);
+begin
+  ADb.Table('accounts').Where('id', FFrom).Decrement('balance', FCents);
+  ADb.Table('accounts').Where('id', FTo).Increment('balance', FCents);
+end;
+
+// ...
+Tries := Db.Transact(TTransfer.Create(1, 2, 100) as ILzNexWork, 3);</pre>
+<div class="code-out">
+  <div class="code-label">O que acontece</div>
+  <pre data-lang="out">abre a transacao -> Execute -> commit            -> devolve 1
+abre a transacao -> Execute -> deadlock          -> rollback
+abre a transacao -> Execute -> commit            -> devolve 2</pre>
+</div>
+</div>
+
+<p>
+  <code>Transact</code> devolve <strong>quantas tentativas gastou</strong> — 1 no caminho
+  normal. O <code>ADb</code> que o bloco recebe é a própria transação, então tudo que ele faz
+  está dentro dela; não use a facade de fora lá dentro, ou aquela escrita ficará fora do
+  rollback.
+</p>
+
+<p>
+  É interface e não callback pelo mesmo motivo de <code>ILzNexMigration</code>: o FPC 3.2 não
+  tem função anônima, e o retry precisa executar o mesmo bloco mais de uma vez.
+</p>
+
+<h3 id="retryable">O que conta como transitório</h3>
+<p>
+  Quem decide é o dialeto, em <code>ILzNexClient.IsRetryableError</code>, a partir do código
+  nativo e do SQLSTATE que o driver reportou — <code>ELzNexQuery</code> agora carrega os dois em
+  <code>ErrorCode</code> e <code>SQLState</code>. Erro sem classificação <strong>não</strong> é
+  repetido: insistir num erro definitivo (violação de unique, coluna inexistente) só multiplica
+  o estrago.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Dialeto</th><th>Repetido</th></tr></thead>
+<tbody>
+<tr><td>Todos</td><td>SQLSTATE <code>40001</code> (falha de serialização) e <code>40P01</code> (deadlock)</td></tr>
+<tr><td>MySQL</td><td>1213 (deadlock) e 1205 (lock wait timeout)</td></tr>
+<tr><td>SQLite</td><td>5 (<code>SQLITE_BUSY</code>) e 6 (<code>SQLITE_LOCKED</code>)</td></tr>
+<tr><td>Firebird</td><td>deadlock e conflito de atualização</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">O bloco tem de poder rodar duas vezes</span>
+    <p>
+      Repetir só é seguro se o bloco for <strong>idempotente dentro da transação</strong>: o
+      rollback desfaz o que foi para o banco, mas não desfaz o que você fez fora dele — arquivo
+      gravado, e-mail enviado, contador em memória incrementado. Deixe efeito externo para
+      depois do <code>Transact</code> retornar.
+    </p>
+    <p>
+      <code>Transact</code> chamado <strong>dentro</strong> de uma transação levanta: o retry
+      precisa ser dono da transação para poder reabri-la. Para um escopo interno, use
+      <a href="#transactions/savepoint">Savepoint</a>.
+    </p>
+  </div>
+</div>
+
 <h2 id="releasing-the-connection">Por que Commit solta a conexão na hora</h2>
 <p>
   <code>Commit</code> e <code>Rollback</code> não só terminam a transação no banco: eles soltam
@@ -210,7 +294,7 @@ end;</pre></div>
 <table>
 <thead><tr><th>TLzNexIsolation</th><th>Efeito</th></tr></thead>
 <tbody>
-<tr><td><code>ilDefault</code></td><td>Não envia nada: vale o default do servidor (<code>repeatable read</code> no MySQL, <code>read committed</code> no PostgreSQL).</td></tr>
+<tr><td><code>ilDefault</code></td><td>Não envia nada: vale o default do servidor (<code>repeatable read</code> no MySQL, <code>read committed</code> no PostgreSQL) — <strong>exceto</strong> no Firebird, onde o dialeto declara <code>ilReadCommitted</code> como nível de abertura, porque o default dele é snapshot e snapshot num pool deixa a conexão sem ver o commit das outras.</td></tr>
 <tr><td><code>ilReadUncommitted</code></td><td>Lê o que outra transação ainda não confirmou. Leitura suja.</td></tr>
 <tr><td><code>ilReadCommitted</code></td><td>Só dados confirmados. Duas leituras iguais podem dar resultados diferentes.</td></tr>
 <tr><td><code>ilRepeatableRead</code></td><td>A mesma leitura repetida dá o mesmo resultado dentro da transação.</td></tr>
@@ -262,6 +346,16 @@ end;</pre>
 </div>
 
 <p>Sem <code>SkipLocked</code> nem <code>NoWait</code>, o comportamento é esperar o lock.</p>
+
+<p>
+  Esse padrão de fila só se traduz inteiro em MySQL e PostgreSQL. No <strong>Firebird</strong>
+  a mesma cadeia sai como <code>with lock skip locked</code> — e só o Firebird 5 entende essa
+  sintaxe; <code>ForShare</code> e <code>NoWait</code> levantam ali. No
+  <strong>SQLite</strong> não existe lock de linha: <code>ForUpdate</code> e
+  <code>ForShare</code> levantam, porque uma transação de escrita tranca o banco inteiro —
+  a fila tem de ser serializada na aplicação. Veja
+  <a href="#dialects/firebird">Dialetos</a>.
+</p>
 
 <div class="callout warn">
   <span class="ico">⚠</span>

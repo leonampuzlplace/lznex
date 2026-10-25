@@ -31,8 +31,8 @@
             <Filename Value="bin/api-debug"/>
           </Target>
           <SearchPaths>
-            <IncludeFiles Value="$(ProjOutDir);modules/github_com_HashLoad_horse/src;modules/github_com_CHANGEME_zeoslib/src"/>
-            <OtherUnitFiles Value="src;modules/github_com_HashLoad_horse/src;modules/github_com_leonampuzlplace_lznex/src;modules/github_com_CHANGEME_zeoslib/src/core;modules/github_com_CHANGEME_zeoslib/src/parsesql;modules/github_com_CHANGEME_zeoslib/src/plain;modules/github_com_CHANGEME_zeoslib/src/dbc;modules"/>
+            <IncludeFiles Value="$(ProjOutDir);modules/github_com_HashLoad_horse/src;modules/zeoslib/src"/>
+            <OtherUnitFiles Value="src;modules/github_com_HashLoad_horse/src;modules/github_com_leonampuzlplace_lznex/src;modules/zeoslib/src/core;modules/zeoslib/src/parsesql;modules/zeoslib/src/plain;modules/zeoslib/src/dbc;modules"/>
             <UnitOutputDirectory Value="lib/debug/$(TargetCPU)-$(TargetOS)"/>
           </SearchPaths>
           <CodeGeneration>
@@ -76,8 +76,8 @@
       <Filename Value="bin/api"/>
     </Target>
     <SearchPaths>
-      <IncludeFiles Value="$(ProjOutDir);modules/github_com_HashLoad_horse/src;modules/github_com_CHANGEME_zeoslib/src"/>
-      <OtherUnitFiles Value="src;modules/github_com_HashLoad_horse/src;modules/github_com_leonampuzlplace_lznex/src;modules/github_com_CHANGEME_zeoslib/src/core;modules/github_com_CHANGEME_zeoslib/src/parsesql;modules/github_com_CHANGEME_zeoslib/src/plain;modules/github_com_CHANGEME_zeoslib/src/dbc;modules"/>
+      <IncludeFiles Value="$(ProjOutDir);modules/github_com_HashLoad_horse/src;modules/zeoslib/src"/>
+      <OtherUnitFiles Value="src;modules/github_com_HashLoad_horse/src;modules/github_com_leonampuzlplace_lznex/src;modules/zeoslib/src/core;modules/zeoslib/src/parsesql;modules/zeoslib/src/plain;modules/zeoslib/src/dbc;modules"/>
       <UnitOutputDirectory Value="lib/release/$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>
     <CodeGeneration>

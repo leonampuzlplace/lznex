@@ -44,7 +44,9 @@ select * from `users` order by field(`s`, ?) asc</pre>
 <p>
   O terceiro overload aceita <code>nlFirst</code> ou <code>nlLast</code>. Onde o banco tem
   <code>nulls first/last</code> nativo, sai nativo; onde não tem, o LzNex <strong>emula</strong>
-  ordenando antes pela flag de nulidade — o resultado é o mesmo, o texto não.
+  ordenando antes pela flag de nulidade — o resultado é o mesmo, o texto não. O MySQL é o
+  único dos quatro sem a cláusula: PostgreSQL, Firebird e SQLite (desde a 3.30) emitem a
+  forma nativa.
 </p>
 
 <div class="code" data-tabs>
@@ -68,7 +70,45 @@ select * from "t" order by "name" desc nulls first</pre>
   </div>
 </div>
 
+<h3 id="random">Ordem aleatória</h3>
+<p>
+  <code>InRandomOrder</code> deixa o banco sortear. A função não é ANSI:
+  <code>random()</code> no PostgreSQL e no SQLite, <code>rand()</code> no MySQL e no Firebird —
+  o dialeto escolhe.
+</p>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="pascal">Db.Table('quotes').InRandomOrder.Limit(1)</pre>
+    <div class="code-out">
+      <div class="code-label">SQL</div>
+      <pre data-lang="sql">select * from `quotes` order by rand() limit ?</pre>
+    </div>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">select * from "quotes" order by random() limit ?</pre>
+  </div>
+  <div class="pane" data-pane="fb" data-label="Firebird">
+    <pre data-lang="sql">select * from "quotes" order by rand() fetch next ? rows only</pre>
+  </div>
+  <div class="pane" data-pane="sqlite" data-label="SQLite">
+    <pre data-lang="sql">select * from "quotes" order by random() limit ?</pre>
+  </div>
+</div>
+
+<p>
+  Custa caro em tabela grande: para devolver uma linha o banco sorteia e ordena
+  <strong>todas</strong>. Reduza antes com um <code>Where</code>, ou sorteie o id na aplicação e
+  busque por chave.
+</p>
+
 <h2 id="paging">Paginação</h2>
+<p>
+  <code>Limit</code> e <code>Offset</code> são o primitivo. Para janelas prontas — com total,
+  sem total ou por cursor — e para varredura em lotes, veja
+  <a href="#pagination">Paginação e varredura</a>.
+</p>
+
 <div class="code"><pre data-lang="pascal">Db.Table('t').Limit(10).Offset(20)
 Db.Table('t').Page(3, 10)         // pagina 1-based: limit 10 offset 20</pre>
 <div class="code-out">
@@ -80,6 +120,20 @@ select * from `t` limit ? offset ?</pre>
 
 <p><code>Page</code> valida: página menor que 1 ou tamanho menor que 1 levanta <code>ELzNexBuilder</code>.</p>
 
+<p>
+  O Firebird é o único que não tem <code>limit</code>: lá a paginação é
+  <code>offset … rows</code> mais <code>fetch next … rows only</code>, nessa ordem, depois do
+  <code>order by</code>.
+</p>
+
+<div class="code"><pre data-lang="pascal">Db.Table('t').OrderBy('id').Limit(10).Offset(20)</pre>
+<div class="code-out">
+  <div class="code-label">SQL · Firebird</div>
+  <pre data-lang="sql">select * from "t" order by "id" asc offset ? rows fetch next ? rows only</pre>
+  <p class="code-note">binds: 20 | 10 — na ordem em que aparecem no texto, não na da cadeia</p>
+</div>
+</div>
+
 <h3 id="offset-alone">Offset sem Limit</h3>
 <div class="code" data-tabs>
   <div class="pane on" data-pane="mysql" data-label="MySQL">
@@ -89,6 +143,14 @@ select * from `t` limit ? offset ?</pre>
   <div class="pane" data-pane="pg" data-label="PostgreSQL">
     <pre data-lang="sql">select * from "t" offset ?</pre>
     <p class="code-note">o Postgres aceita OFFSET sozinho: nada de limite artificial</p>
+  </div>
+  <div class="pane" data-pane="fb" data-label="Firebird">
+    <pre data-lang="sql">select * from "t" offset ? rows</pre>
+    <p class="code-note">também aceita sozinho, e sem limite artificial</p>
+  </div>
+  <div class="pane" data-pane="sqlite" data-label="SQLite">
+    <pre data-lang="sql">select * from "t" limit -1 offset ?</pre>
+    <p class="code-note">mesmo problema do MySQL, outra solução: -1 é o "sem limite" do SQLite</p>
   </div>
 </div>
 
@@ -108,4 +170,31 @@ select * from `users` for share nowait</pre>
   Lock só faz sentido dentro de transação — fora dela o banco solta a trava no fim do comando.
   Veja <a href="#transactions">Transações</a>.
 </p>
+
+<p>É a área com mais divergência entre os quatro bancos:</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Dialeto</th><th>Como fica</th></tr></thead>
+<tbody>
+<tr><td>MySQL · PostgreSQL</td><td>as quatro formas acima, nativas</td></tr>
+<tr>
+  <td>Firebird</td>
+  <td>
+    <code>ForUpdate</code> vira <code>with lock</code> e <code>SkipLocked</code> vira
+    <code>with lock skip locked</code> (sintaxe do Firebird 5 em diante).
+    <code>ForShare</code> levanta — <code>with lock</code> é sempre exclusivo — e
+    <code>NoWait</code> também: esperar é atributo da transação lá, não cláusula do lock
+  </td>
+</tr>
+<tr>
+  <td>SQLite</td>
+  <td>
+    <code>ForUpdate</code> e <code>ForShare</code> levantam: não há lock de linha, uma
+    transação de escrita tranca o banco inteiro
+  </td>
+</tr>
+</tbody>
+</table>
+</div>
 </article>

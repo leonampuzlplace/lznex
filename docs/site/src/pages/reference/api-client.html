@@ -17,33 +17,38 @@
 <div class="table-wrap">
 <table class="api">
 <tbody>
-<tr><td><code>function DialectName: string</code></td><td>Nome do dialeto em minúsculas (<code>'mysql'</code>, <code>'postgresql'</code>). É a chave do registro e o que <code>LastInsertId</code> consulta para escolher a consulta certa.</td></tr>
+<tr><td><code>function DialectName: string</code></td><td>Nome do dialeto em minúsculas (<code>'mysql'</code>, <code>'postgresql'</code>, <code>'firebird'</code>, <code>'sqlite'</code>). É a chave do registro e o que <code>LastInsertId</code> consulta para escolher a consulta certa. Um dialeto pode estar registrado sob mais de um nome e ainda assim ter um só <code>DialectName</code>: <code>'sqlite3'</code> devolve <code>'sqlite'</code>.</td></tr>
 <tr><td><code>function ZeosProtocol: string</code></td><td>Protocolo da URL do Zeos. Separado do nome porque os dois não precisam coincidir.</td></tr>
 <tr><td><code>function WrapIdentifier(const AName: string): string</code></td><td>Envolve um nome simples. O caractere de quote dentro do nome é dobrado, o que fecha a porta para injeção via identificador; <code>*</code> e vazio passam intactos.</td></tr>
 <tr><td><code>function WrapQualified(const AName: string): string</code></td><td>Envolve um nome com pontos, parte por parte, e entende <code>' as '</code> no meio — <code>'a.id as x'</code> sai com os três pedaços tratados.</td></tr>
 <tr><td><code>function Alias(const AExpr, AAlias: string): string</code></td><td>Cola expressão e apelido. Apelido vazio devolve só a expressão.</td></tr>
-<tr><td><code>function Placeholder(const AIndex: Integer): string</code></td><td>Marcador de bind. Devolve <code>?</code> nos dois dialetos; o índice existe para um dialeto que numere os binds.</td></tr>
-<tr><td><code>function EscapeForLog(const AValue: TLzNexValue): string</code></td><td>Representação legível de um bind, só para log. Não serve para montar SQL — binário vira <code>&lt;n bytes&gt;</code> e valor não setado vira <code>&lt;unset&gt;</code>.</td></tr>
+<tr><td><code>function Placeholder(const AIndex: Integer): string</code></td><td>Marcador de bind. Devolve <code>?</code> em todos os dialetos; o índice existe para um dialeto que numere os binds.</td></tr>
+<tr><td><code>function EscapeForLog(const AValue: TLzNexValue): string</code></td><td>Valor interpolado. Dois usos: o que o log mostra no lugar de cada bind, e o literal de <code>DEFAULT</code> no DDL. Não serve para montar o corpo de uma query — binário vira <code>&lt;n bytes&gt;</code> e valor não setado vira <code>&lt;unset&gt;</code>. Booleano é o ponto de divergência: <code>true</code>/<code>false</code> em PostgreSQL e Firebird, porque <code>1</code>/<code>0</code> é recusado numa coluna <code>boolean</code>.</td></tr>
 </tbody>
 </table>
 </div>
 
 <h3 id="capabilities">Capacidades</h3>
 <p>
-  Seis perguntas booleanas. O compilador usa as respostas para emitir a forma nativa ou cair num
-  equivalente, e o migrator usa a última para avisar sobre DDL. Os valores de cada dialeto estão
-  em <a href="#dialects">dialetos</a>.
+  Seis perguntas booleanas, mais uma que não é. O compilador usa as respostas para emitir a forma
+  nativa ou cair num equivalente, o migrator usa <code>DdlIsTransactional</code> para avisar sobre
+  DDL, e a camada de conexão usa <code>DefaultIsolation</code> ao abrir. Os valores de cada
+  dialeto estão em <a href="#dialects/capabilities">dialetos</a>.
 </p>
 
 <div class="table-wrap">
 <table class="api">
 <tbody>
-<tr><td><code>function SupportsReturning: Boolean</code></td><td>Se <code>returning</code> existe. Onde não existe, <code>Returning</code> no builder não tem efeito no SQL.</td></tr>
+<tr><td><code>function SupportsReturning: Boolean</code></td><td>Se <code>returning</code> existe. Onde não existe, <code>Returning</code> no builder levanta <code>ELzNexCompile</code> em vez de sair do SQL em silêncio.</td></tr>
 <tr><td><code>function SupportsOnConflictWhere: Boolean</code></td><td>Se o tratamento de conflito aceita predicado próprio.</td></tr>
 <tr><td><code>function SupportsNullsOrdering: Boolean</code></td><td>Se <code>nulls first</code> / <code>nulls last</code> existe no <code>order by</code>.</td></tr>
 <tr><td><code>function SupportsDistinctOn: Boolean</code></td><td>Se <code>distinct on</code> existe.</td></tr>
 <tr><td><code>function SupportsSavepoints: Boolean</code></td><td>Se savepoint é suportado. <code>True</code> na base.</td></tr>
+<tr><td><code>function SupportsJson: Boolean</code></td><td>Se há tipo e funções de JSON. <code>False</code> na base e no Firebird; <code>True</code> em MySQL, PostgreSQL e SQLite — é o que faz <code>WhereJson*</code> recusar antes de gerar SQL.</td></tr>
+<tr><td><code>function SupportsFullText: Boolean</code></td><td>Se há índice e busca de texto completo em tabela comum. <code>True</code> só em MySQL e PostgreSQL.</td></tr>
+<tr><td><code>function IsRetryableError(const ACode: Integer; const ASQLState: string): Boolean</code></td><td>Se vale repetir a transação depois deste erro. A base aceita os SQLSTATE <code>40001</code> e <code>40P01</code>; cada dialeto acrescenta seus códigos nativos. É o que <code>Transact</code> consulta.</td></tr>
 <tr><td><code>function DdlIsTransactional: Boolean</code></td><td><code>False</code> quando DDL dá commit implícito. É o que faz o migrator emitir o aviso de que um rollback não vai desfazer o <code>create</code>/<code>alter</code>/<code>drop</code> já executado.</td></tr>
+<tr><td><code>function DefaultIsolation: TLzNexIsolation</code></td><td>Nível em que a conexão nasce. <code>ilDefault</code> na base — não mexe no default do servidor. Só o Firebird sobrescreve, para <code>ilReadCommitted</code>: o default dele é snapshot, e snapshot num pool deixa a conexão sem ver o commit das outras.</td></tr>
 </tbody>
 </table>
 </div>
@@ -112,6 +117,9 @@
 <tr><td><code>function TruncateTableSQL(const ATable: string): TLzNexFragment</code></td><td><code>truncate table</code>.</td></tr>
 <tr><td><code>function HasTableSQL(const ATable, ASchema: string): TLzNexFragment</code></td><td>Consulta de existência da tabela. Nome e schema vão como <strong>bind</strong>, não interpolados; schema vazio é omitido do predicado.</td></tr>
 <tr><td><code>function HasColumnSQL(const ATable, AColumn, ASchema: string): TLzNexFragment</code></td><td>O mesmo para coluna.</td></tr>
+<tr><td><code>function TablesSQL(const ASchema: string): TLzNexFragment</code></td><td>Lista de tabelas: uma coluna de texto por linha. Base em <code>information_schema</code>; cada dialeto sobrescreve com o seu catálogo.</td></tr>
+<tr><td><code>function ColumnsSQL(const ATable, ASchema: string): TLzNexFragment</code></td><td>Colunas na ordem de declaração, uma coluna de texto por linha.</td></tr>
+<tr><td><code>function HasIndexSQL(const ATable: string; const AColumns: TLzNexValues; const ASchema: string): TLzNexFragment</code></td><td>Uma linha com um contador: maior que zero significa que existe índice cobrindo exatamente aquelas colunas.</td></tr>
 <tr><td><code>function IndexName(const ATable: string; const AColumns: TLzNexValues; const AKind: TLzNexIndexKind): string</code></td><td>Nome derivado do índice: tabela, colunas e o sufixo do tipo, tudo em minúsculas e com <code>.</code> e <code>-</code> trocados por <code>_</code>. Um <code>ConstraintName</code> no builder tem precedência sobre isto.</td></tr>
 </tbody>
 </table>

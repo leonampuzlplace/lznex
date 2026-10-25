@@ -20,6 +20,8 @@ const
   LZNEX_POOL_WAIT_STEP_MS = 5;
   LZNEX_POOL_DEFAULT_TIMEOUT_MS = 10000;
 
+  LZNEX_POOL_MAX_UNWIND = 64;
+
 type
   TLzNexPool = class;
 
@@ -74,6 +76,8 @@ type
     FLock: TCriticalSection;
     FClient: ILzNexClient;
     FParams: TLzNexConnectionParams;
+
+    FLogger: ILzNexLogger;
     FIdle: array of ILzNexConnection;
     FIdleCount: Integer;
     FInUse: Integer;
@@ -89,7 +93,8 @@ type
   public
     constructor Create(const AClient: ILzNexClient;
       const AParams: TLzNexConnectionParams;
-      const AMin, AMax, ATimeoutMs: Integer);
+      const AMin, AMax, ATimeoutMs: Integer;
+      const ALogger: ILzNexLogger = nil);
     destructor Destroy; override;
 
     function Acquire: ILzNexConnection;
@@ -104,7 +109,8 @@ type
 
 function NewPool(const AClient: ILzNexClient;
   const AParams: TLzNexConnectionParams;
-  const AMin, AMax, ATimeoutMs: Integer): ILzNexPool; overload;
+  const AMin, AMax, ATimeoutMs: Integer;
+  const ALogger: ILzNexLogger = nil): ILzNexPool; overload;
 
 function NewPool(const AConfig: ILzNexConfig;
   const AClient: ILzNexClient): ILzNexPool; overload;
@@ -180,6 +186,8 @@ procedure TLzNexLeasedResult.Close;
 begin
   if FInner <> nil then
     FInner.Close;
+
+  FLease := nil;
 end;
 
 constructor TLzNexPooledConnection.Create(const APool: TLzNexPool;
@@ -304,7 +312,8 @@ begin
 end;
 
 constructor TLzNexPool.Create(const AClient: ILzNexClient;
-  const AParams: TLzNexConnectionParams; const AMin, AMax, ATimeoutMs: Integer);
+  const AParams: TLzNexConnectionParams; const AMin, AMax, ATimeoutMs: Integer;
+  const ALogger: ILzNexLogger);
 var
   I: Integer;
 begin
@@ -321,6 +330,7 @@ begin
 
   FClient := AClient;
   FParams := AParams;
+  FLogger := ALogger;
   FMin := AMin;
   FMax := AMax;
   if ATimeoutMs < 0 then
@@ -344,7 +354,7 @@ end;
 
 function TLzNexPool.OpenNew: ILzNexConnection;
 begin
-  Result := NewConnection(FClient, FParams);
+  Result := NewConnection(FClient, FParams, FLogger);
 end;
 
 function TLzNexPool.Lend(const AConn: ILzNexConnection): ILzNexConnection;
@@ -396,19 +406,10 @@ begin
       if FShutdown then
         raise ELzNexPool.Create('Pool already shut down: Acquire after Shutdown');
 
-      while FIdleCount > 0 do
-      begin
-        Conn := PopIdle;
-        if Conn.Ping then
-        begin
-          Inc(FInUse);
-          Break;
-        end;
-        Conn.Close;
-        Conn := nil;
-      end;
-
-      if (Conn = nil) and (FInUse + FIdleCount < FMax) then
+      Conn := PopIdle;
+      if Conn <> nil then
+        Inc(FInUse)
+      else if FInUse + FIdleCount < FMax then
       begin
 
         Inc(FInUse);
@@ -419,7 +420,24 @@ begin
     end;
 
     if Conn <> nil then
-      Exit(Lend(Conn));
+    begin
+      if Conn.Ping then
+        Exit(Lend(Conn));
+
+      try
+        Conn.Close;
+      except
+      end;
+      Conn := nil;
+      FLock.Acquire;
+      try
+        if FInUse > 0 then
+          Dec(FInUse);
+      finally
+        FLock.Release;
+      end;
+      Continue;
+    end;
 
     if Reserved then
     begin
@@ -453,9 +471,32 @@ procedure TLzNexPool.Release(const AConn: ILzNexConnection);
 var
   Keep: Boolean;
   Dead: ILzNexConnection;
+  Unwound: Integer;
 begin
   if AConn = nil then
     Exit;
+
+  Keep := True;
+  try
+    if AConn.IsClosed then
+      Keep := False
+    else
+    begin
+
+      Unwound := 0;
+      while AConn.InTransaction and (Unwound < LZNEX_POOL_MAX_UNWIND) do
+      begin
+        AConn.Rollback;
+        Inc(Unwound);
+      end;
+
+      if AConn.InTransaction then
+        Keep := False;
+    end;
+  except
+
+    Keep := False;
+  end;
 
   Dead := nil;
   FLock.Acquire;
@@ -463,21 +504,7 @@ begin
     if FInUse > 0 then
       Dec(FInUse);
 
-    Keep := not FShutdown;
-    if Keep then
-    begin
-      try
-        if AConn.IsClosed then
-          Keep := False
-        else if AConn.InTransaction then
-          AConn.Rollback;
-      except
-
-        Keep := False;
-      end;
-    end;
-
-    if Keep and (FIdleCount >= FMax) then
+    if FShutdown or (FIdleCount >= FMax) then
       Keep := False;
 
     if Keep then
@@ -564,9 +591,11 @@ end;
 
 function NewPool(const AClient: ILzNexClient;
   const AParams: TLzNexConnectionParams;
-  const AMin, AMax, ATimeoutMs: Integer): ILzNexPool;
+  const AMin, AMax, ATimeoutMs: Integer;
+  const ALogger: ILzNexLogger): ILzNexPool;
 begin
-  Result := TLzNexPool.Create(AClient, AParams, AMin, AMax, ATimeoutMs) as ILzNexPool;
+  Result := TLzNexPool.Create(AClient, AParams, AMin, AMax, ATimeoutMs, ALogger)
+    as ILzNexPool;
 end;
 
 function NewPool(const AConfig: ILzNexConfig;
@@ -594,7 +623,8 @@ begin
   if Timeout_ <= 0 then
     Timeout_ := LZNEX_POOL_DEFAULT_TIMEOUT_MS;
 
-  Result := TLzNexPool.Create(AClient, P, Min_, Max_, Timeout_) as ILzNexPool;
+  Result := TLzNexPool.Create(AClient, P, Min_, Max_, Timeout_,
+    AConfig.GetLogger) as ILzNexPool;
 end;
 
 end.

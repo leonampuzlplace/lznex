@@ -15,7 +15,13 @@ uses
   LzNex.Intf,
   LzNex.Client,
   LzNex.Raw,
+  LzNex.Cursor,
+  LzNex.Chunk,
   LzNex.Exceptions;
+
+const
+
+  LZNEX_AGG_ALIAS = 'lznex_agg';
 
 type
   TLzNexGroupStack = class(TList<TLzNexGroupStmt>);
@@ -32,7 +38,16 @@ type
 
     FCurrentJoin: TLzNexJoinStmt;
 
+    FUsePrimary: Boolean;
+
     procedure Emit(const AStmt: TLzNexStatement);
+
+    procedure AddDatePart(const ACol: string; const APart: TLzNexDatePart;
+      const AOp: string; const AValue: TLzNexValue);
+    procedure AddJson(const ACol, APath: string; const AJsonOp: TLzNexJsonOp;
+      const AOp: string; const AValue: TLzNexValue);
+
+    function WantsReadReplica: Boolean;
 
     function StackOf(const AGroup: TLzNexStatementGroup): TLzNexGroupStack;
 
@@ -59,6 +74,7 @@ type
     procedure OpenGroup(const AGroup: TLzNexStatementGroup;
       const ABool: TLzNexBoolOp = boAnd; const ANot: Boolean = False);
     procedure CloseGroup(const AGroup: TLzNexStatementGroup);
+    procedure Enclose(const AGroup: TLzNexStatementGroup; const AWhat: string);
 
     function StartJoin(const AType: TLzNexJoinType; const ATable: TLzNexValue;
       const AAlias: string): ILzNexJoin;
@@ -71,6 +87,16 @@ type
     function ActiveConnection: ILzNexConnection;
 
     function RunExecute: Int64;
+
+    function FreshQuery: ILzNexQuery;
+
+    function NeedsCountSubquery: Boolean;
+
+    function TotalForPaging: Int64;
+
+    function MaterializeRows: TLzNexRowArray;
+    function RowsOf(const AQuery: ILzNexQuery): TLzNexRowArray;
+    function RowOf(const AQuery: ILzNexQuery): ILzNexRow;
   public
     constructor Create(const AClient: ILzNexClient; const ADb: ILzNex;
       const ATrx: ILzNexTransaction);
@@ -89,6 +115,11 @@ type
     function SelectAs(const AColumn, AAlias: string): ILzNexQuery;
     function SelectRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery;
     function SelectSub(const ASub: ILzNexQuery; const AAlias: string): ILzNexQuery;
+    function SelectCount(const AColumn: string = '*';
+      const AAlias: string = ''): ILzNexQuery;
+    function SelectAggregate(const AAgg: TLzNexAggregate;
+      const AColumn, AAlias: string): ILzNexQuery;
+    function WithCount(const ASub: ILzNexQuery; const AAlias: string): ILzNexQuery;
     function Distinct: ILzNexQuery;
     function DistinctOn(const AColumns: array of string): ILzNexQuery;
 
@@ -127,13 +158,47 @@ type
     function WhereExists(const ASub: ILzNexQuery): ILzNexQuery;
     function WhereNotExists(const ASub: ILzNexQuery): ILzNexQuery;
 
+    function WhereDate(const AColumn: string; const AValue: TLzNexValue): ILzNexQuery; overload;
+    function WhereDate(const AColumn, AOp: string; const AValue: TLzNexValue): ILzNexQuery; overload;
+    function WhereTime(const AColumn: string; const AValue: TLzNexValue): ILzNexQuery; overload;
+    function WhereTime(const AColumn, AOp: string; const AValue: TLzNexValue): ILzNexQuery; overload;
+    function WhereYear(const AColumn: string; const AValue: Integer): ILzNexQuery; overload;
+    function WhereYear(const AColumn, AOp: string; const AValue: Integer): ILzNexQuery; overload;
+    function WhereMonth(const AColumn: string; const AValue: Integer): ILzNexQuery; overload;
+    function WhereMonth(const AColumn, AOp: string; const AValue: Integer): ILzNexQuery; overload;
+    function WhereDay(const AColumn: string; const AValue: Integer): ILzNexQuery; overload;
+    function WhereDay(const AColumn, AOp: string; const AValue: Integer): ILzNexQuery; overload;
+    function WhereHour(const AColumn: string; const AValue: Integer): ILzNexQuery; overload;
+    function WhereHour(const AColumn, AOp: string; const AValue: Integer): ILzNexQuery; overload;
+    function WhereDatePart(const AColumn: string; const APart: TLzNexDatePart;
+      const AOp: string; const AValue: TLzNexValue): ILzNexQuery;
+
+    function WhereJsonPath(const AColumn, APath, AOp: string;
+      const AValue: TLzNexValue): ILzNexQuery;
+    function WhereJsonContains(const AColumn, APath: string;
+      const AValue: TLzNexValue): ILzNexQuery;
+    function WhereJsonLength(const AColumn, APath, AOp: string;
+      const AValue: Integer): ILzNexQuery;
+
+    function WhereFullText(const AColumns: array of string;
+      const ASearch: string): ILzNexQuery; overload;
+    function WhereFullText(const AColumns: array of string;
+      const ASearch: string; const AMode: TLzNexFullTextMode): ILzNexQuery; overload;
+
     function WhereRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery;
     function OrWhereRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery;
+
+    function WhereAny(const AColumns: array of string; const AOp: string;
+      const AValue: TLzNexValue): ILzNexQuery;
+    function WhereAll(const AColumns: array of string; const AOp: string;
+      const AValue: TLzNexValue): ILzNexQuery;
 
     function WhereOpen: ILzNexQuery;
     function OrWhereOpen: ILzNexQuery;
     function WhereNotOpen: ILzNexQuery;
     function WhereClose: ILzNexQuery;
+    function GroupWhere: ILzNexQuery;
+    function GroupHaving: ILzNexQuery;
 
     function Join(const ATable: string): ILzNexJoin;
     function JoinAs(const ATable, AAlias: string): ILzNexJoin;
@@ -166,10 +231,12 @@ type
       const ANulls: TLzNexNullsOrder): ILzNexQuery; overload;
     function OrderByDesc(const AColumn: string): ILzNexQuery;
     function OrderByRaw(const ASQL: string; const AArgs: array of const): ILzNexQuery;
+    function InRandomOrder: ILzNexQuery;
 
     function Limit(const ACount: Int64): ILzNexQuery;
     function Offset(const ACount: Int64): ILzNexQuery;
     function Page(const APage, APerPage: Int64): ILzNexQuery;
+    function ClearPaging: ILzNexQuery;
     function ForUpdate: ILzNexQuery;
     function ForShare: ILzNexQuery;
     function SkipLocked: ILzNexQuery;
@@ -189,23 +256,45 @@ type
     function Clear(const AGroup: TLzNexStatementGroup): ILzNexQuery;
     function Clone: ILzNexQuery;
     function Transacting(const ATrx: ILzNexTransaction): ILzNexQuery;
+    function UsePrimary: ILzNexQuery;
 
     function ToSQL: TLzNexFragment;
     function ToSQLString: string;
+    function Dump: ILzNexQuery;
 
     function Get: ILzNexResult;
     function First: ILzNexRow;
+    function FirstOrFail: ILzNexRow;
+    function Sole: ILzNexRow;
     function Value(const AColumn: string): TLzNexValue;
     function Scalar: TLzNexValue;
     function Pluck(const AColumn: string): TLzNexValues;
     function Exists: Boolean;
+    function DoesntExist: Boolean;
     function Count: Int64;
     function Aggregate(const AAgg: TLzNexAggregate; const AColumn: string): TLzNexValue;
 
+    function Paginate(const APage, APerPage: Int64): TLzNexPage;
+    function SimplePaginate(const APage, APerPage: Int64): TLzNexSimplePage;
+    function CursorPaginate(const APerPage: Int64;
+      const ACursor: string = ''): TLzNexCursorPage;
+
+    function Chunk(const ASize: Int64): ILzNexChunks;
+    function ChunkById(const ASize: Int64;
+      const AKeyColumn: string = 'id'): ILzNexChunks;
+    function Each(const AHandler: TLzNexRowProc; const AChunkSize: Int64 = 1000;
+      const AKeyColumn: string = 'id'): Int64;
+
     function Insert(const AValues: TLzNexNamedValues): Int64;
-    function InsertGetId(const AValues: TLzNexNamedValues): Int64;
+    function InsertGetId(const AValues: TLzNexNamedValues): Int64; overload;
+    function InsertGetId(const AValues: TLzNexNamedValues;
+      const AIdColumn: string): Int64; overload;
     function InsertMany(const ARows: array of TLzNexNamedValues): Int64;
+    function Upsert(const ARows: array of TLzNexNamedValues;
+      const AUniqueBy: array of string;
+      const AUpdate: array of string): Int64;
     function Update(const AValues: TLzNexNamedValues): Int64;
+    function UpdateOrInsert(const AMatch, AValues: TLzNexNamedValues): Boolean;
     function Increment(const AColumn: string; const ABy: Int64 = 1): Int64;
     function Decrement(const AColumn: string; const ABy: Int64 = 1): Int64;
     function Delete: Int64;
@@ -240,6 +329,8 @@ function NewBoundQuery(const ADb: ILzNex; const ATrx: ILzNexTransaction): ILzNex
 
 implementation
 
+function AstNeedsCountSubquery(const AAst: TLzNexAst): Boolean; forward;
+
 function Ident(const AName: string): TLzNexValue;
 begin
   Result := TLzNexValue.Identifier(AName);
@@ -258,6 +349,7 @@ begin
   FWhereStack := TLzNexGroupStack.Create;
   FHavingStack := TLzNexGroupStack.Create;
   FCurrentJoin := nil;
+  FUsePrimary := False;
 end;
 
 destructor TLzNexQuery.Destroy;
@@ -378,6 +470,38 @@ begin
 
   FAst.Add(TLzNexColumnStmt.Create(TLzNexValue.SubQuery(ASub), AAlias));
   Result := Self as ILzNexQuery;
+end;
+
+function TLzNexQuery.SelectCount(const AColumn, AAlias: string): ILzNexQuery;
+begin
+  Result := SelectAggregate(agCount, AColumn, AAlias);
+end;
+
+function TLzNexQuery.SelectAggregate(const AAgg: TLzNexAggregate;
+  const AColumn, AAlias: string): ILzNexQuery;
+begin
+  if Trim(AColumn) = '' then
+    raise ELzNexBuilder.Create('SelectAggregate: no column given');
+  FAst.Add(TLzNexAggregateStmt.Create(AAgg, Ident(AColumn), AAlias));
+  Result := Self as ILzNexQuery;
+end;
+
+function TLzNexQuery.WithCount(const ASub: ILzNexQuery;
+  const AAlias: string): ILzNexQuery;
+var
+  Counter: ILzNexQuery;
+begin
+  if ASub = nil then
+    raise ELzNexBuilder.Create('WithCount: subquery nil');
+  if Trim(AAlias) = '' then
+    raise ELzNexBuilder.Create(
+      'WithCount: an alias is required -- it is the name the count comes back under');
+
+  if AstNeedsCountSubquery(ASub.Ast) then
+    Counter := FreshQuery.FromSub(ASub.Clone, LZNEX_AGG_ALIAS).SelectCount('*')
+  else
+    Counter := ASub.Clone.Clear(sgColumns).SelectCount('*');
+  Result := SelectSub(Counter, AAlias);
 end;
 
 function TLzNexQuery.Distinct: ILzNexQuery;
@@ -701,6 +825,233 @@ begin
   Result := Self as ILzNexQuery;
 end;
 
+procedure TLzNexQuery.AddDatePart(const ACol: string;
+  const APart: TLzNexDatePart; const AOp: string; const AValue: TLzNexValue);
+begin
+  Emit(TLzNexDatePartStmt.Create(sgWhere, Ident(ACol), APart,
+    NormalizeOperator(AOp), AValue));
+end;
+
+procedure ValidateJsonPath(const APath: string);
+var
+  I: Integer;
+  C: Char;
+begin
+  if APath = '' then
+    Exit;
+  for I := 1 to Length(APath) do
+  begin
+    C := APath[I];
+    if ((C >= 'a') and (C <= 'z')) or ((C >= 'A') and (C <= 'Z')) or
+       ((C >= '0') and (C <= '9')) or (C = '_') or (C = '$') or (C = '.') or
+       (C = '[') or (C = ']') then
+      Continue;
+
+    raise ELzNexBuilder.CreateFmt(
+      'Invalid character "%s" in the JSON path "%s". The path is written into ' +
+      'the SQL text, not bound as a parameter, so it is restricted to letters, ' +
+      'digits, "_", "$", "." and array indexes -- otherwise a path coming from ' +
+      'user input would be SQL injection.', [C, APath]);
+  end;
+end;
+
+procedure TLzNexQuery.AddJson(const ACol, APath: string;
+  const AJsonOp: TLzNexJsonOp; const AOp: string; const AValue: TLzNexValue);
+var
+  Op: string;
+begin
+  if not FClient.SupportsJson then
+    raise ELzNexCompile.CreateFmt(
+      'Dialect "%s" has no JSON support: there is no JSON type and no JSON ' +
+      'function to read a path. Store the value in its own column, or write ' +
+      'the expression by hand with Raw.', [FClient.DialectName]);
+
+  ValidateJsonPath(APath);
+
+  Op := '=';
+  if Trim(AOp) <> '' then
+    Op := NormalizeOperator(AOp);
+
+  Emit(TLzNexJsonStmt.Create(sgWhere, Ident(ACol), APath, AJsonOp, Op, AValue));
+end;
+
+function TLzNexQuery.WhereDate(const AColumn: string;
+  const AValue: TLzNexValue): ILzNexQuery;
+begin
+  Result := WhereDatePart(AColumn, dpDate, '=', AValue);
+end;
+
+function TLzNexQuery.WhereDate(const AColumn, AOp: string;
+  const AValue: TLzNexValue): ILzNexQuery;
+begin
+  Result := WhereDatePart(AColumn, dpDate, AOp, AValue);
+end;
+
+function TLzNexQuery.WhereTime(const AColumn: string;
+  const AValue: TLzNexValue): ILzNexQuery;
+begin
+  Result := WhereDatePart(AColumn, dpTime, '=', AValue);
+end;
+
+function TLzNexQuery.WhereTime(const AColumn, AOp: string;
+  const AValue: TLzNexValue): ILzNexQuery;
+begin
+  Result := WhereDatePart(AColumn, dpTime, AOp, AValue);
+end;
+
+function TLzNexQuery.WhereYear(const AColumn: string;
+  const AValue: Integer): ILzNexQuery;
+begin
+  Result := WhereDatePart(AColumn, dpYear, '=', TLzNexValue.FromInteger(AValue));
+end;
+
+function TLzNexQuery.WhereYear(const AColumn, AOp: string;
+  const AValue: Integer): ILzNexQuery;
+begin
+  Result := WhereDatePart(AColumn, dpYear, AOp, TLzNexValue.FromInteger(AValue));
+end;
+
+function TLzNexQuery.WhereMonth(const AColumn: string;
+  const AValue: Integer): ILzNexQuery;
+begin
+  Result := WhereDatePart(AColumn, dpMonth, '=', TLzNexValue.FromInteger(AValue));
+end;
+
+function TLzNexQuery.WhereMonth(const AColumn, AOp: string;
+  const AValue: Integer): ILzNexQuery;
+begin
+  Result := WhereDatePart(AColumn, dpMonth, AOp, TLzNexValue.FromInteger(AValue));
+end;
+
+function TLzNexQuery.WhereDay(const AColumn: string;
+  const AValue: Integer): ILzNexQuery;
+begin
+  Result := WhereDatePart(AColumn, dpDay, '=', TLzNexValue.FromInteger(AValue));
+end;
+
+function TLzNexQuery.WhereDay(const AColumn, AOp: string;
+  const AValue: Integer): ILzNexQuery;
+begin
+  Result := WhereDatePart(AColumn, dpDay, AOp, TLzNexValue.FromInteger(AValue));
+end;
+
+function TLzNexQuery.WhereHour(const AColumn: string;
+  const AValue: Integer): ILzNexQuery;
+begin
+  Result := WhereDatePart(AColumn, dpHour, '=', TLzNexValue.FromInteger(AValue));
+end;
+
+function TLzNexQuery.WhereHour(const AColumn, AOp: string;
+  const AValue: Integer): ILzNexQuery;
+begin
+  Result := WhereDatePart(AColumn, dpHour, AOp, TLzNexValue.FromInteger(AValue));
+end;
+
+function TLzNexQuery.WhereDatePart(const AColumn: string;
+  const APart: TLzNexDatePart; const AOp: string;
+  const AValue: TLzNexValue): ILzNexQuery;
+begin
+  if Trim(AColumn) = '' then
+    raise ELzNexBuilder.Create('WhereDatePart: no column given');
+  AddDatePart(AColumn, APart, AOp, AValue);
+  Result := Self as ILzNexQuery;
+end;
+
+function TLzNexQuery.WhereJsonPath(const AColumn, APath, AOp: string;
+  const AValue: TLzNexValue): ILzNexQuery;
+begin
+  if Trim(APath) = '' then
+    raise ELzNexBuilder.Create(
+      'WhereJsonPath: the path is required. To ask about the whole document ' +
+      'use WhereJsonContains with an empty path.');
+  AddJson(AColumn, APath, joPath, AOp, AValue);
+  Result := Self as ILzNexQuery;
+end;
+
+function TLzNexQuery.WhereJsonContains(const AColumn, APath: string;
+  const AValue: TLzNexValue): ILzNexQuery;
+begin
+  AddJson(AColumn, APath, joContains, '=', AValue);
+  Result := Self as ILzNexQuery;
+end;
+
+function TLzNexQuery.WhereJsonLength(const AColumn, APath, AOp: string;
+  const AValue: Integer): ILzNexQuery;
+begin
+  AddJson(AColumn, APath, joLength, AOp, TLzNexValue.FromInteger(AValue));
+  Result := Self as ILzNexQuery;
+end;
+
+function TLzNexQuery.WhereFullText(const AColumns: array of string;
+  const ASearch: string): ILzNexQuery;
+begin
+  Result := WhereFullText(AColumns, ASearch, ftNatural);
+end;
+
+function TLzNexQuery.WhereFullText(const AColumns: array of string;
+  const ASearch: string; const AMode: TLzNexFullTextMode): ILzNexQuery;
+var
+  Cols: TLzNexValues;
+  I: Integer;
+begin
+  if not FClient.SupportsFullText then
+    raise ELzNexCompile.CreateFmt(
+      'Dialect "%s" has no full text search in a plain table. Use WhereLike, ' +
+      'or keep the search index outside the database.', [FClient.DialectName]);
+  if Length(AColumns) = 0 then
+    raise ELzNexBuilder.Create('WhereFullText: give at least one column');
+  if Trim(ASearch) = '' then
+    raise ELzNexBuilder.Create('WhereFullText: the search text is required');
+
+  Cols := nil;
+  SetLength(Cols, Length(AColumns));
+  for I := 0 to High(AColumns) do
+    Cols[I] := Ident(AColumns[I]);
+
+  Emit(TLzNexFullTextStmt.Create(sgWhere, Cols,
+    TLzNexValue.FromString(ASearch), AMode));
+  Result := Self as ILzNexQuery;
+end;
+
+function TLzNexQuery.WhereAny(const AColumns: array of string; const AOp: string;
+  const AValue: TLzNexValue): ILzNexQuery;
+var
+  I: Integer;
+begin
+  if Length(AColumns) = 0 then
+    raise ELzNexBuilder.Create('WhereAny: give at least one column');
+
+  OpenGroup(sgWhere);
+  try
+    for I := 0 to High(AColumns) do
+      if I = 0 then
+        AddBasic(sgWhere, AColumns[I], AOp, AValue)
+      else
+        AddBasic(sgWhere, AColumns[I], AOp, AValue, boOr);
+  finally
+    CloseGroup(sgWhere);
+  end;
+  Result := Self as ILzNexQuery;
+end;
+
+function TLzNexQuery.WhereAll(const AColumns: array of string; const AOp: string;
+  const AValue: TLzNexValue): ILzNexQuery;
+var
+  I: Integer;
+begin
+  if Length(AColumns) = 0 then
+    raise ELzNexBuilder.Create('WhereAll: give at least one column');
+
+  OpenGroup(sgWhere);
+  try
+    for I := 0 to High(AColumns) do
+      AddBasic(sgWhere, AColumns[I], AOp, AValue);
+  finally
+    CloseGroup(sgWhere);
+  end;
+  Result := Self as ILzNexQuery;
+end;
+
 function TLzNexQuery.WhereOpen: ILzNexQuery;
 begin
   OpenGroup(sgWhere);
@@ -722,6 +1073,31 @@ end;
 function TLzNexQuery.WhereClose: ILzNexQuery;
 begin
   CloseGroup(sgWhere);
+  Result := Self as ILzNexQuery;
+end;
+
+procedure TLzNexQuery.Enclose(const AGroup: TLzNexStatementGroup;
+  const AWhat: string);
+begin
+
+  if StackOf(AGroup).Count > 0 then
+    raise ELzNexBuilder.CreateFmt(
+      '%s with %d open predicate group(s). Close them first: the enclosing ' +
+      'moves the current predicates into a new group, and the open stack ' +
+      'would be left pointing at the old tree.',
+      [AWhat, StackOf(AGroup).Count]);
+  FAst.EncloseGroup(AGroup);
+end;
+
+function TLzNexQuery.GroupWhere: ILzNexQuery;
+begin
+  Enclose(sgWhere, 'GroupWhere');
+  Result := Self as ILzNexQuery;
+end;
+
+function TLzNexQuery.GroupHaving: ILzNexQuery;
+begin
+  Enclose(sgHaving, 'GroupHaving');
   Result := Self as ILzNexQuery;
 end;
 
@@ -1053,6 +1429,12 @@ begin
   Result := Self as ILzNexQuery;
 end;
 
+function TLzNexQuery.InRandomOrder: ILzNexQuery;
+begin
+  FAst.Add(TLzNexOrderRandomStmt.Create);
+  Result := Self as ILzNexQuery;
+end;
+
 function TLzNexQuery.Limit(const ACount: Int64): ILzNexQuery;
 begin
   if ACount < 0 then
@@ -1077,6 +1459,13 @@ begin
     raise ELzNexBuilder.CreateFmt('Page: items per page must be >= 1, got %d', [APerPage]);
   Limit(APerPage);
   Offset((APage - 1) * APerPage);
+  Result := Self as ILzNexQuery;
+end;
+
+function TLzNexQuery.ClearPaging: ILzNexQuery;
+begin
+  FAst.Single.LimitValue := TLzNexValue.Unset;
+  FAst.Single.OffsetValue := TLzNexValue.Unset;
   Result := Self as ILzNexQuery;
 end;
 
@@ -1257,12 +1646,19 @@ begin
 
   Q.FAst.Free;
   Q.FAst := Copied;
+  Q.FUsePrimary := FUsePrimary;
   Result := Q as ILzNexQuery;
 end;
 
 function TLzNexQuery.Transacting(const ATrx: ILzNexTransaction): ILzNexQuery;
 begin
   FTrx := ATrx;
+  Result := Self as ILzNexQuery;
+end;
+
+function TLzNexQuery.UsePrimary: ILzNexQuery;
+begin
+  FUsePrimary := True;
   Result := Self as ILzNexQuery;
 end;
 
@@ -1288,6 +1684,7 @@ var
   Binds: TLzNexBindings;
   SB: TStringBuilder;
   Txt: string;
+  Quote: Char;
   I, N: Integer;
 begin
   Frag := ToSQL;
@@ -1297,7 +1694,24 @@ begin
   SB := TStringBuilder.Create;
   try
 
+    Quote := #0;
     for I := 1 to Length(Txt) do
+    begin
+      if Quote <> #0 then
+      begin
+        SB.Append(Txt[I]);
+        if Txt[I] = Quote then
+          Quote := #0;
+        Continue;
+      end;
+
+      if (Txt[I] = '''') or (Txt[I] = '"') or (Txt[I] = '`') then
+      begin
+        Quote := Txt[I];
+        SB.Append(Txt[I]);
+        Continue;
+      end;
+
       if (Txt[I] = '?') and (N < Binds.Count) then
       begin
         SB.Append(FClient.EscapeForLog(Binds.Items(N)));
@@ -1305,14 +1719,52 @@ begin
       end
       else
         SB.Append(Txt[I]);
+    end;
     Result := SB.ToString;
   finally
     SB.Free;
   end;
 end;
 
+function TLzNexQuery.Dump: ILzNexQuery;
+var
+  Cfg: ILzNexConfig;
+  Log: ILzNexLogger;
+  Text_: string;
+begin
+  Text_ := ToSQLString;
+
+  Log := nil;
+  if FDb <> nil then
+  begin
+    Cfg := FDb.Config;
+    if Cfg <> nil then
+      Log := Cfg.GetLogger;
+  end;
+
+  if Log <> nil then
+    Log.LogInfo(Text_)
+  else
+    try
+      Writeln(Text_);
+    except
+
+    end;
+
+  Result := Self as ILzNexQuery;
+end;
+
+function TLzNexQuery.WantsReadReplica: Boolean;
+begin
+
+  Result := (not FUsePrimary) and
+            (FAst.Single.Method in [qmSelect, qmFirst]) and
+            (FAst.Single.Lock = lkNone);
+end;
+
 function TLzNexQuery.ActiveConnection: ILzNexConnection;
 begin
+
   if FTrx <> nil then
     Exit(FTrx.Connection);
   if FDb = nil then
@@ -1320,6 +1772,9 @@ begin
       'This query is not bound to a connection: it was created with NewQuery, ' +
       'which only builds SQL (ToSQL/ToSQLString). Use Db.Table(...) or ' +
       'NewBoundQuery to be able to execute.');
+
+  if WantsReadReplica then
+    Exit(FDb.ReadConnection);
   Result := FDb.Connection;
 end;
 
@@ -1340,30 +1795,71 @@ begin
   Result := Conn.Query(ToSQL);
 end;
 
-function TLzNexQuery.First: ILzNexRow;
+function TLzNexQuery.RowOf(const AQuery: ILzNexQuery): ILzNexRow;
 var
-  Conn: ILzNexConnection;
   Res: ILzNexResult;
 begin
   Result := nil;
-  FAst.Single.Method := qmFirst;
+  Res := AQuery.Get;
+  try
+    if Res.Next then
+      Result := Res.CurrentRow;
+  finally
+    Res.Close;
+  end;
+end;
+
+function TLzNexQuery.First: ILzNexRow;
+var
+  Res: ILzNexResult;
+begin
+  Result := nil;
+
   if not FAst.Single.HasLimit then
-    FAst.Single.LimitValue := TLzNexValue.FromInt64(1);
-  Conn := ActiveConnection;
-  Res := Conn.Query(ToSQL);
-  if Res.Next then
-    Result := Res.CurrentRow;
-  Res.Close;
+    Exit(RowOf(Clone.Limit(1)));
+
+  FAst.Single.Method := qmFirst;
+  Res := ActiveConnection.Query(ToSQL);
+  try
+    if Res.Next then
+      Result := Res.CurrentRow;
+  finally
+    Res.Close;
+  end;
+end;
+
+function TLzNexQuery.FirstOrFail: ILzNexRow;
+begin
+  Result := First;
+  if Result = nil then
+    raise ELzNexQuery.CreateFmt(
+      'FirstOrFail: no row matched', ToSQL.Text);
+end;
+
+function TLzNexQuery.Sole: ILzNexRow;
+var
+  Rows: TLzNexRowArray;
+begin
+  Rows := RowsOf(Clone.Limit(2));
+
+  if Length(Rows) = 0 then
+    raise ELzNexQuery.CreateFmt('Sole: no row matched', ToSQL.Text);
+  if Length(Rows) > 1 then
+    raise ELzNexQuery.CreateFmt(
+      'Sole: more than one row matched, and Sole exists to assert there is ' +
+      'exactly one. Narrow the where, or use First if any row will do.',
+      ToSQL.Text);
+
+  Result := Rows[0];
 end;
 
 function TLzNexQuery.Value(const AColumn: string): TLzNexValue;
 var
+  Q: ILzNexQuery;
   Row: ILzNexRow;
 begin
-
-  FAst.ClearGroup(sgColumns);
-  Column(AColumn);
-  Row := First;
+  Q := Clone.Clear(sgColumns).Column(AColumn);
+  Row := Q.First;
   if Row = nil then
     Result := TLzNexValue.Null
   else
@@ -1383,14 +1879,14 @@ end;
 
 function TLzNexQuery.Pluck(const AColumn: string): TLzNexValues;
 var
+  Q: ILzNexQuery;
   Res: ILzNexResult;
   N: Integer;
 begin
   Result := nil;
-  FAst.ClearGroup(sgColumns);
-  Column(AColumn);
-  FAst.Single.PluckColumn := AColumn;
-  Res := Get;
+  Q := Clone.Clear(sgColumns).Column(AColumn);
+  Q.Ast.Single.PluckColumn := AColumn;
+  Res := Q.Get;
   N := 0;
   while Res.Next do
   begin
@@ -1408,8 +1904,12 @@ end;
 
 function TLzNexQuery.Exists: Boolean;
 begin
-  Limit(1);
-  Result := First <> nil;
+  Result := Clone.Limit(1).First <> nil;
+end;
+
+function TLzNexQuery.DoesntExist: Boolean;
+begin
+  Result := not Exists;
 end;
 
 function TLzNexQuery.Count: Int64;
@@ -1420,15 +1920,221 @@ end;
 function TLzNexQuery.Aggregate(const AAgg: TLzNexAggregate;
   const AColumn: string): TLzNexValue;
 var
+  Q: ILzNexQuery;
   Row: ILzNexRow;
 begin
-  FAst.ClearGroup(sgColumns);
-  FAst.Add(TLzNexAggregateStmt.Create(AAgg, Ident(AColumn), ''));
-  Row := First;
+  if NeedsCountSubquery then
+  begin
+
+    Q := FreshQuery.FromSub(Clone, LZNEX_AGG_ALIAS);
+  end
+  else
+  begin
+
+    Q := Clone.Clear(sgColumns);
+
+    Q.Clear(sgOrder);
+  end;
+
+  Q.Ast.Add(TLzNexAggregateStmt.Create(AAgg, Ident(AColumn), ''));
+  Row := Q.First;
   if Row = nil then
     Result := TLzNexValue.Null
   else
     Result := Row.FieldAt(0);
+end;
+
+function TLzNexQuery.FreshQuery: ILzNexQuery;
+begin
+  Result := TLzNexQuery.Create(FClient, FDb, FTrx) as ILzNexQuery;
+end;
+
+function AstNeedsCountSubquery(const AAst: TLzNexAst): Boolean;
+var
+  Items: TLzNexStatementList;
+  I: Integer;
+begin
+  Result := AAst.Has(sgGroup) or AAst.Has(sgHaving) or AAst.Has(sgUnion);
+  if Result then
+    Exit;
+
+  Items := AAst.Group(sgColumns);
+  for I := 0 to Items.Count - 1 do
+    if Items[I].Kind = skDistinct then
+      Exit(True);
+end;
+
+function TLzNexQuery.NeedsCountSubquery: Boolean;
+begin
+  Result := AstNeedsCountSubquery(FAst);
+end;
+
+function TLzNexQuery.TotalForPaging: Int64;
+var
+  Counter: ILzNexQuery;
+begin
+
+  Counter := Clone.Clear(sgOrder).ClearPaging;
+
+  if NeedsCountSubquery then
+    Result := FreshQuery.FromSub(Counter, LZNEX_AGG_ALIAS).Count
+  else
+    Result := Counter.Count;
+end;
+
+function TLzNexQuery.MaterializeRows: TLzNexRowArray;
+begin
+  Result := RowsOf(Self as ILzNexQuery);
+end;
+
+function TLzNexQuery.RowsOf(const AQuery: ILzNexQuery): TLzNexRowArray;
+var
+  Res: ILzNexResult;
+begin
+  Res := AQuery.Get;
+  try
+    Result := Res.ToRows;
+  finally
+    Res.Close;
+  end;
+end;
+
+function TLzNexQuery.Paginate(const APage, APerPage: Int64): TLzNexPage;
+begin
+  Result := Default(TLzNexPage);
+
+  Result.Total := TotalForPaging;
+  Result.PerPage := APerPage;
+  Result.CurrentPage := APage;
+  Result.Rows := RowsOf(Clone.Page(APage, APerPage));
+end;
+
+function TLzNexQuery.SimplePaginate(const APage, APerPage: Int64): TLzNexSimplePage;
+var
+  Q: ILzNexQuery;
+begin
+  Result := Default(TLzNexSimplePage);
+
+  Q := Clone.Page(APage, APerPage);
+  Result.PerPage := APerPage;
+  Result.CurrentPage := APage;
+
+  Q.Limit(APerPage + 1);
+  Result.Rows := RowsOf(Q);
+
+  Result.HasMorePages := Int64(Length(Result.Rows)) > APerPage;
+  if Result.HasMorePages then
+    SetLength(Result.Rows, APerPage);
+end;
+
+function TLzNexQuery.CursorPaginate(const APerPage: Int64;
+  const ACursor: string): TLzNexCursorPage;
+var
+  Q: ILzNexQuery;
+  Keys: TLzNexOrderKeys;
+  Values: TLzNexValues;
+  Backward, HasMore: Boolean;
+  I, Last: Integer;
+  Swap: ILzNexRow;
+begin
+  Result := Default(TLzNexCursorPage);
+  if APerPage < 1 then
+    raise ELzNexBuilder.CreateFmt(
+      'CursorPaginate: items per page must be >= 1, got %d', [APerPage]);
+
+  Keys := OrderKeysOf(Self as ILzNexQuery);
+  Backward := False;
+
+  Q := Clone;
+
+  if Trim(ACursor) <> '' then
+  begin
+    if not DecodeCursor(ACursor, Values, Backward) then
+      raise ELzNexBuilder.Create(
+        'Invalid cursor: the text is not a cursor produced by CursorPaginate, ' +
+        'or it was truncated on the way. Start the listing from the beginning ' +
+        '(empty cursor).');
+    ApplyKeyset(Q, Keys, Values, Backward);
+  end;
+
+  if Backward then
+    FlipOrderDirection(Q);
+
+  Q.ClearPaging.Limit(APerPage + 1);
+  Result.Rows := RowsOf(Q);
+  Result.PerPage := APerPage;
+
+  HasMore := Int64(Length(Result.Rows)) > APerPage;
+  if HasMore then
+    SetLength(Result.Rows, APerPage);
+
+  if Backward then
+  begin
+    Last := High(Result.Rows);
+    for I := 0 to (Last - 1) div 2 do
+    begin
+      Swap := Result.Rows[I];
+      Result.Rows[I] := Result.Rows[Last - I];
+      Result.Rows[Last - I] := Swap;
+    end;
+  end;
+
+  if Length(Result.Rows) = 0 then
+    Exit;
+
+  if Backward then
+  begin
+    Result.NextCursor := EncodeCursor(
+      KeyValuesOf(Result.Rows[High(Result.Rows)], Keys), False);
+    if HasMore then
+      Result.PrevCursor := EncodeCursor(KeyValuesOf(Result.Rows[0], Keys), True);
+  end
+  else
+  begin
+    if HasMore then
+      Result.NextCursor := EncodeCursor(
+        KeyValuesOf(Result.Rows[High(Result.Rows)], Keys), False);
+    if Trim(ACursor) <> '' then
+      Result.PrevCursor := EncodeCursor(KeyValuesOf(Result.Rows[0], Keys), True);
+  end;
+end;
+
+function TLzNexQuery.Chunk(const ASize: Int64): ILzNexChunks;
+begin
+  Result := NewOffsetChunks(Self as ILzNexQuery, ASize);
+end;
+
+function TLzNexQuery.ChunkById(const ASize: Int64;
+  const AKeyColumn: string): ILzNexChunks;
+begin
+  Result := NewKeyChunks(Self as ILzNexQuery, ASize, AKeyColumn);
+end;
+
+function TLzNexQuery.Each(const AHandler: TLzNexRowProc;
+  const AChunkSize: Int64; const AKeyColumn: string): Int64;
+var
+  Chunks: ILzNexChunks;
+  Batch: TLzNexRowArray;
+  I: Integer;
+  Stop: Boolean;
+begin
+  Result := 0;
+  if not Assigned(AHandler) then
+    raise ELzNexBuilder.Create('Each: no handler given');
+
+  Stop := False;
+  Chunks := ChunkById(AChunkSize, AKeyColumn);
+  while (not Stop) and Chunks.Next do
+  begin
+    Batch := Chunks.Rows;
+    for I := 0 to High(Batch) do
+    begin
+      AHandler(Batch[I], Stop);
+      Inc(Result);
+      if Stop then
+        Break;
+    end;
+  end;
 end;
 
 function TLzNexQuery.Insert(const AValues: TLzNexNamedValues): Int64;
@@ -1442,8 +2148,15 @@ begin
 end;
 
 function TLzNexQuery.InsertGetId(const AValues: TLzNexNamedValues): Int64;
+begin
+  Result := InsertGetId(AValues, 'id');
+end;
+
+function TLzNexQuery.InsertGetId(const AValues: TLzNexNamedValues;
+  const AIdColumn: string): Int64;
 var
   Conn: ILzNexConnection;
+  Res: ILzNexResult;
 begin
   if Length(AValues) = 0 then
     raise ELzNexBuilder.Create('InsertGetId: no columns given');
@@ -1452,6 +2165,21 @@ begin
   FAst.Single.InsertRows[0] := Copy(AValues);
 
   Conn := ActiveConnection;
+
+  if (FClient <> nil) and FClient.SupportsReturning then
+  begin
+    Returning([AIdColumn]);
+    Result := 0;
+    Res := Conn.Query(ToSQL);
+    try
+      if Res.Next then
+        Result := Res.FieldAt(0).AsInt64;
+    finally
+      Res.Close;
+    end;
+    Exit;
+  end;
+
   Conn.Execute(ToSQL);
   Result := Conn.LastInsertId;
 end;
@@ -1469,6 +2197,25 @@ begin
   Result := RunExecute;
 end;
 
+function TLzNexQuery.Upsert(const ARows: array of TLzNexNamedValues;
+  const AUniqueBy: array of string; const AUpdate: array of string): Int64;
+begin
+  if Length(ARows) = 0 then
+    raise ELzNexBuilder.Create('Upsert: no rows given');
+  if Length(AUniqueBy) = 0 then
+    raise ELzNexBuilder.Create(
+      'Upsert: the conflict columns are required -- they are what tells the ' +
+      'database which existing row to update instead of inserting a new one.');
+
+  OnConflict(AUniqueBy);
+  if Length(AUpdate) = 0 then
+    Merge
+  else
+    Merge(AUpdate);
+
+  Result := InsertMany(ARows);
+end;
+
 function TLzNexQuery.Update(const AValues: TLzNexNamedValues): Int64;
 begin
   if Length(AValues) = 0 then
@@ -1478,8 +2225,78 @@ begin
   Result := RunExecute;
 end;
 
+function TLzNexQuery.UpdateOrInsert(const AMatch,
+  AValues: TLzNexNamedValues): Boolean;
+var
+  Probe, Writer: ILzNexQuery;
+  Merged: TLzNexNamedValues;
+  I, J, N: Integer;
+  Found: Boolean;
+
+  procedure ApplyMatch(const ATarget: ILzNexQuery);
+  var
+    K: Integer;
+  begin
+
+    ATarget.GroupWhere;
+    for K := 0 to High(AMatch) do
+      ATarget.Where(AMatch[K].Name, AMatch[K].Value);
+  end;
+
+begin
+  if Length(AMatch) = 0 then
+    raise ELzNexBuilder.Create(
+      'UpdateOrInsert: no columns to match on. Without them every row would ' +
+      'match and the update would hit the whole table.');
+
+  Probe := Clone.UsePrimary.Clear(sgOrder).ClearPaging;
+  ApplyMatch(Probe);
+
+  if Probe.Exists then
+  begin
+    if Length(AValues) > 0 then
+    begin
+      Writer := Clone.Clear(sgOrder).ClearPaging;
+      ApplyMatch(Writer);
+      Writer.Update(AValues);
+    end;
+    Exit(False);
+  end;
+
+  Merged := nil;
+  SetLength(Merged, Length(AMatch) + Length(AValues));
+  N := 0;
+  for I := 0 to High(AMatch) do
+  begin
+    Merged[N] := AMatch[I];
+    Inc(N);
+  end;
+  for I := 0 to High(AValues) do
+  begin
+    Found := False;
+    for J := 0 to High(AMatch) do
+      if SameText(AMatch[J].Name, AValues[I].Name) then
+      begin
+        Merged[J].Value := AValues[I].Value;
+        Found := True;
+        Break;
+      end;
+    if Found then
+      Continue;
+    Merged[N] := AValues[I];
+    Inc(N);
+  end;
+  SetLength(Merged, N);
+
+  Writer := Clone.Clear(sgWhere).Clear(sgOrder).ClearPaging;
+  Writer.Insert(Merged);
+  Result := True;
+end;
+
 function TLzNexQuery.Increment(const AColumn: string; const ABy: Int64): Int64;
 begin
+  if Trim(AColumn) = '' then
+    raise ELzNexBuilder.Create('Increment: no column given');
   FAst.Single.Method := qmUpdate;
   SetLength(FAst.Single.Counters, 1);
   FAst.Single.Counters[0].Name := AColumn;
@@ -1489,6 +2306,8 @@ end;
 
 function TLzNexQuery.Decrement(const AColumn: string; const ABy: Int64): Int64;
 begin
+  if Trim(AColumn) = '' then
+    raise ELzNexBuilder.Create('Decrement: no column given');
   FAst.Single.Method := qmUpdate;
   SetLength(FAst.Single.Counters, 1);
   FAst.Single.Counters[0].Name := AColumn;

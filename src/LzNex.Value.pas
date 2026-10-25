@@ -101,6 +101,9 @@ function StringsToValues(const AItems: array of string): TLzNexValues;
 
 implementation
 
+var
+  GValueFmt: TFormatSettings;
+
 class function TLzNexValue.Unset: TLzNexValue;
 begin
   Result := Default(TLzNexValue);
@@ -302,8 +305,9 @@ begin
     vkString, vkIdentifier: Result := FStr;
     vkBoolean: Result := BoolToStr(FBool, True);
     vkInteger, vkInt64: Result := IntToStr(FInt);
-    vkFloat: Result := FloatToStr(FFloat);
-    vkCurrency: Result := CurrToStr(FCurrency);
+
+    vkFloat: Result := FloatToStr(FFloat, GValueFmt);
+    vkCurrency: Result := CurrToStr(FCurrency, GValueFmt);
     vkDate: Result := FormatDateTime('yyyy-mm-dd', FDateTime);
     vkTime: Result := FormatDateTime('hh:nn:ss', FDateTime);
     vkDateTime: Result := FormatDateTime('yyyy-mm-dd hh:nn:ss', FDateTime);
@@ -460,5 +464,10 @@ begin
   for I := 0 to High(AItems) do
     Result[I] := TLzNexValue.FromString(AItems[I]);
 end;
+
+initialization
+  GValueFmt := DefaultFormatSettings;
+  GValueFmt.DecimalSeparator := '.';
+  GValueFmt.ThousandSeparator := #0;
 
 end.

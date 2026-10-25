@@ -11,92 +11,98 @@
 <thead><tr><th>Assunto</th><th>Implementado</th><th>Provado em banco real</th></tr></thead>
 <tbody>
 <tr><td>MySQL — query, DDL, migrations, pool, transações</td><td><span class="yes">sim</span></td><td><span class="yes">sim</span></td></tr>
-<tr><td>PostgreSQL — SQL e DDL</td><td><span class="yes">sim</span></td><td><span class="no">não</span></td></tr>
-<tr><td>PostgreSQL — <code>Change</code> de coluna</td><td><span class="no">não</span></td><td><span class="no">não</span></td></tr>
+<tr><td>PostgreSQL — query, DDL, pool, transações</td><td><span class="yes">sim</span></td><td><span class="yes">sim</span></td></tr>
+<tr><td>Firebird — query, DDL, pool, transações (3 e 5)</td><td><span class="yes">sim</span></td><td><span class="yes">sim</span></td></tr>
+<tr><td>SQLite — query, DDL, pool, transações</td><td><span class="yes">sim</span></td><td><span class="yes">sim</span></td></tr>
+<tr><td>Migrations — <code>migrate:latest</code>, rollback e lock</td><td><span class="yes">sim</span></td><td><span class="yes">sim</span></td></tr>
+<tr><td>CLI — o binário e o parsing de subcomando</td><td><span class="yes">sim</span></td><td><span class="no">não</span></td></tr>
+<tr><td>Migration em <code>.sql</code> na suíte portável</td><td><span class="yes">sim</span></td><td><span class="no">não</span></td></tr>
 <tr><td><code>on conflict ... where</code></td><td><span class="no">não</span></td><td><span class="no">não</span></td></tr>
 <tr><td>Enum nativo do PostgreSQL</td><td><span class="no">não</span></td><td><span class="no">não</span></td></tr>
 <tr><td>Seed em <code>.sql</code></td><td><span class="no">não</span></td><td><span class="no">não</span></td></tr>
 <tr><td><code>jsonb</code> por método de coluna</td><td><span class="no">não</span></td><td><span class="no">não</span></td></tr>
 <tr><td>DDL transacional no MySQL</td><td><span class="no">não</span></td><td>—</td></tr>
-<tr><td>Firebird</td><td><span class="no">não</span></td><td><span class="no">não</span></td></tr>
+<tr><td>Paginação — <code>Paginate</code>, <code>SimplePaginate</code>, <code>CursorPaginate</code></td><td><span class="yes">sim</span></td><td><span class="yes">sim</span></td></tr>
+<tr><td>Varredura — <code>Chunk</code>, <code>ChunkById</code>, <code>Each</code></td><td><span class="yes">sim</span></td><td><span class="yes">sim</span></td></tr>
+<tr><td>JSON em consulta — MySQL, PostgreSQL, SQLite</td><td><span class="yes">sim</span></td><td><span class="yes">sim</span></td></tr>
+<tr><td>JSON no Firebird</td><td><span class="no">não</span></td><td>—</td></tr>
+<tr><td>Texto completo — MySQL e PostgreSQL</td><td><span class="yes">sim</span></td><td><span class="yes">sim</span></td></tr>
+<tr><td>Texto completo em SQLite (FTS5) e Firebird</td><td><span class="no">não</span></td><td>—</td></tr>
+<tr><td>Réplica de leitura com <em>sticky</em> após escrita</td><td><span class="no">não</span></td><td>—</td></tr>
 </tbody>
 </table>
 </div>
 
-<h2 id="postgres-untested">PostgreSQL nunca rodou contra um banco</h2>
+<h2 id="cursor-requirements">O cursor de paginação não serve para toda ordenação</h2>
 <p>
-  O dialeto PostgreSQL está escrito e testado — 66 casos em
-  <code>tests/Test.Postgres.pas</code>, a maioria comparando o texto gerado com o do MySQL
-  para a mesma entrada. Mas a comparação é <strong>por texto</strong>: o compose só tem
-  MySQL, então conexão, pool e migrator nunca abriram socket com um Postgres.
+  <code>CursorPaginate</code> corta o conjunto comparando os <strong>valores</strong> da
+  ordenação, e isso impõe condições que o <code>offset</code> não impõe. O builder recusa o que
+  não consegue reproduzir, em vez de devolver página errada em silêncio:
 </p>
 
-<div class="code" data-tabs>
-  <div class="pane on" data-pane="mysql" data-label="MySQL">
-    <pre data-lang="sql">select * from `t` limit ? offset ?</pre>
-    <p class="code-note">conferido contra o banco</p>
-  </div>
-  <div class="pane" data-pane="pg" data-label="PostgreSQL">
-    <pre data-lang="sql">select * from "t" limit ? offset ?</pre>
-    <p class="code-note">conferido contra a string esperada, não contra o banco</p>
-  </div>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Caso</th><th>O que acontece</th><th>Por quê</th></tr></thead>
+<tbody>
+<tr><td>sem <code>OrderBy</code></td><td>levanta</td><td>sem ordem não há o que comparar</td></tr>
+<tr><td><code>OrderByRaw</code></td><td>levanta</td><td>expressão crua não dá o nome da coluna</td></tr>
+<tr><td><code>nlFirst</code> / <code>nlLast</code></td><td>levanta</td><td>no MySQL a ordem de nulos é emulada com uma expressão extra que o <code>where</code> do cursor não repete</td></tr>
+<tr><td>coluna de ordenação fora do <code>Select</code></td><td>levanta</td><td>o cursor carrega o valor dela, e não há de onde ler</td></tr>
+<tr><td>valor nulo na chave</td><td>levanta</td><td>comparação com <code>null</code> nunca é verdadeira; a página seguinte voltaria vazia</td></tr>
+<tr><td>última chave <strong>não</strong> única</td><td><span class="no">não é detectado</span></td><td>exigiria ler o schema; linhas empatadas em todas as chaves podem ser puladas</td></tr>
+</tbody>
+</table>
 </div>
 
 <p>
-  Na prática: o SQL que sai é o que se espera, e aspas duplas, <code>returning</code>,
-  <code>distinct on</code>, <code>nulls first/last</code> e <code>on conflict</code> têm
-  asserção. O que ninguém viu funcionar é a camada de baixo — tipo de retorno do driver,
-  mapeamento de <code>TLzNexValue</code> na ida e na volta, comportamento do pool sob
-  carga e o <code>lock</code> da tabela de migrations nesse dialeto.
+  A última linha é a única que não dá erro: ordene sempre por uma coluna única no fim — em
+  geral a chave primária.
 </p>
 
-<div class="callout warn">
-  <span class="ico">⚠</span>
-  <div class="body">
-    <span class="t">Em produção com PostgreSQL, trate como não testado</span>
-    <p>
-      Teste primeiro o caminho que você vai usar: conectar, uma leitura, uma escrita, uma
-      transação e <code>migrate:latest</code>. O SQL provavelmente está certo; a integração
-      é que não tem prova.
-    </p>
-  </div>
-</div>
-
-<h2 id="change-on-postgres"><code>Change</code> gera DDL que o PostgreSQL recusa</h2>
+<h2 id="replica-sticky">Réplica de leitura não tem sticky</h2>
 <p>
-  O compilador genérico de DDL monta <code>alter column</code> seguido da definição
-  completa da coluna. Funciona no MySQL, onde <code>modify</code> aceita a definição
-  inteira de uma vez. No PostgreSQL não: ele exige
-  <code>alter column ... type ...</code> e <code>set not null</code> como
-  <strong>comandos separados</strong>.
+  Com <code>ReadReplica</code> configurada, toda leitura fora de transação vai para a réplica —
+  inclusive a leitura que acontece logo depois de uma escrita sua. Se a replicação estiver
+  atrasada, o dado recém-inserido pode não aparecer. O LzNex <strong>não</strong> implementa o
+  <em>sticky</em> por requisição que alguns frameworks têm: a decisão fica explícita, com
+  <code>UsePrimary</code> ou com uma transação. Veja
+  <a href="#pool/read-replica">Réplica de leitura</a>.
 </p>
 
-<div class="code"><pre data-lang="pascal">T := Db.Schema.Table('users');
-T.Int('age').NotNull.Change;</pre></div>
+<h2 id="migrator-untested">O que a suíte de integração não cobre</h2>
+<p>
+  A suíte de integração roda nos cinco bancos (MySQL, PostgreSQL, Firebird 3, Firebird 5 e
+  SQLite) e cobre CRUD, <code>InsertGetId</code>, transações (commit e rollback), round-trip
+  de UTF-8, pool sob carga, oito threads concorrentes e o <strong>runner de migrations</strong>
+  — <code>tests/Test.It.Migrator.pas</code> aplica, confere as tabelas de controle, roda de
+  novo para provar idempotência, desfaz, acompanha <code>Status</code>/<code>Pending</code> e
+  prova que o lock recusa a segunda rodada e que <code>Unlock</code> o libera.
+</p>
 
-<div class="code" data-tabs>
-  <div class="pane on" data-pane="mysql" data-label="MySQL">
-    <pre data-lang="sql">alter table `users` modify `age` int not null</pre>
-    <p class="code-note">aceito</p>
-  </div>
-  <div class="pane" data-pane="pg" data-label="PostgreSQL">
-    <pre data-lang="sql">alter table "users" alter column "age" integer not null</pre>
-    <p class="code-note">sintaxe inválida — o banco recusa</p>
-  </div>
-</div>
+<p>Ficam fora da suíte automatizada duas coisas, as duas por natureza:</p>
+<ul>
+  <li>
+    O <strong>CLI em si</strong> — o binário <code>lznex</code> e o parsing de subcomando.
+    O migrator por baixo está testado; o despacho de linha de comando, não.
+  </li>
+  <li>
+    As migrations em <strong><code>.sql</code></strong>. A migration de teste é definida na
+    própria unit, pelo schema builder, justamente porque é portável: um arquivo
+    <code>.sql</code> é escrito para um dialeto só e não poderia rodar nos cinco bancos.
+  </li>
+</ul>
 
 <p>
-  Ou seja: o texto gerado é o que o teste espera, e o teste espera o texto errado para o
-  PostgreSQL. Enquanto não houver emissão de dois comandos, escreva essa alteração como
-  SQL cru numa migration <code>.sql</code> — veja
-  <a href="#migrations">Migrations</a>.
+  A config do teste do migrator usa <code>MigrationsTable('it_migrations')</code> e
+  <code>MigrationsDir('')</code> — a fonte é só o registro de código, para a suíte não puxar
+  o <code>.sql</code> de exemplo do repositório, que é MySQL.
 </p>
 
 <h2 id="on-conflict-where">Não há como informar o <code>where</code> do <code>on conflict</code></h2>
 <p>
   O dialeto <strong>declara</strong> a capacidade
-  (<code>SupportsOnConflictWhere</code> é <code>True</code> no PostgreSQL e
-  <code>False</code> no MySQL), mas <code>ILzNexOnConflict</code> só tem
+  (<code>SupportsOnConflictWhere</code> é <code>True</code> no PostgreSQL e no SQLite,
+  <code>False</code> no MySQL e no Firebird), mas <code>ILzNexOnConflict</code> só tem
   <code>Ignore</code>, <code>Merge</code> e <code>MergeValues</code> — nenhum lugar para
   passar o predicado de um índice parcial.
 </p>
@@ -131,6 +137,12 @@ T.Int('age').NotNull.Change;</pre></div>
   </div>
   <div class="pane" data-pane="pg" data-label="PostgreSQL">
     <pre data-lang="sql">create table "o" ("status" text null check ("status" in ('new', 'done')))</pre>
+  </div>
+  <div class="pane" data-pane="fb" data-label="Firebird">
+    <pre data-lang="sql">create table "o" ("status" varchar(255) check ("status" in ('new', 'done')))</pre>
+  </div>
+  <div class="pane" data-pane="sqlite" data-label="SQLite">
+    <pre data-lang="sql">create table "o" ("status" varchar(255) check ("status" in ('new', 'done')))</pre>
   </div>
 </div>
 
@@ -199,46 +211,148 @@ the migration fails midway, the rollback will NOT undo CREATE/ALTER/DROP already
 executed. Keep one migration per structural change so the damage stays small.</pre></div>
 
 <p>
-  A defesa é de escrita: uma mudança estrutural por migration, e cada passo reentrante.
-  No PostgreSQL o problema não existe — <code>DdlIsTransactional</code> é
-  <code>True</code> lá, o que, como todo o resto do dialeto, está provado por texto e não
-  contra o banco.
+  A defesa é de escrita: uma mudança estrutural por migration, e cada passo reentrante. O
+  MySQL é o único dos quatro nessa situação: <code>DdlIsTransactional</code> é
+  <code>True</code> em PostgreSQL, Firebird e SQLite.
 </p>
 
-<h2 id="firebird">Firebird: arquitetura, nenhum dialeto</h2>
+<h2 id="firebird">Firebird: o que levanta erro</h2>
 <p>
-  Não existe <code>LzNex.Client.Firebird</code> nem
-  <code>LzNex.Schema.Firebird</code>. O que existe é a separação que torna isso possível:
-  dialeto é uma unit que se registra, e tanto o compilador de query quanto o de DDL
-  consultam capacidades em vez de assumir o banco. Escrever o dialeto é trabalho real,
-  não configuração. Veja <a href="#dialects">Dialetos</a>.
-</p>
-
-<h2 id="boss-placeholder">A coordenada do Boss é placeholder</h2>
-<p>
-  <code>boss.json</code> ainda aponta para <code>github.com/CHANGEME/lznex</code> e
-  <code>github.com/CHANGEME/zeoslib</code>, porque o repositório não foi publicado.
-  Duas consequências:
+  <code>LzNex.Client.Firebird</code> cobre Firebird 3 e 5 com o mesmo SQL. O que o banco não
+  tem, o compilador recusa com <code>ELzNexCompile</code> (ou <code>ELzNexSchema</code> no
+  DDL) e a mensagem diz a saída — nunca gera SQL que o servidor vai rejeitar:
 </p>
 
 <ul>
   <li>
-    <code>boss install</code> com a coordenada placeholder não resolve nada. Os Dockerfiles
-    contornam clonando o espelho do Zeos direto em
-    <code>modules/&lt;host&gt;_&lt;org&gt;_&lt;repo&gt;</code>, no mesmo layout que o Boss
-    produziria.
+    <code>Intersect</code> e <code>Except_</code> — não existem no Firebird 3 nem no 5. A
+    reescrita é <code>WhereInSub</code> ou <code>WhereNotExists</code>.
   </li>
   <li>
-    Trocar a coordenada exige trocar também o nome da pasta nos <code>.lpi</code> — o Boss
-    cria <code>modules/github_com_ACME_lznex</code>, com ponto e barra virando
-    <code>_</code>, e esse caminho está escrito nos unit paths do projeto.
+    <code>OnConflict(…).Ignore</code> — não há <code>do nothing</code>. Use
+    <code>Merge</code> (que vira <code>update or insert … matching</code>) ou cheque com
+    <code>Exists</code> antes.
+  </li>
+  <li>
+    <code>Merge</code> com lista de colunas ou com <code>MergeValues</code> — o
+    <code>update or insert</code> atualiza todas as colunas da linha; honrar um subconjunto
+    seria mentira.
+  </li>
+  <li>Upsert de mais de uma linha — <code>update or insert</code> leva uma linha por chamada.</li>
+  <li>
+    <code>NoWait</code> — esperar é atributo da transação no Firebird, não cláusula do lock.
+  </li>
+  <li><code>ForShare</code> — <code>with lock</code> é sempre exclusivo.</li>
+  <li><code>DistinctOn</code>, e <code>Limit</code>/<code>Join</code> em <code>update</code>/<code>delete</code>.</li>
+  <li>
+    <code>LastInsertId</code> — o gerador é por tabela, não há "último id da sessão".
+    <code>InsertGetId</code> funciona: lê o id do <code>insert … returning</code>.
+  </li>
+  <li>
+    Renomear tabela — não existe no 3 nem no 5. O erro diz que a tabela tem de ser recriada,
+    copiada e apagada na migration.
+  </li>
+</ul>
+
+<p>Duas coisas que não levantam, mas mudam o texto, e vale saber:</p>
+<ul>
+  <li>
+    <code>Truncate</code> vira <code>delete from</code> — não há <code>truncate</code>, e o
+    custo é outro: linha por linha, dentro da transação.
+  </li>
+  <li>
+    Nome de índice e de constraint é cortado em <strong>31 bytes</strong> (limite do Firebird
+    3), com um hash do nome inteiro no fim. O nome no banco não é o que você leria no código.
   </li>
 </ul>
 
 <p>
-  O fork do Zeos precisa ter <code>boss.json</code>: o Boss aborta quando uma dependência
-  não traz o manifesto.
+  <code>SkipLocked</code> compila para <code>with lock skip locked</code>, sintaxe que só
+  existe a partir do <strong>Firebird 5</strong>: no 3 o SQL sai e o servidor recusa. O
+  dialeto é um só, então essa é a única construção em que a versão importa. Veja
+  <a href="#dialects/firebird">Dialetos</a>.
 </p>
+
+<h2 id="sqlite">SQLite: o que levanta erro</h2>
+<p>
+  O SQLite é o banco com mais recorte: é um arquivo, não um servidor, e o
+  <code>ALTER TABLE</code> dele faz quase nada.
+</p>
+
+<ul>
+  <li>
+    <code>ForUpdate</code> e <code>ForShare</code> — não há lock de linha; uma transação de
+    escrita tranca o banco inteiro. Tire a cláusula, ou serialize os escritores na aplicação.
+  </li>
+  <li>
+    <code>Returning</code> — recusado pelo builder. <code>InsertGetId</code> usa
+    <code>last_insert_rowid()</code>, que é por conexão (e o pool garante que seja a mesma).
+  </li>
+  <li>
+    <code>Change</code> (alterar coluna) — <strong>não há <code>alter column</code></strong>.
+    A saída é recriar a tabela na migration: criar a nova, copiar, apagar, renomear.
+  </li>
+  <li>
+    <code>add column … not null</code> sem <code>Default_</code> — restrição do próprio
+    SQLite: as linhas que já existem não teriam valor.
+  </li>
+  <li>
+    <code>Primary</code> e chave estrangeira em tabela <strong>existente</strong> — não há
+    <code>ALTER TABLE ADD CONSTRAINT</code>. Ou a restrição nasce com a tabela, ou não nasce.
+    <code>Unique</code> escapa: vira <code>create unique index</code>.
+  </li>
+  <li><code>DistinctOn</code>, e <code>Limit</code>/<code>Join</code> em <code>update</code>/<code>delete</code>.</li>
+</ul>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t"><code>Comment</code> é ignorado em silêncio</span>
+    <p>
+      Não existe <code>comment on</code> no SQLite. O comentário é documentação, e derrubar
+      uma migration por causa dele seria pior que perdê-lo: o DDL sai sem o comentário, sem
+      erro e sem aviso. É a única coisa no DDL do SQLite que desaparece calada.
+    </p>
+  </div>
+</div>
+
+<p>
+  Mais três diferenças sem erro: <code>Truncate</code> vira <code>delete from</code>;
+  <code>WhereILike</code> sai igual a <code>WhereLike</code>, porque o <code>like</code> do
+  SQLite já ignora caixa <strong>em ASCII</strong> — e só em ASCII, então acento continua
+  diferenciando; e <code>BigIncrements</code> sai igual a <code>Increments</code>
+  (<code>integer primary key autoincrement</code>), porque só <code>integer primary key</code>
+  é apelido do <code>rowid</code>, que já é de 64 bits.
+</p>
+
+<h2 id="boss-placeholder">O ZeosLib não vem pelo Boss</h2>
+<p>
+  A coordenada do LzNex é real — <code>github.com/leonampuzlplace/lznex</code> — e a versão
+  sai das tags que a Action publica. O Zeos não tem coordenada: o Boss <strong>aborta quando
+  uma dependência não traz <code>boss.json</code></strong>, e o repositório oficial do Zeos
+  não tem o manifesto. Por isso o <code>boss.json</code> do pacote não declara o Zeos: ele é
+  dependência de quem instala, não do pacote. Três consequências:
+</p>
+
+<ul>
+  <li>
+    <code>boss install</code> não traz o Zeos. O projeto que consome escolhe a fonte —
+    pacote <code>zdbc</code> na IDE, um fork com manifesto no <code>boss.json</code> dele,
+    ou um clone no unit path.
+  </li>
+  <li>
+    Vendorizar um clone em <code>modules/</code> junto com o pacote resolveria o caso vazio,
+    mas custa mais caro no caso comum: quem já tem o Zeos instalado na IDE ficaria com as
+    mesmas units em dois caminhos, e o build para em <code>Duplicate unit</code> ou num
+    <code>.ppu</code> incompatível. O erro de unit faltando é mais honesto que o de unit
+    duplicada.
+  </li>
+  <li>
+    Os Dockerfiles daqui não têm IDE nenhuma, então clonam o espelho oficial em
+    <code>modules/zeoslib</code> — é para lá que os <code>.lpi</code> deste repositório
+    apontam.
+  </li>
+</ul>
 
 <div class="cards">
   <a class="card" href="#troubleshooting"><h4>Troubleshooting →</h4><p>Sintoma, causa e correção.</p></a>

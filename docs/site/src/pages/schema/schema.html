@@ -240,13 +240,22 @@ alter table `users` add index `users_name_index`(`name`)</pre>
   </div>
 </div>
 
-<h2 id="indexes-outside">Índice e FK nunca entram no create table</h2>
+<h2 id="indexes-outside">Índice e FK quase nunca entram no create table</h2>
 <p>
   Só a <strong>primary key</strong> sai inline. Todo o resto — <code>Index</code>,
   <code>Unique</code>, <code>References</code> — vira comando separado no
   <code>Post</code>, um por índice. A razão é prática: a sintaxe de índice e de FK inline
   divergem entre os bancos (e em PostgreSQL o <code>create index</code> nem é parte do
-  <code>create table</code>), enquanto o <code>alter table ... add</code> é igual nos dois.
+  <code>create table</code>), enquanto o <code>alter table ... add</code> é igual em quase
+  todos.
+</p>
+<p>
+  O SQLite é a exceção, e por força: ele não tem <code>ALTER TABLE ADD CONSTRAINT</code>, então
+  <code>Unique</code> e chave estrangeira declaradas num <code>CreateTable</code> precisam
+  nascer <strong>dentro</strong> dele, como <code>constraint … unique (…)</code> e
+  <code>constraint … foreign key (…)</code> — e ali o <code>Post</code> fica vazio. Índice
+  comum continua sendo <code>create index</code> no <code>Post</code>. Veja
+  <a href="#indexes">Índices e chaves</a>.
 </p>
 
 <div class="code"><pre data-lang="pascal">T := Db.Schema.CreateTable('pk1');

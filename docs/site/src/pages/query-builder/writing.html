@@ -14,15 +14,41 @@ Id := Db.Table('users').InsertGetId(Vals(['name', 'Leonam', 'email', 'l@x.com'])
 </div>
 </div>
 
+<p>
+  Onde o banco tem <code>RETURNING</code>, o id vem do próprio insert — é o caminho do
+  PostgreSQL. Onde não tem, o LzNex pergunta ao banco qual foi o último id, sempre na
+  <strong>mesma conexão</strong> do insert. A coluna da chave é <code>id</code> por
+  convenção; quando não for, informe:
+</p>
+
+<div class="code"><pre data-lang="pascal">Id := Db.Table('orders').InsertGetId(Vals(['total', 10]), 'order_id');</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">-- PostgreSQL e Firebird: o id sai do proprio insert
+insert into "orders" ("total") values (?) returning "order_id"
+
+-- MySQL: insert e, na mesma conexao, a pergunta
+insert into `orders` (`total`) values (?)
+select last_insert_id()
+
+-- SQLite: mesma ideia, outra funcao
+insert into "orders" ("total") values (?)
+select last_insert_rowid()</pre>
+</div>
+</div>
+
 <div class="callout note">
   <span class="ico">ℹ</span>
   <div class="body">
-    <span class="t">InsertGetId e o pool</span>
+    <span class="t">Por que a mesma conexão importa</span>
     <p>
-      O <code>InsertGetId</code> faz o insert e lê <code>LastInsertId</code> na
-      <strong>mesma conexão</strong>. Com pool, duas chamadas independentes poderiam cair em
-      conexões diferentes e devolver o id de outra thread. Isso está testado com 8 threads,
-      cada id conferido contra a linha daquela thread.
+      Com pool, duas chamadas independentes poderiam cair em conexões diferentes e devolver
+      o id de outra thread. Isso está testado com 8 threads, cada id conferido contra a
+      linha daquela thread, em cada banco. O caminho do <code>RETURNING</code> é imune a
+      esse problema por construção, e também não se confunde com sequência que um gatilho
+      tenha avançado noutra tabela. No Firebird não há "último id da sessão" — o gerador é
+      por tabela, e <code>LastInsertId</code> levanta: ali só o <code>RETURNING</code>
+      serve.
     </p>
   </div>
 </div>
@@ -131,12 +157,108 @@ insert into "users" ("name") values (?) on conflict ("email") do update set "nam
       <p class="code-note">no Postgres, do update exige a coluna de conflito: Merge sem OnConflict([...]) levanta ELzNexCompile</p>
     </div>
   </div>
+  <div class="pane" data-pane="fb" data-label="Firebird">
+    <pre data-lang="pascal">Db.Table('users').OnConflict(['email']).Merge
+  .Insert(Vals(['name', 'ana', 'email', 'a@b.c']));
+
+Db.Table('users').OnConflict([]).Merge
+  .Insert(Vals(['id', 1, 'name', 'ana']));</pre>
+    <div class="code-out">
+      <div class="code-label">SQL</div>
+      <pre data-lang="sql">update or insert into "users" ("name", "email") values (?, ?) matching ("email")
+update or insert into "users" ("id", "name") values (?, ?)</pre>
+      <p class="code-note">sem matching o Firebird casa pela chave primária — o oposto do Postgres, onde Merge sem coluna levanta</p>
+    </div>
+  </div>
+  <div class="pane" data-pane="sqlite" data-label="SQLite">
+    <pre data-lang="pascal">Db.Table('users').OnConflict(['email']).Ignore
+  .Insert(Vals(['name', 'ana']));
+
+Db.Table('users').OnConflict(['email']).Merge
+  .Insert(Vals(['name', 'ana', 'age', 30]));</pre>
+    <div class="code-out">
+      <div class="code-label">SQL</div>
+      <pre data-lang="sql">insert into "users" ("name") values (?) on conflict ("email") do nothing
+insert into "users" ("name", "age") values (?, ?) on conflict ("email") do update set "name" = excluded."name", "age" = excluded."age"</pre>
+      <p class="code-note">forma do Postgres, inclusive o where no upsert</p>
+    </div>
+  </div>
 </div>
+
+<p>
+  No Firebird o upsert é <code>update or insert … matching</code>, que atualiza
+  <strong>todas</strong> as colunas da linha e leva uma linha por chamada. Três coisas
+  levantam ali: <code>Ignore</code> (não há <code>do nothing</code>; use <code>Merge</code>
+  ou cheque com <code>Exists</code>), <code>Merge</code> com lista de colunas ou
+  <code>MergeValues</code>, e upsert de mais de uma linha. Veja
+  <a href="#dialects/firebird">Dialetos</a>.
+</p>
 
 <p>
   Em <code>MergeValues</code>, um valor <code>TLzNexValue.Unset</code> reaproveita o valor que
   veio no insert em vez de gerar bind — útil para misturar colunas fixas e colunas copiadas.
 </p>
+
+<h3 id="upsert-sugar">Upsert em uma chamada</h3>
+<p>
+  <code>Upsert</code> é açúcar para <code>OnConflict(...).Merge(...)</code> seguido de
+  <code>InsertMany</code>: recebe as linhas, as colunas de conflito e as colunas a atualizar
+  numa só chamada. Lista de atualização vazia atualiza todas as colunas da linha.
+</p>
+
+<div class="code"><pre data-lang="pascal">N := Db.Table('prices').Upsert(
+  [Vals(['sku', 'A1', 'cents', 1990]),
+   Vals(['sku', 'B2', 'cents', 2990])],
+  ['sku'],          // colunas de conflito
+  ['cents']);       // o que atualizar quando colidir</pre>
+<div class="code-out">
+  <div class="code-label">SQL · MySQL</div>
+  <pre data-lang="sql">insert into `prices` (`sku`, `cents`) values (?, ?), (?, ?) on duplicate key update `cents` = values(`cents`)</pre>
+</div>
+</div>
+
+<p>
+  Sem as colunas de conflito, <code>Upsert</code> levanta <code>ELzNexBuilder</code> — elas são
+  o que diz ao banco qual linha existente atualizar. No Firebird vale o limite do
+  <code>update or insert</code>: uma linha por chamada.
+</p>
+
+<h3 id="update-or-insert">UpdateOrInsert</h3>
+<p>
+  Quando <strong>não</strong> existe chave única para o banco resolver o conflito, resta decidir
+  na aplicação. <code>UpdateOrInsert</code> atualiza a linha que casa com as colunas de busca e,
+  se nenhuma casar, insere busca + valores. Devolve <code>True</code> quando inseriu.
+</p>
+
+<div class="code"><pre data-lang="pascal">Inserted := Db.Table('settings').UpdateOrInsert(
+  Vals(['user_id', 7, 'key', 'theme']),   // como achar a linha
+  Vals(['value', 'dark']));               // o que gravar</pre>
+<div class="code-out">
+  <div class="code-label">SQL · existência primeiro, depois a escrita</div>
+  <pre data-lang="sql">select * from `settings` where `user_id` = ? and `key` = ? limit ?
+update `settings` set `value` = ? where `user_id` = ? and `key` = ?</pre>
+  <p class="code-note">quando o select não acha nada, a segunda query é <code>insert into `settings` (`user_id`, `key`, `value`) values (?, ?, ?)</code></p>
+</div>
+</div>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">A ordem é existência → escrita, e não "update e vê quantas linhas mudaram"</span>
+    <p>
+      No MySQL um <code>update</code> que grava o mesmo valor que já estava lá devolve
+      <strong>zero</strong> linhas afetadas. Uma implementação que decidisse por esse número
+      concluiria "não existe" e inseriria uma linha duplicada. Por isso o
+      <code>UpdateOrInsert</code> consulta antes.
+    </p>
+    <p>
+      Isso deixa uma janela entre o <code>select</code> e o <code>insert</code>: dois processos
+      simultâneos podem inserir os dois. Onde houver chave única, prefira <code>Upsert</code> —
+      lá a atomicidade é do banco. Onde não houver, chame dentro de uma
+      <a href="#transactions">transação</a>.
+    </p>
+  </div>
+</div>
 
 <h2 id="update">Update, increment e delete</h2>
 <div class="code"><pre data-lang="pascal">N := Db.Table('users').Where('id', 7).Update(Vals(['name', 'x', 'email', 'y']));
@@ -185,5 +307,22 @@ truncate `users`</pre>
 -- truncate reinicia a identidade
 truncate "users" restart identity</pre>
   </div>
+  <div class="pane" data-pane="fb" data-label="Firebird">
+    <pre data-lang="sql">-- join e limit em update/delete levantam ELzNexCompile
+
+-- nao existe TRUNCATE: vira um delete sem where
+delete from "users"</pre>
+  </div>
+  <div class="pane" data-pane="sqlite" data-label="SQLite">
+    <pre data-lang="sql">-- join e limit em update/delete levantam ELzNexCompile
+
+-- nao existe TRUNCATE: vira um delete sem where
+delete from "users"</pre>
+  </div>
 </div>
+
+<p>
+  <code>Truncate</code> virando <code>delete from</code> não é só texto: o custo passa a ser
+  linha por linha, dentro da transação, e a sequência de identidade não reinicia.
+</p>
 </article>

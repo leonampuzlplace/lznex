@@ -7,7 +7,5 @@
   "projects": [
     "tools/LzNexCli.lpi"
   ],
-  "dependencies": {
-    "github.com/CHANGEME/zeoslib": "^8.0.0"
-  }
+  "dependencies": {}
 }

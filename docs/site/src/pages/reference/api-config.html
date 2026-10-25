@@ -32,6 +32,7 @@
 <tr><td><code>function SeedsDir(const AValue: string): ILzNexConfig</code></td><td><code>function GetSeedsDir: string</code></td></tr>
 <tr><td><code>function Prop(const AName, AValue: string): ILzNexConfig</code></td><td><code>function GetProps: TLzNexNamedValues</code></td></tr>
 <tr><td><code>function Logger(const AValue: ILzNexLogger): ILzNexConfig</code></td><td><code>function GetLogger: ILzNexLogger</code></td></tr>
+<tr><td><code>function ReadReplica(const AConfig: ILzNexConfig): ILzNexConfig</code></td><td><code>function GetReadReplica: ILzNexConfig</code></td></tr>
 </tbody>
 </table>
 </div>
@@ -49,9 +50,10 @@
   máximo levantam <code>ELzNexConfig</code>. É o único setter que critica o valor.
 </li>
 <li>
-  <code>LibraryLocation</code> aponta o arquivo da biblioteca cliente. Vale preencher quando o
-  auto-load do Zeos não acha o <code>.so</code>/<code>.dll</code> — veja
-  <a href="#installation">instalação</a>.
+  <code>LibraryLocation</code> aponta o arquivo da biblioteca cliente. Na prática é sempre
+  necessário no Ubuntu, nos quatro dialetos: o auto-load do Zeos não acha o
+  <code>.so</code>. Os caminhos estão em
+  <a href="#configuration/library">configuração</a>.
 </li>
 <li>
   <code>Prop</code> sobrescreve a chave existente comparando sem caixa, e as props vão para a
@@ -67,7 +69,7 @@
 <div class="table-wrap">
 <table class="api">
 <tbody>
-<tr><td><code>procedure Validate</code></td><td>Exige <code>client</code>, <code>host</code> e <code>database</code> preenchidos e critica porta, pool e timeout. A mensagem lista o que falta e as três formas de fornecer: código, arquivo JSON ou variável de ambiente.</td></tr>
+<tr><td><code>procedure Validate</code></td><td>Exige <code>client</code>, <code>host</code> e <code>database</code> preenchidos e critica porta, pool e timeout. O <code>host</code> é dispensado quando o client é <code>sqlite</code>/<code>sqlite3</code>: ali o banco é um arquivo e <code>database</code> já é o caminho dele. A mensagem lista o que falta e as três formas de fornecer: código, arquivo JSON ou variável de ambiente.</td></tr>
 </tbody>
 </table>
 </div>
@@ -106,7 +108,7 @@
 <thead><tr><th>Constante</th><th>Valor</th><th>O que define</th></tr></thead>
 <tbody>
 <tr><td><code>LZNEX_DEFAULT_PORT</code></td><td><code>3306</code></td><td>Porta inicial. Em PostgreSQL você precisa trocar para 5432.</td></tr>
-<tr><td><code>LZNEX_DEFAULT_CHARSET</code></td><td><code>'utf8mb4'</code></td><td>Charset da conexão, enviado ao Zeos como <code>codepage</code>.</td></tr>
+<tr><td><code>LZNEX_DEFAULT_CHARSET</code></td><td><code>'utf8mb4'</code></td><td>Charset da conexão, enviado ao Zeos como <code>codepage</code>. O nome é do MySQL: quando o charset não é escolhido à mão, a camada de conexão o traduz para <code>UTF8</code> no Firebird e <code>UTF-8</code> no SQLite.</td></tr>
 <tr><td><code>LZNEX_DEFAULT_POOL_MIN</code></td><td><code>2</code></td><td>Conexões abertas já na construção do pool.</td></tr>
 <tr><td><code>LZNEX_DEFAULT_POOL_MAX</code></td><td><code>10</code></td><td>Teto de conexões vivas.</td></tr>
 <tr><td><code>LZNEX_DEFAULT_ACQUIRE_TIMEOUT</code></td><td><code>30000</code></td><td>Milissegundos que <code>Acquire</code> espera por uma conexão livre antes de levantar.</td></tr>

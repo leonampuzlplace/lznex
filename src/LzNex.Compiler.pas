@@ -125,6 +125,15 @@ type
     function CompileWhereRaw(const AStmt: TLzNexRawStmt): TLzNexFragment; virtual;
     function CompileWhereGroup(const AStmt: TLzNexGroupStmt): TLzNexFragment; virtual;
 
+    procedure DatePartWrap(const APart: TLzNexDatePart;
+      out ABefore, AAfter: string); virtual;
+    function CompileWhereDatePart(const AStmt: TLzNexDatePartStmt): TLzNexFragment; virtual;
+
+    function CompileWhereJson(const AStmt: TLzNexJsonStmt): TLzNexFragment; virtual;
+    function CompileWhereFullText(const AStmt: TLzNexFullTextStmt): TLzNexFragment; virtual;
+
+    function RandomSQL: string; virtual;
+
     function CompileInTarget(const AStmt: TLzNexInStmt): TLzNexFragment; virtual;
 
     function CompileOrderByItem(const AStmt: TLzNexOrderByStmt): TLzNexFragment; virtual;
@@ -852,6 +861,11 @@ begin
   Buf.Clear;
   for I := 0 to L.Count - 1 do
   begin
+    if L[I].Kind = skOrderByRandom then
+    begin
+      Buf.Add(Txt(RandomSQL));
+      Continue;
+    end;
     if not (L[I] is TLzNexOrderByStmt) then
       raise ELzNexCompile.Create('Invalid statement in the order by section.');
     Buf.Add(CompileOrderByItem(TLzNexOrderByStmt(L[I])));
@@ -1175,6 +1189,12 @@ begin
       Result := CompileWhereExists(TLzNexExistsStmt(AStmt));
     skWhereRaw, skHavingRaw:
       Result := CompileWhereRaw(TLzNexRawStmt(AStmt));
+    skWhereDatePart:
+      Result := CompileWhereDatePart(TLzNexDatePartStmt(AStmt));
+    skWhereJson:
+      Result := CompileWhereJson(TLzNexJsonStmt(AStmt));
+    skWhereFullText:
+      Result := CompileWhereFullText(TLzNexFullTextStmt(AStmt));
     skWhereGroup, skHavingGroup:
       Result := CompileWhereGroup(TLzNexGroupStmt(AStmt));
     skWhereSub:
@@ -1335,6 +1355,89 @@ begin
     Result := Result.Prefix('not ');
 end;
 
+procedure TLzNexCompilerBase.DatePartWrap(const APart: TLzNexDatePart;
+  out ABefore, AAfter: string);
+begin
+  case APart of
+    dpDate:
+      begin
+        ABefore := 'cast(';
+        AAfter := ' as date)';
+      end;
+    dpTime:
+      begin
+        ABefore := 'cast(';
+        AAfter := ' as time)';
+      end;
+    dpYear:
+      begin
+        ABefore := 'extract(year from ';
+        AAfter := ')';
+      end;
+    dpMonth:
+      begin
+        ABefore := 'extract(month from ';
+        AAfter := ')';
+      end;
+    dpDay:
+      begin
+        ABefore := 'extract(day from ';
+        AAfter := ')';
+      end;
+    dpHour:
+      begin
+        ABefore := 'extract(hour from ';
+        AAfter := ')';
+      end;
+    dpMinute:
+      begin
+        ABefore := 'extract(minute from ';
+        AAfter := ')';
+      end;
+    dpSecond:
+      begin
+        ABefore := 'extract(second from ';
+        AAfter := ')';
+      end;
+  else
+    raise ELzNexCompile.CreateFmt('Unknown date part %d', [Ord(APart)]);
+  end;
+end;
+
+function TLzNexCompilerBase.CompileWhereDatePart(
+  const AStmt: TLzNexDatePartStmt): TLzNexFragment;
+var
+  Before, After: string;
+  Left, Right: TLzNexFragment;
+begin
+  DatePartWrap(AStmt.Part, Before, After);
+  Left := CompileExpr(AStmt.Column, 'where date part').Wrap(Before, After);
+  Right := CompileBind(AStmt.Value, AStmt.Column.Text);
+
+  Result := Left.Concat(Txt(AStmt.Op)).Concat(Right);
+  if AStmt.Negated then
+    Result := Wrapped(Result).Prefix('not ');
+end;
+
+function TLzNexCompilerBase.CompileWhereJson(
+  const AStmt: TLzNexJsonStmt): TLzNexFragment;
+begin
+  raise ELzNexCompile.CreateFmt(
+    'Dialect "%s" has no JSON support.', [FClient.DialectName]);
+end;
+
+function TLzNexCompilerBase.CompileWhereFullText(
+  const AStmt: TLzNexFullTextStmt): TLzNexFragment;
+begin
+  raise ELzNexCompile.CreateFmt(
+    'Dialect "%s" has no full text search.', [FClient.DialectName]);
+end;
+
+function TLzNexCompilerBase.RandomSQL: string;
+begin
+  Result := 'random()';
+end;
+
 function TLzNexCompilerBase.CompileOrderByItem(
   const AStmt: TLzNexOrderByStmt): TLzNexFragment;
 var
@@ -1342,6 +1445,10 @@ var
   Dir, FlagDir: string;
 begin
   E := CompileExpr(AStmt.Expr, 'order by');
+
+  if AStmt.Kind = skOrderByRaw then
+    Exit(E);
+
   Dir := DirWord(AStmt.Dir);
 
   if AStmt.Nulls = nlDefault then

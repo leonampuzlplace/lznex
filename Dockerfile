@@ -9,47 +9,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         lcl-utils \
         lazarus-src \
         libmariadb3 \
+        libpq5 \
+        libfbclient2 \
+        libsqlite3-0 \
         git \
         ca-certificates \
-        curl \
     && rm -rf /var/lib/apt/lists/*
-
-ARG BOSS_VERSION=3.0.17
-RUN curl -fsSL "https://github.com/HashLoad/boss/releases/download/v${BOSS_VERSION}/boss_Linux_x86_64.tar.gz" \
-      | tar -xz -C /usr/local/bin boss \
-    && chmod +x /usr/local/bin/boss
 
 WORKDIR /src
 COPY . .
 
-ARG ZEOS_COORD=github.com/CHANGEME/zeoslib
-ARG ZEOS_VERSION=^8.0.0
+# O Zeos e dependencia do host, nao do pacote: o boss.json do LzNex nao o
+# vendoriza, para nao duplicar units com um Zeos ja instalado na IDE. Aqui nao
+# existe IDE, entao o container traz a propria copia -- e os .lpi apontam para
+# modules/zeoslib.
 ARG ZEOS_MIRROR=https://github.com/marsupilami79/zeoslib.git
 ARG ZEOS_REF=8.0.0-stable
 
 RUN set -eu; \
-    DIR="$(echo "${ZEOS_COORD}" | tr './' '__')"; \
-    sed -i "s|\"github.com/CHANGEME/zeoslib\": \"[^\"]*\"|\"${ZEOS_COORD}\": \"${ZEOS_VERSION}\"|" boss.json; \
-    grep -q "\"${ZEOS_COORD}\"" boss.json; \
-    for f in tools/LzNexCli.lpi tests/LzNexTests.lpi; do \
-      [ -e "$f" ] && sed -i "s|github_com_CHANGEME_zeoslib|${DIR}|g" "$f"; \
-    done; \
-    echo "${ZEOS_COORD}" > /tmp/zeos-coord
-
-RUN set -eu; \
-    DIR="$(echo "${ZEOS_COORD}" | tr './' '__')"; \
-    case "${ZEOS_COORD}" in \
-      *CHANGEME*) \
-        echo "== Zeos via clone direto (${ZEOS_REF}) -- coordenada ainda e placeholder"; \
-        git clone --depth 1 --branch "${ZEOS_REF}" "${ZEOS_MIRROR}" "modules/${DIR}"; \
-        rm -rf "modules/${DIR}/.git"; \
-        ;; \
-      *) \
-        echo "== Zeos via boss install (${ZEOS_COORD})"; \
-        bash scripts/boss-install.sh; \
-        ;; \
-    esac; \
-    ls -d "modules/${DIR}/src/core"
+    echo "== Zeos ${ZEOS_REF} de ${ZEOS_MIRROR}"; \
+    git clone --depth 1 --branch "${ZEOS_REF}" "${ZEOS_MIRROR}" modules/zeoslib; \
+    rm -rf modules/zeoslib/.git; \
+    ls -d modules/zeoslib/src/core
 
 RUN set -eu; \
     mkdir -p bin lib; \
@@ -68,6 +49,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libmariadb3 \
+        libpq5 \
+        libfbclient2 \
+        libsqlite3-0 \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --create-home --shell /usr/sbin/nologin lznex

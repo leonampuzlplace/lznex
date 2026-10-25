@@ -193,6 +193,9 @@ type
     function Config: ILzNexConfig;
     function Pool: ILzNexPool;
     function Connection: ILzNexConnection;
+    function ReadConnection: ILzNexConnection;
+    function Transact(const AWork: ILzNexWork;
+      const AAttempts: Integer = 1): Integer;
     function IsTransaction: Boolean;
     procedure Shutdown;
   end;
@@ -294,6 +297,19 @@ function TStubDb.Connection: ILzNexConnection;
 begin
   Result := nil;
   NotImpl('Connection');
+end;
+
+function TStubDb.ReadConnection: ILzNexConnection;
+begin
+  Result := nil;
+  NotImpl('ReadConnection');
+end;
+
+function TStubDb.Transact(const AWork: ILzNexWork;
+  const AAttempts: Integer): Integer;
+begin
+  Result := 0;
+  NotImpl('Transact');
 end;
 
 function TStubDb.IsTransaction: Boolean;

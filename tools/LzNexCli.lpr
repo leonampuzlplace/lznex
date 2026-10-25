@@ -11,7 +11,11 @@ uses
   LzNex.Intf,
   LzNex.Exceptions,
   LzNex.Cli,
+
   LzNex.Client.MySQL,
+  LzNex.Client.Postgres,
+  LzNex.Client.Firebird,
+  LzNex.Client.SQLite,
   Migrations.All;
 
 function ConfigPath: string;

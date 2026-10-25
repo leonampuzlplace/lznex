@@ -14,7 +14,8 @@ uses
   LzNex.Value,
   LzNex.Intf,
   LzNex.Exceptions,
-  LzNex.Client.MySQL;
+  LzNex.Client.MySQL,
+  Test.It.Config;
 
 type
   TIntegrationTestCase = class(TTestCase)
@@ -70,25 +71,17 @@ begin
   if GetEnvironmentVariable('LZNEX_IT') = '' then
     Exit;
 
-  FDb := Connect(NewConfig
-    .Client('mysql')
-    .Host(EnvOr('DB_HOST', 'mysql'))
-    .Port(StrToIntDef(EnvOr('DB_PORT', '3306'), 3306))
-    .Database(EnvOr('DB_NAME', 'lznex'))
-    .User(EnvOr('DB_USER', 'root'))
-    .Password(EnvOr('DB_PASS', 'secret'))
-    .LibraryLocation(EnvOr('DB_LIB', '/usr/lib/x86_64-linux-gnu/libmariadb.so.3'))
-    .Pool(2, 8));
+  FDb := Connect(ItConfig(8));
 
   if not GTableReady then
   begin
-    FDb.Execute('drop table if exists `' + TEST_TABLE + '`', []);
-    FDb.Execute(
-      'create table `' + TEST_TABLE + '` (' +
-      '  id int unsigned not null auto_increment primary key,' +
-      '  tag varchar(80) not null,' +
-      '  score int null' +
-      ') engine=InnoDB default charset=utf8mb4', []);
+
+    FDb.Schema.DropTableIfExists(TEST_TABLE);
+    FDb.Schema.CreateTable(TEST_TABLE)
+      .Increments('id')
+      .Str('tag', 80).NotNull
+      .Int('score').Nullable
+      .Execute;
     GTableReady := True;
   end;
 end;

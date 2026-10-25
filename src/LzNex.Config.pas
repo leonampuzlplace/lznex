@@ -48,6 +48,8 @@ type
     FSeedsDir: string;
     FProps: TLzNexNamedValues;
     FLogger: ILzNexLogger;
+
+    FReadReplica: ILzNexConfig;
   public
     constructor Create;
 
@@ -68,6 +70,7 @@ type
     function SeedsDir(const AValue: string): ILzNexConfig;
     function Prop(const AName, AValue: string): ILzNexConfig;
     function Logger(const AValue: ILzNexLogger): ILzNexConfig;
+    function ReadReplica(const AConfig: ILzNexConfig): ILzNexConfig;
 
     function GetClient: string;
     function GetHost: string;
@@ -85,6 +88,7 @@ type
     function GetSeedsDir: string;
     function GetProps: TLzNexNamedValues;
     function GetLogger: ILzNexLogger;
+    function GetReadReplica: ILzNexConfig;
     procedure Validate;
   end;
 
@@ -113,9 +117,19 @@ function ApplyOverrides(const AConfig: ILzNexConfig;
 
 function ApplyEnvOverrides(const AConfig: ILzNexConfig): ILzNexConfig;
 
+function IsFileBasedClient(const AName: string): Boolean;
+
 function EnvOverrideNames: TLzNexStringArray;
 
 implementation
+
+function IsFileBasedClient(const AName: string): Boolean;
+var
+  N: string;
+begin
+  N := LowerCase(Trim(AName));
+  Result := (N = 'sqlite') or (N = 'sqlite3');
+end;
 
 constructor TLzNexConfig.Create;
 begin
@@ -244,6 +258,21 @@ begin
   Result := Self;
 end;
 
+function TLzNexConfig.ReadReplica(const AConfig: ILzNexConfig): ILzNexConfig;
+begin
+  if AConfig = Self as ILzNexConfig then
+    raise ELzNexConfig.Create(
+      'ReadReplica pointing at the configuration itself would open a second ' +
+      'pool to the primary. Build a separate config for the replica.');
+  FReadReplica := AConfig;
+  Result := Self;
+end;
+
+function TLzNexConfig.GetReadReplica: ILzNexConfig;
+begin
+  Result := FReadReplica;
+end;
+
 function TLzNexConfig.GetClient: string;
 begin
   Result := FClient;
@@ -337,7 +366,8 @@ begin
   Missing := '';
   if Trim(FClient) = '' then
     Missing := Missing + ' client';
-  if Trim(FHost) = '' then
+
+  if (Trim(FHost) = '') and (not IsFileBasedClient(FClient)) then
     Missing := Missing + ' host';
   if Trim(FDatabase) = '' then
     Missing := Missing + ' database';

@@ -2,7 +2,7 @@
 <h1>Tipos de coluna</h1>
 <p class="subtitle">
   O tipo que você declara é lógico. Quem traduz para o tipo real é o dialeto — a mesma
-  migration roda nos dois bancos.
+  migration roda nos quatro bancos.
 </p>
 
 <h2 id="logical-type">O tipo é lógico</h2>
@@ -24,47 +24,55 @@ T.Bool('active');</pre></div>
   <div class="pane" data-pane="pg" data-label="PostgreSQL">
     <pre data-lang="sql">create table "f" ("active" boolean null)</pre>
   </div>
+  <div class="pane" data-pane="fb" data-label="Firebird">
+    <pre data-lang="sql">create table "f" ("active" boolean)</pre>
+    <p class="code-note">o Firebird não aceita <code>null</code> como restrição: coluna anulável não emite nada</p>
+  </div>
+  <div class="pane" data-pane="sqlite" data-label="SQLite">
+    <pre data-lang="sql">create table "f" ("active" boolean)</pre>
+  </div>
 </div>
 
 <p>
-  A consequência é que o DDL dos dois bancos é diferente de propósito, e o seu código não
+  A consequência é que o DDL de cada banco é diferente de propósito, e o seu código não
   precisa saber qual está do outro lado. Veja <a href="#dialects">Dialetos</a> para o que
-  mais muda entre eles.
+  mais muda entre eles — em especial <a href="#dialects/firebird-ddl">o DDL do Firebird</a>
+  e <a href="#dialects/sqlite-ddl">o do SQLite</a>, que são os que mais se afastam.
 </p>
 
 <h2 id="equivalence-table">Tabela de equivalência</h2>
 
 <div class="table-wrap">
 <table>
-<thead><tr><th>Método</th><th>MySQL / MariaDB</th><th>PostgreSQL</th></tr></thead>
+<thead><tr><th>Método</th><th>MySQL / MariaDB</th><th>PostgreSQL</th><th>Firebird</th><th>SQLite</th></tr></thead>
 <tbody>
-<tr><td><code>Increments(AName = 'id')</code></td><td><code>int unsigned not null auto_increment primary key</code></td><td><code>serial primary key</code></td></tr>
-<tr><td><code>BigIncrements(AName = 'id')</code></td><td><code>bigint unsigned not null auto_increment primary key</code></td><td><code>bigserial primary key</code></td></tr>
-<tr><td><code>TinyInt(AName)</code></td><td><code>tinyint</code></td><td><code>smallint</code></td></tr>
-<tr><td><code>SmallInt(AName)</code></td><td><code>smallint</code></td><td><code>smallint</code></td></tr>
-<tr><td><code>Int(AName)</code></td><td><code>int</code></td><td><code>integer</code></td></tr>
-<tr><td><code>BigInt(AName)</code></td><td><code>bigint</code></td><td><code>bigint</code></td></tr>
-<tr><td><code>Bool(AName)</code></td><td><code>tinyint(1)</code></td><td><code>boolean</code></td></tr>
-<tr><td><code>Decimal(AName, APrecision = 8, AScale = 2)</code></td><td><code>decimal(8, 2)</code></td><td><code>decimal(8, 2)</code></td></tr>
-<tr><td><code>Float(AName)</code></td><td><code>float</code></td><td><code>real</code></td></tr>
-<tr><td><code>Double(AName)</code></td><td><code>double</code></td><td><code>double precision</code></td></tr>
-<tr><td><code>Char_(AName, ALength = 255)</code></td><td><code>char(n)</code></td><td><code>char(n)</code></td></tr>
-<tr><td><code>Str(AName, ALength = 255)</code></td><td><code>varchar(n)</code></td><td><code>varchar(n)</code></td></tr>
-<tr><td><code>Text(AName)</code></td><td><code>text</code></td><td><code>text</code></td></tr>
-<tr><td><code>MediumText(AName)</code></td><td><code>mediumtext</code></td><td><code>text</code></td></tr>
-<tr><td><code>LongText(AName)</code></td><td><code>longtext</code></td><td><code>text</code></td></tr>
-<tr><td><code>Binary(AName, ALength = 0)</code></td><td><code>varbinary(n)</code>, ou <code>blob</code> sem tamanho</td><td><code>bytea</code> (o tamanho é ignorado)</td></tr>
-<tr><td><code>Blob(AName)</code></td><td><code>blob</code></td><td><code>bytea</code></td></tr>
-<tr><td><code>Date(AName)</code></td><td><code>date</code></td><td><code>date</code></td></tr>
-<tr><td><code>Time(AName)</code></td><td><code>time</code></td><td><code>time</code></td></tr>
-<tr><td><code>DateTime(AName)</code></td><td><code>datetime</code></td><td><code>timestamp</code></td></tr>
-<tr><td><code>Timestamp(AName)</code></td><td><code>timestamp</code></td><td><code>timestamp</code></td></tr>
-<tr><td><code>Json(AName)</code></td><td><code>json</code></td><td><code>json</code></td></tr>
-<tr><td><code>ctJsonb</code> (sem método)</td><td><code>json</code></td><td><code>jsonb</code></td></tr>
-<tr><td><code>Uuid(AName)</code></td><td><code>char(36)</code></td><td><code>uuid</code></td></tr>
-<tr><td><code>Enum(AName, AItems)</code></td><td><code>enum('a', 'b')</code></td><td><code>text</code> + <code>check</code></td></tr>
-<tr><td><code>Specific(AName, ATypeSQL)</code></td><td>o texto que você passou</td><td>o texto que você passou</td></tr>
-<tr><td><code>Timestamps(ADefaultNow = True)</code></td><td>duas colunas <code>timestamp</code></td><td>duas colunas <code>timestamp</code></td></tr>
+<tr><td><code>Increments(AName = 'id')</code></td><td><code>int unsigned not null auto_increment primary key</code></td><td><code>serial primary key</code></td><td><code>integer generated by default as identity primary key</code></td><td><code>integer primary key autoincrement</code></td></tr>
+<tr><td><code>BigIncrements(AName = 'id')</code></td><td><code>bigint unsigned not null auto_increment primary key</code></td><td><code>bigserial primary key</code></td><td><code>bigint generated by default as identity primary key</code></td><td><code>integer primary key autoincrement</code></td></tr>
+<tr><td><code>TinyInt(AName)</code></td><td><code>tinyint</code></td><td><code>smallint</code></td><td><code>smallint</code></td><td><code>tinyint</code></td></tr>
+<tr><td><code>SmallInt(AName)</code></td><td><code>smallint</code></td><td><code>smallint</code></td><td><code>smallint</code></td><td><code>smallint</code></td></tr>
+<tr><td><code>Int(AName)</code></td><td><code>int</code></td><td><code>integer</code></td><td><code>integer</code></td><td><code>integer</code></td></tr>
+<tr><td><code>BigInt(AName)</code></td><td><code>bigint</code></td><td><code>bigint</code></td><td><code>bigint</code></td><td><code>bigint</code></td></tr>
+<tr><td><code>Bool(AName)</code></td><td><code>tinyint(1)</code></td><td><code>boolean</code></td><td><code>boolean</code></td><td><code>boolean</code></td></tr>
+<tr><td><code>Decimal(AName, APrecision = 8, AScale = 2)</code></td><td><code>decimal(8, 2)</code></td><td><code>decimal(8, 2)</code></td><td><code>decimal(8, 2)</code></td><td><code>decimal(8, 2)</code></td></tr>
+<tr><td><code>Float(AName)</code></td><td><code>float</code></td><td><code>real</code></td><td><code>float</code></td><td><code>real</code></td></tr>
+<tr><td><code>Double(AName)</code></td><td><code>double</code></td><td><code>double precision</code></td><td><code>double precision</code></td><td><code>double precision</code></td></tr>
+<tr><td><code>Char_(AName, ALength = 255)</code></td><td><code>char(n)</code></td><td><code>char(n)</code></td><td><code>char(n)</code></td><td><code>char(n)</code></td></tr>
+<tr><td><code>Str(AName, ALength = 255)</code></td><td><code>varchar(n)</code></td><td><code>varchar(n)</code></td><td><code>varchar(n)</code></td><td><code>varchar(n)</code></td></tr>
+<tr><td><code>Text(AName)</code></td><td><code>text</code></td><td><code>text</code></td><td><code>blob sub_type text</code></td><td><code>text</code></td></tr>
+<tr><td><code>MediumText(AName)</code></td><td><code>mediumtext</code></td><td><code>text</code></td><td><code>blob sub_type text</code></td><td><code>text</code></td></tr>
+<tr><td><code>LongText(AName)</code></td><td><code>longtext</code></td><td><code>text</code></td><td><code>blob sub_type text</code></td><td><code>text</code></td></tr>
+<tr><td><code>Binary(AName, ALength = 0)</code></td><td><code>varbinary(n)</code>, ou <code>blob</code> sem tamanho</td><td><code>bytea</code> (o tamanho é ignorado)</td><td><code>varchar(n) character set octets</code>, ou <code>blob sub_type binary</code> sem tamanho</td><td><code>blob</code> (o tamanho é ignorado)</td></tr>
+<tr><td><code>Blob(AName)</code></td><td><code>blob</code></td><td><code>bytea</code></td><td><code>blob sub_type binary</code></td><td><code>blob</code></td></tr>
+<tr><td><code>Date(AName)</code></td><td><code>date</code></td><td><code>date</code></td><td><code>date</code></td><td><code>date</code></td></tr>
+<tr><td><code>Time(AName)</code></td><td><code>time</code></td><td><code>time</code></td><td><code>time</code></td><td><code>time</code></td></tr>
+<tr><td><code>DateTime(AName)</code></td><td><code>datetime</code></td><td><code>timestamp</code></td><td><code>timestamp</code></td><td><code>datetime</code></td></tr>
+<tr><td><code>Timestamp(AName)</code></td><td><code>timestamp</code></td><td><code>timestamp</code></td><td><code>timestamp</code></td><td><code>timestamp</code></td></tr>
+<tr><td><code>Json(AName)</code></td><td><code>json</code></td><td><code>json</code></td><td><code>blob sub_type text</code></td><td><code>text</code></td></tr>
+<tr><td><code>ctJsonb</code> (sem método)</td><td><code>json</code></td><td><code>jsonb</code></td><td><code>blob sub_type text</code></td><td><code>text</code></td></tr>
+<tr><td><code>Uuid(AName)</code></td><td><code>char(36)</code></td><td><code>uuid</code></td><td><code>char(36)</code></td><td><code>char(36)</code></td></tr>
+<tr><td><code>Enum(AName, AItems)</code></td><td><code>enum('a', 'b')</code></td><td><code>text</code> + <code>check</code></td><td><code>varchar(255)</code> + <code>check</code></td><td><code>varchar(255)</code> + <code>check</code></td></tr>
+<tr><td><code>Specific(AName, ATypeSQL)</code></td><td>o texto que você passou</td><td>o texto que você passou</td><td>o texto que você passou</td><td>o texto que você passou</td></tr>
+<tr><td><code>Timestamps(ADefaultNow = True)</code></td><td>duas colunas <code>timestamp</code></td><td>duas colunas <code>timestamp</code></td><td>duas colunas <code>timestamp</code></td><td>duas colunas <code>timestamp</code></td></tr>
 </tbody>
 </table>
 </div>
@@ -77,10 +85,10 @@ T.Bool('active');</pre></div>
       <code>ILzNexTable</code> não tem <code>Jsonb</code>: <code>ctJsonb</code> existe em
       <code>TLzNexColumnType</code> e é alcançável chamando
       <code>ColumnTypeSQL(ctJsonb, 0, 0, nil)</code> no compilador de schema, que devolve
-      <code>jsonb</code> em PostgreSQL e <code>json</code> em MySQL. Para declarar a coluna
-      numa migration, use <code>Specific('meta', 'jsonb')</code>. O mesmo vale para
-      <code>ctMediumInt</code> (<code>mediumint</code> / <code>integer</code>) e
-      <code>ctTinyText</code> (<code>tinytext</code> / <code>text</code>).
+      <code>jsonb</code> só em PostgreSQL — nos outros três sai igual a <code>Json</code>.
+      Para declarar a coluna numa migration, use <code>Specific('meta', 'jsonb')</code>. O
+      mesmo vale para <code>ctMediumInt</code> e <code>ctTinyText</code>, alcançáveis só pelo
+      compilador.
     </p>
   </div>
 </div>
@@ -88,7 +96,10 @@ T.Bool('active');</pre></div>
 <h2 id="increments">Increments e BigIncrements</h2>
 <p>
   Os dois declaram a chave primária auto-incremento numa linha. O nome da coluna é opcional e
-  vale <code>id</code>.
+  vale <code>id</code>. O Firebird usa <code>identity</code> (que existe desde o 3), e no
+  SQLite os <strong>dois</strong> saem iguais — só <code>integer primary key</code> é apelido
+  do <code>rowid</code>, que já é de 64 bits, e <code>bigint primary key</code> criaria outra
+  coluna.
 </p>
 
 <div class="code"><pre data-lang="pascal">T := Db.Schema.CreateTable('users');
@@ -101,6 +112,12 @@ T.Increments;</pre></div>
   <div class="pane" data-pane="pg" data-label="PostgreSQL">
     <pre data-lang="sql">create table "users" ("id" serial primary key)</pre>
   </div>
+  <div class="pane" data-pane="fb" data-label="Firebird">
+    <pre data-lang="sql">create table "users" ("id" integer generated by default as identity primary key)</pre>
+  </div>
+  <div class="pane" data-pane="sqlite" data-label="SQLite">
+    <pre data-lang="sql">create table "users" ("id" integer primary key autoincrement)</pre>
+  </div>
 </div>
 
 <div class="code"><pre data-lang="pascal">T := Db.Schema.CreateTable('events');
@@ -112,6 +129,13 @@ T.BigIncrements('uid');</pre></div>
   </div>
   <div class="pane" data-pane="pg" data-label="PostgreSQL">
     <pre data-lang="sql">create table "events" ("uid" bigserial primary key)</pre>
+  </div>
+  <div class="pane" data-pane="fb" data-label="Firebird">
+    <pre data-lang="sql">create table "events" ("uid" bigint generated by default as identity primary key)</pre>
+  </div>
+  <div class="pane" data-pane="sqlite" data-label="SQLite">
+    <pre data-lang="sql">create table "events" ("uid" integer primary key autoincrement)</pre>
+    <p class="code-note">igual ao <code>Increments</code>: só <code>integer primary key</code> é apelido do rowid</p>
   </div>
 </div>
 
@@ -136,7 +160,7 @@ T.BigIncrements('uid');</pre></div>
 <h2 id="decimal">Decimal</h2>
 <p>
   <code>Decimal</code> já vem com precisão <code>8</code> e escala <code>2</code> — dinheiro
-  é o caso comum. Os dois dialetos escrevem igual.
+  é o caso comum. Os quatro dialetos escrevem igual.
 </p>
 
 <div class="code"><pre data-lang="pascal">T := Db.Schema.CreateTable('items');
@@ -182,15 +206,19 @@ T.Timestamps(False);</pre>
   guarda em UTC e converte na timezone da sessão, então o mesmo registro lido de dois
   servidores em fusos diferentes aponta para o mesmo momento. <code>DATETIME</code> é
   data-hora literal, sem fuso: muda de significado conforme quem lê. Para auditoria, o
-  instante é o que importa. Em PostgreSQL os dois caem em <code>timestamp</code>, então lá a
-  distinção não aparece no DDL.
+  instante é o que importa. Em PostgreSQL e Firebird os dois caem em
+  <code>timestamp</code>, então lá a distinção não aparece no DDL. No SQLite ela aparece —
+  <code>datetime</code> e <code>timestamp</code> — e não por capricho: o tipo declarado é o
+  que o driver usa para ler a coluna de volta como data, e trocar o nome a devolveria como
+  string.
 </p>
 
 <h2 id="enum">Enum</h2>
 <p>
   <code>Enum</code> exige pelo menos um item — lista vazia levanta
-  <code>ELzNexSchema</code> antes de a coluna ser criada. A implementação é bem diferente nos
-  dois bancos.
+  <code>ELzNexSchema</code> antes de a coluna ser criada. Só o MySQL tem
+  <code>enum</code> como tipo de coluna; nos outros três é texto mais um
+  <code>check</code>.
 </p>
 
 <div class="code"><pre data-lang="pascal">T := Db.Schema.CreateTable('orders');
@@ -202,6 +230,12 @@ T.Enum('status', ['new', 'done']);</pre></div>
   </div>
   <div class="pane" data-pane="pg" data-label="PostgreSQL">
     <pre data-lang="sql">create table "orders" ("status" text null check ("status" in ('new', 'done')))</pre>
+  </div>
+  <div class="pane" data-pane="fb" data-label="Firebird">
+    <pre data-lang="sql">create table "orders" ("status" varchar(255) check ("status" in ('new', 'done')))</pre>
+  </div>
+  <div class="pane" data-pane="sqlite" data-label="SQLite">
+    <pre data-lang="sql">create table "orders" ("status" varchar(255) check ("status" in ('new', 'done')))</pre>
   </div>
 </div>
 
@@ -234,7 +268,9 @@ T.Enum('status', ['new', 'done']);</pre></div>
 <p>
   <code>Binary</code> com tamanho vira <code>varbinary(n)</code> no MySQL; sem tamanho cai em
   <code>blob</code>. O PostgreSQL tem um só tipo binário de tamanho variável, então os três
-  casos colapsam em <code>bytea</code>.
+  casos colapsam em <code>bytea</code> — e o SQLite faz o mesmo, em <code>blob</code>. O
+  Firebird respeita o tamanho de outra forma: <code>varchar(n) character set octets</code>
+  com tamanho, <code>blob sub_type binary</code> sem.
 </p>
 
 <div class="code"><pre data-lang="pascal">T := Db.Schema.CreateTable('files');
@@ -269,8 +305,9 @@ T.Blob('raw');</pre></div>
 
 <h2 id="uuid">Uuid</h2>
 <p>
-  O PostgreSQL tem tipo <code>uuid</code> de 16 bytes, com comparação e indexação próprias. O
-  MySQL não tem, e a coluna cai em <code>char(36)</code> — a forma textual com hífens.
+  O PostgreSQL tem tipo <code>uuid</code> de 16 bytes, com comparação e indexação próprias. É
+  o único: MySQL, Firebird e SQLite caem em <code>char(36)</code> — a forma textual com
+  hífens.
 </p>
 
 <div class="code"><pre data-lang="pascal">T := Db.Schema.CreateTable('tokens');
@@ -286,7 +323,7 @@ T.Uuid('id');</pre></div>
 </div>
 
 <p>
-  A diferença importa na prática: no MySQL a comparação é textual e sensível ao formato
+  A diferença importa na prática: nos três a comparação é textual e sensível ao formato
   gravado (caixa dos dígitos hexadecimais, presença dos hífens), e o índice custa 36 bytes
   por entrada. Normalize na aplicação, ou use
   <code>Specific('id', 'binary(16)')</code> se o volume justificar.

@@ -37,6 +37,10 @@ type
     function TruncateTableSQL(const ATable: string): TLzNexFragment; override;
     function HasTableSQL(const ATable, ASchema: string): TLzNexFragment; override;
     function HasColumnSQL(const ATable, AColumn, ASchema: string): TLzNexFragment; override;
+    function TablesSQL(const ASchema: string): TLzNexFragment; override;
+    function ColumnsSQL(const ATable, ASchema: string): TLzNexFragment; override;
+    function HasIndexSQL(const ATable: string; const AColumns: TLzNexValues;
+      const ASchema: string): TLzNexFragment; override;
   end;
 
 function NewMySQLSchemaCompiler(const AClient: ILzNexClient): ILzNexSchemaCompiler;
@@ -88,13 +92,13 @@ begin
   if Trim(ATable.CollateName) <> '' then
     Result := Result + ' collate ' + ATable.CollateName;
   if Trim(ATable.CommentText) <> '' then
-    Result := Result + ' comment = ' + QuotedStr(ATable.CommentText);
+    Result := Result + ' comment = ' + FClient.EscapeStringLiteral(ATable.CommentText);
 end;
 
 function TLzNexMySQLSchemaCompiler.IndexSQL(const ATable: ILzNexTable;
   const AIndex: ILzNexIndexDef): string;
 begin
-  if (AIndex.IndexKind in [ixIndex, ixUnique, ixPrimary]) and
+  if (AIndex.IndexKind in [ixIndex, ixUnique, ixPrimary, ixFullText]) and
      (Length(AIndex.Columns) = 0) then
     raise ELzNexSchema.CreateFmt(
       'Index without columns on table "%s".', [ATable.TableName]);
@@ -112,6 +116,10 @@ begin
 
       Result := 'alter table ' + TableRef(ATable) + ' add primary key (' +
                 ColumnList(AIndex.Columns) + ')';
+    ixFullText:
+      Result := 'alter table ' + TableRef(ATable) + ' add fulltext index ' +
+                Wrap(IndexNameOf(ATable, AIndex)) +
+                '(' + ColumnList(AIndex.Columns) + ')';
   else
     Result := inherited IndexSQL(ATable, AIndex);
   end;
@@ -277,6 +285,87 @@ begin
   end
   else
     S := S + ' and table_schema = database()';
+  Result := TLzNexFragment.Make(S, B);
+end;
+
+function TLzNexMySQLSchemaCompiler.TablesSQL(const ASchema: string): TLzNexFragment;
+var
+  B: TLzNexBindings;
+  S: string;
+begin
+  B := TLzNexBindings.Empty;
+  S := 'select table_name from information_schema.tables where table_type = ''BASE TABLE''';
+  if Trim(ASchema) <> '' then
+  begin
+    S := S + ' and table_schema = ?';
+    B.Add(TLzNexValue.FromString(ASchema));
+  end
+  else
+    S := S + ' and table_schema = database()';
+  S := S + ' order by table_name';
+  Result := TLzNexFragment.Make(S, B);
+end;
+
+function TLzNexMySQLSchemaCompiler.ColumnsSQL(
+  const ATable, ASchema: string): TLzNexFragment;
+var
+  B: TLzNexBindings;
+  S: string;
+begin
+  B := TLzNexBindings.Empty;
+  S := 'select column_name from information_schema.columns where table_name = ?';
+  B.Add(TLzNexValue.FromString(ATable));
+  if Trim(ASchema) <> '' then
+  begin
+    S := S + ' and table_schema = ?';
+    B.Add(TLzNexValue.FromString(ASchema));
+  end
+  else
+    S := S + ' and table_schema = database()';
+  S := S + ' order by ordinal_position';
+  Result := TLzNexFragment.Make(S, B);
+end;
+
+function TLzNexMySQLSchemaCompiler.HasIndexSQL(const ATable: string;
+  const AColumns: TLzNexValues; const ASchema: string): TLzNexFragment;
+var
+  B: TLzNexBindings;
+  S, Marks: string;
+  I: Integer;
+begin
+  if Length(AColumns) = 0 then
+    raise ELzNexSchema.Create('HasIndex without columns.');
+
+  B := TLzNexBindings.Empty;
+  Marks := '';
+  for I := 0 to High(AColumns) do
+  begin
+    if I > 0 then
+      Marks := Marks + ', ';
+    Marks := Marks + '?';
+  end;
+
+  S := 'select count(*) from (' +
+       'select i.indexname from (' +
+       'select s.index_name as indexname, s.column_name from information_schema.statistics s ' +
+       'where s.table_name = ?';
+  B.Add(TLzNexValue.FromString(ATable));
+  if Trim(ASchema) <> '' then
+  begin
+    S := S + ' and s.table_schema = ?';
+    B.Add(TLzNexValue.FromString(ASchema));
+  end
+  else
+    S := S + ' and s.table_schema = database()';
+  S := S + ') i group by i.indexname ' +
+       'having sum(case when i.column_name in (' + Marks + ') then 1 else 0 end) = ? ' +
+       'and count(*) = ?) m';
+
+  for I := 0 to High(AColumns) do
+    B.Add(TLzNexValue.FromString(AColumns[I].Text));
+  B.Add(TLzNexValue.FromInteger(Length(AColumns)));
+  B.Add(TLzNexValue.FromInteger(Length(AColumns)));
+
   Result := TLzNexFragment.Make(S, B);
 end;
 

@@ -1,19 +1,25 @@
 # LzNex
 
-Query builder, schema builder e migrations para **Lazarus/FPC**, com API fluente e
-encadeável. Usa [ZeosLib](https://zeoslib.sourceforge.io) por baixo (camada DBC, sem
-`TDataset`). MySQL pronto; PostgreSQL com SQL/DDL implementados; arquitetura aberta
-para Firebird.
+Query builder, schema builder e migrations para Lazarus/FPC sobre ZeosLib.
+Uma API fluente só, com interfaces e contagem de referência, para
+MySQL/MariaDB, PostgreSQL, Firebird (3 e 5) e SQLite — com pool de conexões,
+transações com savepoint, três modos de paginação e um CLI de migrations.
 
-Instalável por [Boss](https://github.com/HashLoad/boss) em qualquer projeto Lazarus,
-inclusive os que usam [Horse](https://github.com/HashLoad/horse).
+## Requisitos
 
-## Instalar
+- FPC 3.2+ e Lazarus (unidades em `{$MODE DELPHI}`)
+- ZeosLib 8 — o pacote `zdbc`, instalado na IDE; não é vendorizado aqui
+- A client library do banco: `libmariadb`, `libpq`, `libfbclient` ou `libsqlite3`
 
-```jsonc
-// boss.json do seu projeto
-"dependencies": {
-  "github.com/leonampuzlplace/lznex": "^1.0.0"
+## Instalação
+
+Pelo Boss, no `boss.json` do seu projeto:
+
+```json
+{
+  "dependencies": {
+    "github.com/leonampuzlplace/lznex": "^1.0.0"
+  }
 }
 ```
 
@@ -21,145 +27,154 @@ inclusive os que usam [Horse](https://github.com/HashLoad/horse).
 boss install
 ```
 
-O Boss resolve a versão pelas tags do repositório: cada entrega em `production` publica
-uma tag `vX.Y.Z` pela GitHub Action, e é dela que sai o `^1.0.0` acima.
+Ou abra `lznex.lpk` na IDE e adicione o pacote ao seu projeto.
 
-O ZeosLib vem junto, como dependência transitiva. A coordenada dele ainda é um
-placeholder (`github.com/CHANGEME/zeoslib`), porque depende de um fork com `boss.json` —
-enquanto isso, os Dockerfiles clonam o Zeos do repositório oficial e montam `modules/`
-com o mesmo layout que o Boss produziria.
-
-## Usar
+## Uso
 
 ```pascal
-uses LzNex, LzNex.Client.MySQL;   // a unit do dialeto se registra sozinha
+uses
+  LzNex, LzNex.Intf, LzNex.Value,
+  LzNex.Client.MySQL;   // registra o dialeto: um use por banco que você usa
 
 var
   Db: ILzNex;
+  Rows: ILzNexResult;
 begin
   Db := Connect(NewConfig
-    .Client('mysql').Host('mysql').Database('app')
-    .User('root').Password('secret')
+    .Client('mysql')
+    .Host('localhost').Port(3306)
+    .Database('app').User('root').Password('secret')
     .LibraryLocation('/usr/lib/x86_64-linux-gnu/libmariadb.so.3')
     .Pool(2, 10));
-```
+  try
+    Rows := Db.Table('users')
+      .Select(['id', 'name'])
+      .Where('active', True)
+      .WhereIn('role', ValueList(['admin', 'staff']))
+      .OrderByDesc('id')
+      .Limit(20)
+      .Get;
 
-```pascal
-// select * from `users` where `active` = ? and (`role` = ? or `role` = ?) limit ?
-Rows := Db.Table('users')
-          .Where('active', True)
-          .WhereOpen
-            .Where('role', 'admin')
-            .OrWhere('role', 'owner')
-          .WhereClose
-          .OrderBy('name').Limit(10).Get;
-
-while Rows.Next do
-  Writeln(Rows.Field('name').AsString);
-
-Id    := Db.Table('users').InsertGetId(Vals(['name', 'Leonam', 'email', 'l@x.com']));
-Total := Db.Table('users').Where('active', True).Count;
-Rows  := Db.Table('posts')
-           .Join('users').OnColumns('posts.user_id', '=', 'users.id')
-           .LeftJoin('tags').OnValue('tags.active', '=', True)
-           .Get;
-```
-
-```pascal
-Trx := Db.Transaction;
-try
-  Trx.Table('users').Where('id', 1).Update(Vals(['balance', 0]));
-  Trx.Table('audit').Insert(Vals(['action', 'reset']));
-  Trx.Commit;
-except
-  raise;   // sem Commit, o destrutor faz rollback
+    Writeln(Rows.ToJSON);
+  finally
+    Db.Shutdown;
+  end;
 end;
 ```
 
+Nomes de dialeto aceitos: `mysql`/`mariadb`, `postgresql`/`postgres`,
+`firebird`, `sqlite`/`sqlite3`.
+
+Escrita, schema e transação:
+
 ```pascal
-Db.Schema.CreateTable('users')
-  .Increments('id')
-  .Str('email', 191).NotNull.Unique
-  .Int('role_id').Unsigned.References('id').InTable('roles').OnDelete('CASCADE')
-  .Json('meta').Nullable
+Id := Db.Table('users').InsertGetId(Vals(['name', 'Ana', 'email', 'ana@x.com']));
+
+Db.Schema.CreateTable('posts')
+  .BigIncrements('id')
+  .BigInt('user_id').Unsigned.NotNull
+    .References('users.id').OnDelete('cascade')
+  .Str('title', 160).NotNull
+  .Text('body').Nullable
   .Timestamps
-  .Engine('InnoDB').Charset('utf8mb4')
   .Execute;
+
+Trx := Db.Transaction;
+try
+  Trx.Table('posts').Where('user_id', Id).Delete;
+  Trx.Table('users').Where('id', Id).Delete;
+  Trx.Commit;
+except
+  Trx.Rollback;
+  raise;
+end;
 ```
 
-Migration em Pascal (`database/migrations/M20261024120000_create_users.pas`) ou em
-`.sql` (`20261025090000_add_phone.up.sql` + `.down.sql`). As duas formas rodam no mesmo
-batch, ordenadas por timestamp. As `.sql` não exigem recompilar.
+`Paginate` devolve total e última página, `SimplePaginate` evita o `count`,
+`CursorPaginate` pagina por cursor; `Chunk`/`ChunkById`/`Each` varrem em lotes.
+`ToSQLString` mostra o SQL gerado sem executar nada.
+
+## Configuração
+
+Em código (`NewConfig`), por arquivo JSON ou por ambiente:
+
+```pascal
+Db := ConnectFromFile('database/lznex.json', 'development');
+```
+
+```sh
+LZNEX_CLIENT=postgresql LZNEX_HOST=localhost LZNEX_DATABASE=app \
+LZNEX_USER=postgres LZNEX_PASSWORD=secret ./bin/lznex migrate:status
+```
+
+Veja `database/lznex.json` para o formato do arquivo (um bloco por ambiente,
+com `pool`, `migrations` e `seeds`). `LZNEX_ENV` escolhe o ambiente e
+`LZNEX_CONFIG` o caminho do arquivo.
 
 ## CLI
 
-| Comando | O que faz |
-|---|---|
-| `lznex migrate:latest` | aplica as pendentes num novo batch |
-| `lznex migrate:rollback [--all]` | desfaz o último batch (ou tudo) |
-| `lznex migrate:up [nome]` / `migrate:down [nome]` | um passo |
-| `lznex migrate:to <nome>` | até a migration informada |
-| `lznex migrate:status` | aplicadas e pendentes |
-| `lznex migrate:unlock` | libera lock de processo que morreu |
-| `lznex migrate:make <desc> [--sql]` | cria a migration |
-| `lznex seed:run [--only=nome]` / `seed:make <desc>` | seeds |
+```sh
+lznex migrate:latest              # roda todas as migrations pendentes num novo batch
+lznex migrate:rollback [--all]    # desfaz o último batch (ou tudo)
+lznex migrate:up|down [nome]
+lznex migrate:to <nome>
+lznex migrate:status
+lznex migrate:version
+lznex migrate:unlock              # libera lock deixado por processo morto
+lznex migrate:make <desc> [--sql] # gera migration em Pascal, ou par .up/.down.sql
+lznex seed:run [--only=nome]
+lznex seed:make <desc>
+```
 
-Config em `database/lznex.json` (com ambientes) ou pelas variáveis `LZNEX_HOST`,
-`LZNEX_DATABASE`, `LZNEX_USER`, `LZNEX_PASSWORD`, `LZNEX_LIBRARY`, `LZNEX_PORT`.
+Migrations em Pascal se registram sozinhas (`RegisterMigration`) e entram pela
+unit `database/Migrations.All.pas`; as `.sql` saem do diretório configurado em
+`migrations.directory`.
 
-## Rodar
+## Testes
+
+Tudo num binário só (`bin/lznex-tests`, fpcunit); os casos de integração ficam
+ignorados a menos que `LZNEX_IT` esteja setado.
 
 ```sh
-docker compose run --rm tests          # unitários, sem banco
-docker compose run --rm tests-it       # integração + concorrência (MySQL real)
-docker compose run --rm cli migrate:latest
-docker compose up -d api && curl localhost:9000/health
+docker compose build tests
+docker compose run --rm tests                  # unitários, sem banco
+
+docker compose up -d mysql postgres firebird3 firebird5
+docker compose run --rm tests-it               # MySQL
+docker compose run --rm tests-it-pg            # PostgreSQL
+docker compose run --rm tests-it-fb3           # Firebird 3
+docker compose run --rm tests-it-fb5           # Firebird 5
+docker compose run --rm tests-it-sqlite        # SQLite (arquivo no container)
 ```
 
-Saída observada na última execução:
+Observado nessas execuções:
 
-```
-Number of run tests: 146      core 19 | query 38 | security 4 | dialect 5
-Number of errors:    0        postgres 66 | integration 9 | concurrency 5
-Number of failures:  0
+- `HEAPTRC=haltonnotreleased` é o gate de vazamento: sobrou bloco não liberado,
+  o processo sai com 203 e o CI falha. `scripts/run-tests.sh` reporta
+  `pass/fail/leak` e avisa quando o binário foi compilado sem `-gh`.
+- O healthcheck do Firebird usa `isql` com `localhost:` no caminho; sem isso o
+  arquivo abre em modo embedded, o engine recusa os dois acessos e a suíte cai
+  de forma intermitente.
+- Compilar a imagem (FPC, Lazarus, Zeos, dois build modes) leva minutos, então
+  o CI compila uma vez e roda todas as suítes sobre a mesma imagem.
 
-sondas: 870 asserções em 7 binários, todas verdes
-heaptrc: 0 unfreed memory blocks (467.958 alocados, 467.958 liberados)
-API: {"status":"ok","dialect":"mysql"}
-```
+## Estrutura
 
-## Threads
-
-Pensado para servidor multi-thread (o provider FPC do Horse atende cada conexão HTTP
-numa thread):
-
-- pool com seção crítica; **uma conexão por operação**, devolvida por RAII
-- `InsertGetId` pega o id na **mesma** conexão do insert — testado com 8 threads, cada
-  id conferido contra a linha daquela thread
-- transações isoladas entre threads; a conexão volta ao pool no `Commit`/`Rollback`
-- um `ILzNexQuery` ou `ILzNexTransaction` **não** pode ser compartilhado entre threads
-
-Programa que usa threads precisa de `cthreads` no início do `uses` (Unix).
+- `src/` — a biblioteca: `LzNex.pas` é a fachada, `LzNex.Intf.pas` tem todos os
+  contratos, `LzNex.Client.*` e `LzNex.Schema.*` são os dialetos
+- `tools/` — o CLI (`bin/lznex`)
+- `tests/` — a suíte fpcunit e as probes
+- `database/` — exemplo de config, migrations e a unit que as agrega
+- `example/api/` — API Horse mínima com `/health` e `/users`
+  (`docker compose up api`, porta 9000)
+- `docs/site/` — documentação em HTML estático; abra `docs/site/index.html`
+- `spike/` — scripts e probes de investigação, fora do build
 
 ## Troubleshooting
 
-- **`Requested database driver was not found`** — falta `uses LzNex.Client.MySQL`. Unit
-  não referenciada não é linkada, então o driver não se registra.
-- **Migration em Pascal não aparece no `migrate:status`** — mesma causa: acrescente a
-  unit ao `uses` de `database/Migrations.All.pas` (o `migrate:make` faz isso).
-- **Erro de biblioteca ao conectar** — no Ubuntu 26.04 só existe `libmariadb.so.3` e o
-  auto-load do Zeos não a encontra. Informe `LibraryLocation` ou `LZNEX_LIBRARY`.
-- **`lazbuild` reclama de `directory lcl not found`** — falta o pacote `lazarus-src`,
-  mesmo sem usar LCL.
-- **Gate de vazamento inerte** — `-gh` precisa ir em `CustomOptions` do `.lpi`; a tag
-  `<UseHeaptrc>` é ignorada pelo lazbuild.
-- **DDL em MySQL não faz rollback** — o MySQL dá commit implícito em DDL. O migrator
-  avisa; escreva a migration como passo único e reentrante.
-
-## Limitações conhecidas
-
-- PostgreSQL tem SQL e DDL implementados e testados **por texto**, sem banco real no
-  compose: conexão, pool e migrator nunca rodaram contra um Postgres.
-- `Change` (alterar tipo de coluna) gera DDL que o Postgres recusa — ele exige
-  `alter column ... type` e `set not null` em comandos separados.
-- `on conflict ... where` e enum nativo do Postgres não são expressáveis hoje.
+- `configuration error: ...` — falta host/database/user: passe pelo
+  `database/lznex.json` ou pelas `LZNEX_*`
+- `Duplicate unit` ao compilar — Zeos aparecendo duas vezes (pacote na IDE mais
+  uma cópia em `modules/`); deixe só um
+- Conexão que não abre sem erro claro — confira `LibraryLocation`: o caminho da
+  client library precisa existir no host onde o binário roda

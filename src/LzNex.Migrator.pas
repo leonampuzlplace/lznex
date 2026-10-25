@@ -452,8 +452,12 @@ begin
   except
     on E: Exception do
     begin
+
       if not Trx.IsCompleted then
-        Trx.Rollback;
+        try
+          Trx.Rollback;
+        except
+        end;
       raise ELzNexMigration.Create(
         'Migration ' + AMigration.Name + ' failed: ' + E.Message);
     end;

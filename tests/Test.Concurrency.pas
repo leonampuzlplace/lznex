@@ -15,7 +15,8 @@ uses
   LzNex.Value,
   LzNex.Intf,
   LzNex.Exceptions,
-  LzNex.Client.MySQL;
+  LzNex.Client.MySQL,
+  Test.It.Config;
 
 type
   TConcurrencyTestCase = class(TTestCase)
@@ -54,15 +55,7 @@ end;
 
 function ConnectWithPoolSize(const AMaxConnections: Integer): ILzNex;
 begin
-  Result := Connect(NewConfig
-    .Client('mysql')
-    .Host(EnvOr('DB_HOST', 'mysql'))
-    .Port(StrToIntDef(EnvOr('DB_PORT', '3306'), 3306))
-    .Database(EnvOr('DB_NAME', 'lznex'))
-    .User(EnvOr('DB_USER', 'root'))
-    .Password(EnvOr('DB_PASS', 'secret'))
-    .LibraryLocation(EnvOr('DB_LIB', '/usr/lib/x86_64-linux-gnu/libmariadb.so.3'))
-    .Pool(2, AMaxConnections));
+  Result := Connect(ItConfig(AMaxConnections));
 end;
 
 function TConcurrencyTestCase.SkipWithoutDatabase: Boolean;
@@ -92,15 +85,14 @@ end;
 
 procedure TConcurrencyTestCase.RecreateTable(const ADb: ILzNex);
 begin
-  ADb.Execute('drop table if exists `' + LOAD_TABLE + '`', []);
-  ADb.Execute(
-    'create table `' + LOAD_TABLE + '` (' +
-    '  id int unsigned not null auto_increment primary key,' +
-    '  worker int not null,' +
-    '  tag varchar(60) not null,' +
-    '  score int null,' +
-    '  key `k_worker` (`worker`)' +
-    ') engine=InnoDB default charset=utf8mb4', []);
+  ADb.Schema.DropTableIfExists(LOAD_TABLE);
+  ADb.Schema.CreateTable(LOAD_TABLE)
+    .Increments('id')
+    .Int('worker').NotNull
+    .Str('tag', 60).NotNull
+    .Int('score').Nullable
+    .Index(['worker'])
+    .Execute;
 end;
 
 type

@@ -2,8 +2,9 @@
 <!-- Suite FPCUnit. O build mode Debug leva -gh em CustomOptions, NAO via
      <UseHeaptrc>: verificado que o lazbuild ignora essa tag e o binario sai
      sem heaptrc, o que tornaria o gate de vazamento um falso verde.
-     Os paths "../modules/github_com_CHANGEME_zeoslib" sao reescritos pelo
-     Dockerfile conforme a coordenada real do fork do Zeos. -->
+     O Zeos nao vem do boss.json (e dependencia do host, ver README): aqui ele
+     e clonado em modules/zeoslib pelo Dockerfile. Fora do container, clone na
+     mao no mesmo lugar. -->
 <CONFIG>
   <ProjectOptions>
     <Version Value="12"/>
@@ -30,8 +31,8 @@
             <Filename Value="../bin/lznex-tests-debug"/>
           </Target>
           <SearchPaths>
-            <IncludeFiles Value="../modules/github_com_CHANGEME_zeoslib/src"/>
-            <OtherUnitFiles Value="../src;../tests;../modules/github_com_CHANGEME_zeoslib/src/core;../modules/github_com_CHANGEME_zeoslib/src/parsesql;../modules/github_com_CHANGEME_zeoslib/src/plain;../modules/github_com_CHANGEME_zeoslib/src/dbc;../modules"/>
+            <IncludeFiles Value="../modules/zeoslib/src"/>
+            <OtherUnitFiles Value="../src;../tests;../modules/zeoslib/src/core;../modules/zeoslib/src/parsesql;../modules/zeoslib/src/plain;../modules/zeoslib/src/dbc;../modules"/>
             <UnitOutputDirectory Value="../lib/tests-debug/$(TargetCPU)-$(TargetOS)"/>
           </SearchPaths>
           <CodeGeneration>
@@ -73,8 +74,8 @@
       <Filename Value="../bin/lznex-tests"/>
     </Target>
     <SearchPaths>
-      <IncludeFiles Value="../modules/github_com_CHANGEME_zeoslib/src"/>
-      <OtherUnitFiles Value="../src;../tests;../modules/github_com_CHANGEME_zeoslib/src/core;../modules/github_com_CHANGEME_zeoslib/src/parsesql;../modules/github_com_CHANGEME_zeoslib/src/plain;../modules/github_com_CHANGEME_zeoslib/src/dbc;../modules"/>
+      <IncludeFiles Value="../modules/zeoslib/src"/>
+      <OtherUnitFiles Value="../src;../tests;../modules/zeoslib/src/core;../modules/zeoslib/src/parsesql;../modules/zeoslib/src/plain;../modules/zeoslib/src/dbc;../modules"/>
       <UnitOutputDirectory Value="../lib/tests-release/$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>
     <CodeGeneration>

@@ -43,7 +43,15 @@
 <p>
   Na devolução, o pool ainda verifica o estado da conexão: se ficou com transação aberta, faz
   <code>Rollback</code>; se está fechada ou deu erro na verificação, descarta em vez de devolver
-  uma conexão suja ao próximo que pedir.
+  uma conexão suja ao próximo que pedir. Esse <code>Rollback</code> — e o <code>Ping</code> de
+  quem pega a conexão de volta — acontece <strong>fora</strong> da seção crítica: as duas coisas
+  são ida ao servidor, e segurar o lock durante um timeout de rede pararia o
+  <code>Acquire</code> de todas as outras threads.
+</p>
+<p>
+  Quando o empréstimo chega por um cursor, <code>ILzNexResult.Close</code> devolve a conexão na
+  hora, sem esperar a variável sair de escopo — ver
+  <a href="#results/connection-lease">o empréstimo da conexão</a>.
 </p>
 
 <div class="code"><pre data-lang="out">ELzNexPool: Pool exhausted: 8 connections in total (max 8), 8 in use.
@@ -91,6 +99,67 @@ Writeln(Db.Pool.Size, ' conexoes, ', Db.Pool.InUse, ' em uso');</pre></div>
   negativo levantam <code>ELzNexConfig</code> na criação do pool, não na primeira query. Veja
   <a href="#configuration">Configuração</a> para o arquivo JSON e as variáveis de ambiente
   equivalentes.
+</p>
+
+<h2 id="read-replica">Réplica de leitura: dois pools</h2>
+<p>
+  <code>ReadReplica</code> recebe uma <strong>configuração própria</strong> — host, usuário e até
+  dialeto próprios — e abre um segundo pool. A partir daí o roteamento é automático: leitura vai
+  para a réplica, escrita vai para o primário.
+</p>
+
+<div class="code"><pre data-lang="pascal">Db := Connect(NewConfig
+  .Client('mysql').Host('db-primary').Database('app')
+  .User('app').Password(Secret)
+  .Pool(2, 8)
+  .ReadReplica(NewConfig
+    .Client('mysql').Host('db-replica').Database('app')
+    .User('app_ro').Password(Secret)
+    .Pool(2, 16)));</pre></div>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>O que a query faz</th><th>Vai para</th><th>Por quê</th></tr></thead>
+<tbody>
+<tr><td><code>Get</code>, <code>First</code>, <code>Count</code>, <code>Pluck</code>, <code>Paginate</code></td><td class="yes">réplica</td><td>leitura pura</td></tr>
+<tr><td><code>Insert</code>, <code>Update</code>, <code>Delete</code>, <code>Upsert</code></td><td>primário</td><td>escrita</td></tr>
+<tr><td>qualquer coisa dentro de <code>Db.Transaction</code></td><td>primário</td><td>é a conexão fixada da transação; a réplica não veria o que ela ainda não commitou</td></tr>
+<tr><td><code>ForUpdate</code> / <code>ForShare</code></td><td>primário</td><td>travar linha numa réplica não protege quem escreve no primário</td></tr>
+<tr><td>qualquer query com <code>UsePrimary</code></td><td>primário</td><td>decisão explícita de quem chamou</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  Sem réplica configurada, <code>ReadConnection</code> é a mesma coisa que
+  <code>Connection</code> — o código da aplicação não muda ao ligar ou desligar a réplica.
+</p>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Ler depois de escrever exige UsePrimary</span>
+    <p>
+      Replicação tem atraso. Inserir uma linha e, logo depois, procurá-la numa leitura comum
+      pode não achar nada — a réplica ainda não recebeu. Não há "sticky" automático aqui: quem
+      precisa do dado recém-escrito usa <code>UsePrimary</code> ou faz as duas operações na mesma
+      transação.
+    </p>
+    <div class="code"><pre data-lang="pascal">Db.Table('users').Insert(Vals(['email', AMail]));
+
+// Esta leitura pode nao achar: a replica talvez nao tenha recebido ainda.
+Row := Db.Table('users').Where('email', AMail).First;
+
+// Esta acha sempre.
+Row := Db.Table('users').Where('email', AMail).UsePrimary.First;</pre></div>
+  </div>
+</div>
+
+<p>
+  Os dois pools são independentes: <code>Db.Pool</code> é o do primário, e cada um tem o seu
+  <code>min</code>/<code>max</code>. <code>Shutdown</code> encerra os dois.
+  <code>ReadReplica</code> apontando para a própria configuração levanta
+  <code>ELzNexConfig</code> — seriam dois pools para o mesmo banco sem nenhum ganho.
 </p>
 
 <h2 id="normal-use">No uso normal ninguém toca no pool</h2>

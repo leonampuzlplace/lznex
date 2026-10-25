@@ -201,6 +201,7 @@ type
     function Primary(const AColumns: array of string): ILzNexTable; overload;
     function Unique(const AColumns: array of string): ILzNexTable; overload;
     function Index(const AColumns: array of string): ILzNexTable; overload;
+    function FullText(const AColumns: array of string): ILzNexTable;
     function DropColumn(const AName: string): ILzNexTable;
     function DropIndex(const AColumns: array of string): ILzNexTable;
     function DropUnique(const AColumns: array of string): ILzNexTable;
@@ -260,6 +261,10 @@ type
     function Table(const AName: string): ILzNexTable;
     function HasTable(const AName: string): Boolean;
     function HasColumn(const ATable, AColumn: string): Boolean;
+    function Tables: TLzNexStringArray;
+    function Columns(const ATable: string): TLzNexStringArray;
+    function HasIndex(const ATable: string;
+      const AColumns: array of string): Boolean;
     procedure DropTable(const AName: string);
     procedure DropTableIfExists(const AName: string);
     procedure RenameTable(const AFrom, ATo: string);
@@ -271,6 +276,8 @@ function NewSchema(const ADb: ILzNex; const AClient: ILzNexClient): ILzNexSchema
 
 function NormalizeFkAction(const AAction: string): string;
 
+procedure ValidateSchemaOptionName(const AValue, AWhat: string);
+
 implementation
 
 const
@@ -278,6 +285,29 @@ const
   LZNEX_FK_ACTIONS: array[0..4] of string = (
     'cascade', 'restrict', 'set null', 'no action', 'set default'
   );
+
+procedure ValidateSchemaOptionName(const AValue, AWhat: string);
+var
+  I: Integer;
+  C: Char;
+begin
+  if Trim(AValue) = '' then
+    Exit;
+
+  for I := 1 to Length(AValue) do
+  begin
+    C := AValue[I];
+    if ((C >= 'a') and (C <= 'z')) or ((C >= 'A') and (C <= 'Z')) or
+       ((C >= '0') and (C <= '9')) or (C = '_') then
+      Continue;
+
+    raise ELzNexSchema.CreateFmt(
+      'Invalid character "%s" in %s "%s". It goes into the DDL text, not as a ' +
+      'bound parameter, so it is restricted to letters, digits and "_" -- ' +
+      'otherwise a value coming from outside would be SQL injection.',
+      [C, AWhat, AValue]);
+  end;
+end;
 
 function NormalizeFkAction(const AAction: string): string;
 var
@@ -419,6 +449,7 @@ end;
 
 procedure TLzNexColumnDefImpl.SetCollate(const AName: string);
 begin
+  ValidateSchemaOptionName(AName, 'collation');
   FCollate := AName;
   Include(FMods, mdCollate);
 end;
@@ -1022,6 +1053,20 @@ begin
   Result := Self;
 end;
 
+function TLzNexTableBase.FullText(const AColumns: array of string): ILzNexTable;
+begin
+  if Length(AColumns) = 0 then
+    raise ELzNexSchema.Create('FullText without columns.');
+  if not FClient.SupportsFullText then
+    raise ELzNexSchema.CreateFmt(
+      'Dialect "%s" has no full text index on a regular table. In SQLite that ' +
+      'would be an FTS5 virtual table, and Firebird has no equivalent.',
+      [FClient.DialectName]);
+
+  PushIndex(ixFullText, StringsToValues(AColumns), False);
+  Result := Self;
+end;
+
 function TLzNexTableBase.DropColumn(const AName: string): ILzNexTable;
 var
   C: TLzNexColumnDefImpl;
@@ -1083,6 +1128,7 @@ end;
 function TLzNexTableBase.Engine(const AName: string): ILzNexTable;
 begin
   EnsureCreate('Engine');
+  ValidateSchemaOptionName(AName, 'engine name');
   FEngine := AName;
   Result := Self;
 end;
@@ -1090,6 +1136,7 @@ end;
 function TLzNexTableBase.Charset(const AName: string): ILzNexTable;
 begin
   EnsureCreate('Charset');
+  ValidateSchemaOptionName(AName, 'charset name');
   FCharset := AName;
   Result := Self;
 end;
@@ -1097,6 +1144,7 @@ end;
 function TLzNexTableBase.TableCollate(const AName: string): ILzNexTable;
 begin
   EnsureCreate('TableCollate');
+  ValidateSchemaOptionName(AName, 'collation');
   FCollate := AName;
   Result := Self;
 end;
@@ -1295,6 +1343,66 @@ begin
   R := NeedDb('HasColumn').Connection.Query(
     Compiler('HasColumn').HasColumnSQL(ATable, AColumn, FSchema));
   Result := (R <> nil) and R.Next and (R.FieldAt(0).AsInt64 > 0);
+end;
+
+function NamesOf(const AResult: ILzNexResult): TLzNexStringArray;
+var
+  N: Integer;
+begin
+  Result := nil;
+  if AResult = nil then
+    Exit;
+
+  N := 0;
+  try
+    while AResult.Next do
+    begin
+      if N >= Length(Result) then
+        if Length(Result) = 0 then
+          SetLength(Result, 16)
+        else
+          SetLength(Result, Length(Result) * 2);
+      Result[N] := Trim(AResult.FieldAt(0).AsString);
+      Inc(N);
+    end;
+  finally
+    AResult.Close;
+  end;
+  SetLength(Result, N);
+end;
+
+function TLzNexSchema.Tables: TLzNexStringArray;
+begin
+  Result := NamesOf(NeedDb('Tables').Connection.Query(
+    Compiler('Tables').TablesSQL(FSchema)));
+end;
+
+function TLzNexSchema.Columns(const ATable: string): TLzNexStringArray;
+begin
+  if Trim(ATable) = '' then
+    raise ELzNexSchema.Create('Columns without a table name.');
+  Result := NamesOf(NeedDb('Columns').Connection.Query(
+    Compiler('Columns').ColumnsSQL(ATable, FSchema)));
+end;
+
+function TLzNexSchema.HasIndex(const ATable: string;
+  const AColumns: array of string): Boolean;
+var
+  R: ILzNexResult;
+begin
+  if Trim(ATable) = '' then
+    raise ELzNexSchema.Create('HasIndex without a table name.');
+  if Length(AColumns) = 0 then
+    raise ELzNexSchema.Create('HasIndex without columns.');
+
+  R := NeedDb('HasIndex').Connection.Query(Compiler('HasIndex').HasIndexSQL(
+    ATable, StringsToValues(AColumns), FSchema));
+  try
+    Result := (R <> nil) and R.Next and (R.FieldAt(0).AsInt64 > 0);
+  finally
+    if R <> nil then
+      R.Close;
+  end;
 end;
 
 procedure TLzNexSchema.DropTable(const AName: string);

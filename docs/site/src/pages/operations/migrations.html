@@ -229,6 +229,13 @@ created: database/migrations/20261025090000_add_phone.down.sql
 </div>
 </div>
 
+<p>
+  O preço é a portabilidade: o texto vai cru ao banco, então uma migration
+  <code>.sql</code> vale para <strong>um</strong> dialeto. Se o projeto precisa rodar o mesmo
+  histórico em mais de um — MySQL em produção e SQLite em teste, por exemplo — escreva em
+  Pascal e use o <a href="#schema">schema builder</a>, que é quem traduz o DDL por dialeto.
+</p>
+
 <h3 id="naming">A convenção de nome é o contrato</h3>
 <p>
   O descobridor varre o diretório e só olha arquivos terminados em <code>.up.sql</code>. O nome
@@ -270,9 +277,9 @@ alter table `users` drop `phone`;</pre></div>
 <p>
   O arquivo é quebrado em comandos pelo <code>;</code>, mas o splitter entende o texto em volta:
   ponto e vírgula dentro de literal (<code>'</code>, <code>"</code>, <code>`</code>), dentro de
-  <code>--</code>, de <code>#</code> ou de <code>/* */</code> não separa nada. Cada comando vai
-  ao banco sozinho, e o erro diz qual deles falhou (<em>statement 2 of 4</em>) com o SQL inteiro
-  anexado.
+  <code>--</code>, de <code>#</code>, de <code>/* */</code> ou de um corpo
+  <code>$$ … $$</code> do PostgreSQL não separa nada. Cada comando vai ao banco sozinho, e o
+  erro diz qual deles falhou (<em>statement 2 of 4</em>) com o SQL inteiro anexado.
 </p>
 
 <div class="code"><pre data-lang="sql">create table a (
@@ -289,17 +296,36 @@ update a set nota = 'c' where id = 1;
 </div>
 
 <p>
-  Literal aberto sem par, ou <code>/*</code> sem <code>*/</code>, levanta
-  <code>ELzNexMigration</code> e <strong>nada</strong> é executado: sem saber onde um comando
-  termina, não há palpite seguro.
+  Literal aberto sem par, <code>/*</code> sem <code>*/</code> ou <code>$$</code> sem par
+  levanta <code>ELzNexMigration</code> e <strong>nada</strong> é executado: sem saber onde um
+  comando termina, não há palpite seguro.
 </p>
+
+<h4>PL/pgSQL entre <code>$$</code></h4>
+<p>
+  No PostgreSQL o corpo de função e de <code>do</code> vem entre <code>$$</code> ou
+  <code>$tag$</code>, e tem <code>;</code> dentro. O splitter pula o corpo inteiro, então a
+  função chega ao banco em uma peça:
+</p>
+
+<div class="code"><pre data-lang="sql">create function bump(n int) returns int as $$
+begin
+  n := n + 1;
+  return n;
+end;
+$$ language plpgsql;
+
+select bump(1);</pre>
+  <p class="code-note">2 comandos: a <code>function</code> inteira e o <code>select</code>. Um <code>$</code> solto não abre corpo — a abertura é <code>$$</code> ou <code>$tag$</code>, com tag vazia ou identificador.</p>
+</div>
 
 <h4>A marca nosplit</h4>
 <p>
-  Corpo de <code>procedure</code>, <code>function</code> ou <code>trigger</code> tem
-  <code>;</code> interno que pertence ao corpo, não ao script. Com a marca
-  <code>lznex:nosplit</code> em qualquer lugar do arquivo (num comentário, por convenção na
-  primeira linha), o arquivo vai ao banco <strong>inteiro</strong>, como um único comando.
+  Nos outros bancos o corpo de <code>procedure</code>, <code>function</code> ou
+  <code>trigger</code> não tem delimitador próprio: o <code>;</code> interno pertence ao corpo,
+  e o splitter não tem como saber. Com a marca <code>lznex:nosplit</code> em qualquer lugar do
+  arquivo (num comentário, por convenção na primeira linha), o arquivo vai ao banco
+  <strong>inteiro</strong>, como um único comando.
 </p>
 
 <div class="code"><pre data-lang="sql">-- lznex:nosplit
@@ -502,8 +528,8 @@ Another process is migrating right now, or a previous process died holding the l
       aviso. Escreva a migration como <strong>um passo estrutural só</strong> e deixe-a
       <strong>reentrante</strong> (<code>DropTableIfExists</code> em vez de
       <code>DropTable</code>, checar <code>HasColumn</code> antes de adicionar), para que rodar
-      de novo depois de um erro no meio funcione. PostgreSQL faz DDL dentro de transação e não
-      tem esse problema.
+      de novo depois de um erro no meio funcione. O MySQL é o único dos quatro assim:
+      PostgreSQL, Firebird e SQLite fazem DDL dentro de transação e não têm esse problema.
     </p>
   </div>
 </div>

@@ -14,6 +14,23 @@
   <code>create table</code> junto.
 </p>
 
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">No SQLite não dá: a restrição nasce com a tabela ou não nasce</span>
+    <p>
+      Não existe <code>ALTER TABLE ADD CONSTRAINT</code> no SQLite. <code>Unique</code> e chave
+      estrangeira declaradas num <code>CreateTable</code> entram <strong>dentro</strong> do
+      <code>create table</code>, como <code>constraint … unique (…)</code> e
+      <code>constraint … foreign key (…)</code>, e o <code>Post</code> fica vazio. Em tabela
+      <strong>existente</strong>, <code>Unique</code> vira <code>create unique index</code>, e
+      <code>Primary</code> e chave estrangeira <strong>levantam</strong>
+      <code>ELzNexSchema</code> citando a falta de <code>ADD CONSTRAINT</code>. Índice comum
+      funciona nos dois modos, como em todos os bancos.
+    </p>
+  </div>
+</div>
+
 <div class="code"><pre data-lang="pascal">T := Sch.CreateTable('users');
 T.Increments('id');
 T.Str('email', 191).NotNull.Unique;
@@ -72,6 +89,62 @@ alter table `users` add index `users_name_index`(`name`)</pre>
     <pre data-lang="sql">alter table "users" add constraint "users_email_unique" unique ("email")
 create index "users_name_index" on "users" ("name")</pre>
     <p class="code-note">unique é constraint; index comum é <code>create index</code></p>
+  </div>
+  <div class="pane" data-pane="fb" data-label="Firebird">
+    <pre data-lang="sql">alter table "users" add constraint "users_email_unique" unique ("email")
+create index "users_name_index" on "users" ("name")</pre>
+    <p class="code-note">forma ANSI, igual ao Postgres — mas o nome é cortado em 31 bytes, veja abaixo</p>
+  </div>
+  <div class="pane" data-pane="sqlite" data-label="SQLite">
+    <pre data-lang="sql">create unique index "users_email_unique" on "users" ("email")
+create index "users_name_index" on "users" ("name")</pre>
+    <p class="code-note">não há <code>add constraint</code>: em tabela existente, unique é um índice único</p>
+  </div>
+</div>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">No Firebird o nome é cortado em 31 bytes</span>
+    <p>
+      É o limite de identificador do Firebird 3. Nome que passa disso é truncado com um
+      <strong>hash do nome inteiro</strong> no fim, para duas colunas de nome parecido não
+      desaguarem no mesmo índice. O corte é determinístico — a mesma entrada dá sempre o mesmo
+      nome, o que é o que faz <code>DropIndex</code> achar o índice de volta — e a cabeça
+      legível é preservada. Nome curto passa intacto. Consequência prática: o nome no banco
+      pode não ser o que você leria no código, e <code>ConstraintName</code> também é cortado.
+    </p>
+  </div>
+</div>
+
+<h2 id="fulltext">Índice de texto completo</h2>
+<p>
+  <code>FullText</code> cria o índice que <a href="#where/fulltext">WhereFullText</a> exige.
+  Existe em dois dos quatro bancos, e nos outros dois a chamada <strong>levanta</strong> —
+  porque não há como emular: no SQLite seria uma tabela virtual FTS5, que é outro desenho de
+  schema, e o Firebird não tem equivalente.
+</p>
+
+<div class="code"><pre data-lang="pascal">Db.Schema.CreateTable('articles')
+  .Increments('id')
+  .Str('title', 200).NotNull
+  .Text('body')
+  .FullText(['title', 'body'])
+  .Execute;</pre></div>
+
+<div class="code" data-tabs>
+  <div class="pane on" data-pane="mysql" data-label="MySQL">
+    <pre data-lang="sql">alter table `articles` add fulltext index `articles_title_body_fulltext`(`title`, `body`)</pre>
+  </div>
+  <div class="pane" data-pane="pg" data-label="PostgreSQL">
+    <pre data-lang="sql">create index "articles_title_body_fulltext" on "articles" using gin (to_tsvector('simple', coalesce("title", '') || ' ' || coalesce("body", '')))</pre>
+    <p class="code-note">a expressão é a mesma que a busca gera — índice de expressão só é usado quando casa exatamente</p>
+  </div>
+  <div class="pane" data-pane="fb" data-label="Firebird">
+    <pre data-lang="out">ELzNexSchema: Dialect "firebird" has no full text index on a regular table …</pre>
+  </div>
+  <div class="pane" data-pane="sqlite" data-label="SQLite">
+    <pre data-lang="out">ELzNexSchema: Dialect "sqlite" has no full text index on a regular table …</pre>
   </div>
 </div>
 
@@ -217,7 +290,7 @@ alter table `users` drop index `users_age_index`</pre>
   </div>
 </div>
 
-<p>No PostgreSQL tudo que não é índice comum é constraint:</p>
+<p>Em PostgreSQL e Firebird, tudo que não é índice comum é constraint:</p>
 
 <div class="code" data-tabs>
   <div class="pane on" data-pane="mysql" data-label="MySQL">
@@ -231,6 +304,13 @@ alter table `users` drop index `users_age_index`</pre>
 alter table "users" drop constraint "users_user_id_foreign"
 alter table "users" drop constraint "users_email_unique"
 drop index "users_age_index"</pre>
+    <p class="code-note">o Firebird escreve igual</p>
+  </div>
+  <div class="pane" data-pane="sqlite" data-label="SQLite">
+    <pre data-lang="sql">-- DropPrimary e DropForeign levantam: nao ha DROP CONSTRAINT
+drop index "users_email_unique"
+drop index "users_age_index"</pre>
+    <p class="code-note">unique também é índice aqui, então os dois caem no mesmo <code>drop index</code></p>
   </div>
 </div>
 

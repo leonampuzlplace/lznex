@@ -47,10 +47,29 @@ type
     skHavingGroup,
     skOrderBy,
     skOrderByRaw,
+    skOrderByRandom,
     skUnion,
     skWith,
-    skHint
+    skHint,
+    skWhereDatePart,
+    skWhereJson,
+    skWhereFullText
   );
+
+  TLzNexDatePart = (
+    dpDate,
+    dpTime,
+    dpYear,
+    dpMonth,
+    dpDay,
+    dpHour,
+    dpMinute,
+    dpSecond
+  );
+
+  TLzNexJsonOp = (joPath, joContains, joLength);
+
+  TLzNexFullTextMode = (ftNatural, ftBoolean);
 
   TLzNexBoolOp = (boAnd, boOr);
 
@@ -186,7 +205,7 @@ type
 
   TLzNexTableMethod = (tmCreate, tmAlter);
 
-  TLzNexIndexKind = (ixIndex, ixUnique, ixPrimary, ixForeign);
+  TLzNexIndexKind = (ixIndex, ixUnique, ixPrimary, ixForeign, ixFullText);
 
   TLzNexConflictAction = (caNone, caIgnore, caMerge);
 

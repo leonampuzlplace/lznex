@@ -24,10 +24,19 @@ type
   ELzNexQuery = class(ELzNex)
   private
     FSQL: string;
+    FErrorCode: Integer;
+    FSQLState: string;
   public
     constructor CreateFmt(const AMessage, ASQL: string);
 
+    constructor CreateDb(const AMessage, ASQL: string; const AErrorCode: Integer;
+      const ASQLState: string);
+
     property SQL: string read FSQL;
+
+    property ErrorCode: Integer read FErrorCode;
+
+    property SQLState: string read FSQLState;
   end;
 
   ELzNexSchema = class(ELzNex);
@@ -44,6 +53,16 @@ constructor ELzNexQuery.CreateFmt(const AMessage, ASQL: string);
 begin
   inherited Create(AMessage + sLineBreak + 'SQL: ' + ASQL);
   FSQL := ASQL;
+  FErrorCode := 0;
+  FSQLState := '';
+end;
+
+constructor ELzNexQuery.CreateDb(const AMessage, ASQL: string;
+  const AErrorCode: Integer; const ASQLState: string);
+begin
+  CreateFmt(AMessage, ASQL);
+  FErrorCode := AErrorCode;
+  FSQLState := ASQLState;
 end;
 
 end.

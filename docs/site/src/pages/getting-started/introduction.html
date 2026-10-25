@@ -6,9 +6,10 @@
 </p>
 
 <div class="badges">
-  <span class="badge"><b>MySQL</b> / MariaDB · pronto</span>
-  <span class="badge"><b>PostgreSQL</b> · SQL e DDL</span>
-  <span class="badge"><b>Firebird</b> · arquitetura aberta</span>
+  <span class="badge"><b>MySQL</b> / MariaDB</span>
+  <span class="badge"><b>PostgreSQL</b></span>
+  <span class="badge"><b>Firebird</b> · 3 e 5</span>
+  <span class="badge"><b>SQLite</b></span>
   <span class="badge">FPC <b>3.2.2</b></span>
   <span class="badge">instalável por <b>Boss</b></span>
   <span class="badge">pronto para <b>multi-thread</b></span>
@@ -54,10 +55,45 @@ end;</pre>
 </div>
 </div>
 
+<h2 id="pagination-highlight">Três paginações, uma linha cada</h2>
+<p>
+  Paginar é onde a maioria das camadas de acesso para no <code>limit</code>/<code>offset</code>.
+  Aqui há <strong>três</strong> formas, e a escolha entre elas é explícita: janela com total,
+  janela sem o custo do <code>count</code>, e janela por cursor — a única que não repete nem
+  perde linha quando o conjunto muda enquanto é lido.
+</p>
+
+<div class="code"><pre data-lang="pascal">// 1. com total: duas queries, e sabe quantas paginas existem
+Page   := Db.Table('users').OrderBy('name').Paginate(2, 10);
+Writeln(Page.Total, ' linhas em ', Page.LastPage, ' paginas');
+
+// 2. sem total: uma query, e sabe apenas se ha proxima
+Simple := Db.Table('users').OrderBy('name').SimplePaginate(2, 10);
+Writeln(Simple.HasMorePages);
+
+// 3. por cursor: uma query, estavel sob insercao, e nao usa offset
+Cursor := Db.Table('users').OrderBy('id').CursorPaginate(10, PrevToken);
+Writeln(Cursor.NextCursor);   // token opaco, pronto para a query string</pre>
+<div class="code-out">
+  <div class="code-label">SQL de cada uma</div>
+  <pre data-lang="sql">select count(*) from `users`                                     -- 1, no clone
+select * from `users` order by `name` asc limit ? offset ?        -- 1
+select * from `users` order by `name` asc limit ? offset ?        -- 2, limit = 11
+select * from `users` where ((`id` > ?)) order by `id` asc limit ?-- 3, sem offset</pre>
+</div>
+</div>
+
+<p>
+  E para <strong>processar</strong> a tabela inteira sem carregá-la na memória,
+  <code>ChunkById</code> varre em lotes por chave, fechando o cursor entre eles. Tudo em
+  <a href="#pagination">Paginação e varredura</a>.
+</p>
+
 <h2 id="where-to-start">Por onde começar</h2>
 <div class="cards">
   <a class="card" href="#installation"><h4>Instalação →</h4><p>Boss, o <code>uses</code> mínimo e a armadilha de link do FPC.</p></a>
   <a class="card" href="#query-builder"><h4>Query builder →</h4><p>Where, joins, agregados, upsert — com o SQL de cada um.</p></a>
+  <a class="card" href="#pagination"><h4>Paginação →</h4><p>Os três paginadores, o cursor keyset e a varredura em lotes.</p></a>
   <a class="card" href="#schema"><h4>Schema builder →</h4><p>Criar e alterar tabelas com tipos que o dialeto traduz.</p></a>
   <a class="card" href="#migrations"><h4>Migrations →</h4><p>Em Pascal ou em <code>.sql</code>, no mesmo histórico.</p></a>
 </div>
@@ -65,9 +101,8 @@ end;</pre>
 <h2 id="how-to-read">Como ler esta documentação</h2>
 <p>
   Todo exemplo mostra o <strong>SQL exato</strong> que o LzNex produz — o mesmo texto que está
-  nas suítes de teste do repositório, não uma aproximação. Onde o resultado muda por banco há
-  abas <code>MySQL</code> / <code>PostgreSQL</code> no bloco de código, e trocar uma troca
-  todas da página.
+  nas suítes de teste do repositório, não uma aproximação. Onde o resultado muda por banco o
+  bloco de código ganha abas por dialeto, e trocar uma troca todas da página.
 </p>
 
 <h2 id="design-decisions">Decisões de projeto</h2>
@@ -84,7 +119,7 @@ end;</pre>
 <tr><td><code>OnColumns</code> e <code>OnValue</code> separados no join</td><td>Comparar com uma coluna e comparar com um valor são operações distintas. Um método só para as duas transformaria <code>on('ativo', True)</code> numa comparação com o identificador <code>True</code>, sem erro visível.</td></tr>
 <tr><td>Terminais explícitos (<code>Get</code>, <code>First</code>, <code>Count</code>…)</td><td>Não existe <code>await</code> em Pascal: a execução precisa ser uma chamada visível, nunca um efeito colateral de usar o objeto.</td></tr>
 <tr><td><code>Insert</code> preserva a ordem das colunas informadas</td><td>A ordem que você escreveu é a que aparece no SQL e no log. Ordenar alfabeticamente dificultaria a conferência.</td></tr>
-<tr><td><code>Timestamps</code> gera <code>TIMESTAMP</code>, não <code>DATETIME</code></td><td>É o tipo com semântica de instante nos dois dialetos suportados.</td></tr>
+<tr><td><code>Timestamps</code> gera <code>TIMESTAMP</code>, não <code>DATETIME</code></td><td>É o tipo com semântica de instante nos dialetos suportados.</td></tr>
 <tr><td>A ordem das seções do SQL é <strong>virtual por dialeto</strong></td><td>Banco cuja sintaxe muda a ordem (ou proíbe uma seção num verbo) sobrescreve só isso, em vez de duplicar o compilador inteiro.</td></tr>
 <tr><td><code>TLzNexFragment</code> carrega texto <strong>e</strong> binds</td><td>Fecha a janela em que o texto e a lista de binds andam separados e saem de sincronia.</td></tr>
 <tr><td><code>OnConflict</code> devolve um tipo que só tem <code>Merge</code>/<code>Ignore</code></td><td>Esquecer de completar a cláusula vira erro de compilação, não de execução.</td></tr>
@@ -106,8 +141,8 @@ end;</pre>
 <tr><td><code>LzNex.Ast</code>, <code>LzNex.Fragment</code>, <code>LzNex.Bindings</code></td><td>A árvore da query, o par texto+binds e a lista de binds.</td></tr>
 <tr><td><code>LzNex.Query</code>, <code>LzNex.Compiler</code></td><td>O builder fluente e o tradutor AST → SQL.</td></tr>
 <tr><td><code>LzNex.Schema</code>, <code>LzNex.Schema.Compiler</code></td><td>O table builder e o tradutor de DDL.</td></tr>
-<tr><td><code>LzNex.Client</code> + <code>.MySQL</code> / <code>.Postgres</code></td><td>Registry de dialetos e os dialetos concretos.</td></tr>
-<tr><td><code>LzNex.Schema.MySQL</code> / <code>.Postgres</code></td><td>Tipos físicos e particularidades de DDL por banco.</td></tr>
+<tr><td><code>LzNex.Client</code> + <code>.MySQL</code> / <code>.Postgres</code> / <code>.Firebird</code> / <code>.SQLite</code></td><td>Registry de dialetos e os quatro dialetos concretos.</td></tr>
+<tr><td><code>LzNex.Schema.MySQL</code> / <code>.Postgres</code> / <code>.Firebird</code> / <code>.SQLite</code></td><td>Tipos físicos e particularidades de DDL por banco.</td></tr>
 <tr><td><code>LzNex.Pool</code>, <code>LzNex.Connection</code>, <code>LzNex.Transaction</code></td><td>Pool com seção crítica, conexão sobre <code>IZConnection</code>, transação com savepoint.</td></tr>
 <tr><td><code>LzNex.Migration</code>, <code>LzNex.Migrator</code>, <code>LzNex.Migration.Source.*</code></td><td>Base das migrations, o runner e as duas fontes (Pascal e <code>.sql</code>).</td></tr>
 <tr><td><code>LzNex.Seed</code>, <code>LzNex.Cli</code>, <code>LzNex.Config</code></td><td>Seeds, dispatcher do binário <code>lznex</code> e configuração.</td></tr>

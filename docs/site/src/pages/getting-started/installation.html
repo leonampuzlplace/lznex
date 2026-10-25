@@ -1,6 +1,36 @@
 <article>
 <h1>Instalação</h1>
-<p class="subtitle">Instalável por Boss em qualquer projeto Lazarus, inclusive os que usam Horse.</p>
+<p class="subtitle">Pela IDE ou por Boss, em qualquer projeto Lazarus — inclusive os que usam Horse.</p>
+
+<h2 id="zeos">Pré-requisito: ZeosLib 8</h2>
+<p>
+  O LzNex <strong>não</strong> traz o Zeos junto: quem instala é que o fornece, de uma
+  fonte só. Vale o pacote <code>zdbc</code> instalado na IDE, a coordenada de um fork do
+  Zeos <strong>com <code>boss.json</code></strong> no seu próprio <code>boss.json</code>
+  (o repositório oficial não tem manifesto, e o Boss aborta sem ele) ou um clone seu no
+  <em>unit path</em>.
+</p>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Duas cópias do Zeos não convivem</span>
+    <p>
+      É por isso que o pacote não vendoriza o Zeos. Se o LzNex trouxesse a sua própria
+      cópia em <code>modules/</code>, quem já tem o Zeos instalado na IDE ficaria com as
+      mesmas units em dois caminhos — e o build para em <code>Duplicate unit</code> ou num
+      <code>.ppu</code> incompatível, não em algo que pareça com a causa.
+    </p>
+  </div>
+</div>
+
+<h2 id="from-the-ide">Pela IDE</h2>
+<p>
+  O <code>lznex.lpk</code> na raiz do repositório é o caminho de quem usa a IDE do Lazarus:
+  abra o pacote, compile e adicione como dependência do seu projeto. O <code>.lpk</code>
+  requer o pacote <code>zdbc</code> ≥ 8, então a IDE resolve pelo Zeos que você já tem
+  instalado — nada é duplicado. É o caminho mais curto para quem já roda Zeos na IDE.
+</p>
 
 <h2 id="boss">Pelo Boss</h2>
 <div class="code"><pre data-lang="json">// boss.json do seu projeto
@@ -13,29 +43,49 @@
 <div class="code"><pre data-lang="sh">boss install</pre></div>
 
 <p>
-  O ZeosLib vem junto, como dependência transitiva. O Boss cria as pastas em
-  <code>modules/&lt;host&gt;_&lt;org&gt;_&lt;repo&gt;</code> (pontos e barras viram
-  <code>_</code>), e é esse nome que entra nos <em>unit paths</em> do seu <code>.lpi</code>.
+  O Boss cria as pastas em <code>modules/&lt;host&gt;_&lt;org&gt;_&lt;repo&gt;</code>
+  (pontos e barras viram <code>_</code>), e é esse nome que entra nos <em>unit paths</em>
+  do seu <code>.lpi</code>. O Zeos não aparece aí: ele não é dependência do pacote.
 </p>
 
-<div class="callout note">
-  <span class="ico">ℹ</span>
-  <div class="body">
-    <span class="t">Coordenada</span>
-    <p>
-      O <code>boss.json</code> do repositório ainda aponta para
-      <code>github.com/CHANGEME/lznex</code> e <code>github.com/CHANGEME/zeoslib</code>.
-      Enquanto o pacote não for publicado, os Dockerfiles montam <code>modules/</code> com o
-      mesmo layout que o Boss produziria. O fork do Zeos precisa ter <code>boss.json</code>:
-      o Boss aborta se uma dependência não tiver manifesto.
-    </p>
-  </div>
+<h3 id="versions">De onde sai a versão</h3>
+<p>
+  O Boss usa versionamento semântico e resolve a dependência pelas <strong>tags</strong> do
+  repositório, no formato <code>vX.Y.Z</code>. Quem publica essas tags é a GitHub Action:
+  toda entrega em <code>production</code> com CI verde cria a tag seguinte e sincroniza a
+  versão do <code>boss.json</code> com ela. Os intervalos aceitos no seu
+  <code>boss.json</code> são os de sempre:
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Escrito assim</th><th>Aceita</th></tr></thead>
+<tbody>
+<tr><td><code>^1.0.4</code> · <code>1</code> · <code>1.x</code></td><td>novas versões minor e patch</td></tr>
+<tr><td><code>~1.0.4</code> · <code>1.0</code> · <code>1.0.x</code></td><td>só patch</td></tr>
+<tr><td><code>1.0.4</code></td><td>exatamente essa</td></tr>
+</tbody>
+</table>
 </div>
 
 <h2 id="uses">O <code>uses</code> mínimo</h2>
 <div class="code"><pre data-lang="pascal">uses
   LzNex,                 // a facade: Connect, NewConfig, ILzNex, ILzNexQuery...
   LzNex.Client.MySQL;    // o dialeto. Sem esta linha, Connect levanta.</pre></div>
+
+<p>Troque a segunda linha pela unit do seu banco — ou ponha mais de uma, se o programa fala com mais de um:</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Unit</th><th>Registra o client</th></tr></thead>
+<tbody>
+<tr><td><code>LzNex.Client.MySQL</code></td><td><code>'mysql'</code>, <code>'mariadb'</code></td></tr>
+<tr><td><code>LzNex.Client.Postgres</code></td><td><code>'postgresql'</code>, <code>'postgres'</code></td></tr>
+<tr><td><code>LzNex.Client.Firebird</code></td><td><code>'firebird'</code> — serve ao Firebird 3 e ao 5</td></tr>
+<tr><td><code>LzNex.Client.SQLite</code></td><td><code>'sqlite'</code>, <code>'sqlite3'</code></td></tr>
+</tbody>
+</table>
+</div>
 
 <div class="callout trap">
   <span class="ico">⚠</span>
@@ -45,8 +95,8 @@
       O linker do FPC <strong>descarta unit que ninguém referencia</strong> em
       <code>uses</code>. Unit descartada não executa seu <code>initialization</code> — e é
       ali que o dialeto se registra no registry. O sintoma é
-      <code>Requested database driver was not found</code> em tempo de execução, sem erro de
-      compilação. A mesma regra vale para migrations e seeds escritas em Pascal.
+      <code>Dialect "x" is not registered. Available: …</code> em tempo de execução, sem
+      erro de compilação. A mesma regra vale para migrations e seeds escritas em Pascal.
     </p>
   </div>
 </div>
@@ -61,11 +111,4 @@
   cthreads,
   {$ENDIF}{$ENDIF}
   SysUtils, Horse, LzNex, LzNex.Client.MySQL;</pre></div>
-
-<h2 id="from-the-ide">Pela IDE</h2>
-<p>
-  O <code>lznex.lpk</code> na raiz do repositório é o caminho para quem usa a IDE do Lazarus:
-  abra o pacote, compile e adicione como dependência do seu projeto. O ZeosLib precisa estar
-  instalado separadamente nesse caminho.
-</p>
 </article>

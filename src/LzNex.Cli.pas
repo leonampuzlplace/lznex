@@ -414,7 +414,8 @@ begin
   FQuiet := HasFlag('quiet');
 
   Cmd := LowerCase(Trim(ACommand));
-  if (Cmd = '') or (Cmd = 'help') or HasFlag('help') then
+  if (Cmd = '') or (Cmd = 'help') or (Cmd = '--help') or (Cmd = '-h') or
+     HasFlag('help') then
     Exit(CmdHelp);
 
   try

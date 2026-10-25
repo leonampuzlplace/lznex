@@ -38,6 +38,7 @@ type
     function AddColumnPrefix: string; virtual;
     function ChangeColumnPrefix: string; virtual;
     function DropColumnPrefix: string; virtual;
+    function ChangeColumnParts(const ACol: ILzNexColumnDef): TLzNexStringArray; virtual;
 
     function TableOptionsSQL(const ATable: ILzNexTable): string; virtual;
     function IndexNameOf(const ATable: ILzNexTable;
@@ -61,7 +62,7 @@ type
     procedure CompileIndexes(const ATable: ILzNexTable;
       var APlan: TLzNexDdlPlan; const ASkipPrimary: Boolean);
     procedure CompileComments(const ATable: ILzNexTable;
-      var APlan: TLzNexDdlPlan);
+      var APlan: TLzNexDdlPlan); virtual;
   public
     constructor Create(const AClient: ILzNexClient);
 
@@ -77,6 +78,10 @@ type
     function TruncateTableSQL(const ATable: string): TLzNexFragment; virtual;
     function HasTableSQL(const ATable, ASchema: string): TLzNexFragment; virtual;
     function HasColumnSQL(const ATable, AColumn, ASchema: string): TLzNexFragment; virtual;
+    function TablesSQL(const ASchema: string): TLzNexFragment; virtual;
+    function ColumnsSQL(const ATable, ASchema: string): TLzNexFragment; virtual;
+    function HasIndexSQL(const ATable: string; const AColumns: TLzNexValues;
+      const ASchema: string): TLzNexFragment; virtual;
     function IndexName(const ATable: string; const AColumns: TLzNexValues;
       const AKind: TLzNexIndexKind): string; virtual;
   end;
@@ -92,6 +97,7 @@ begin
     ixUnique: Result := 'unique';
     ixPrimary: Result := 'primary';
     ixForeign: Result := 'foreign';
+    ixFullText: Result := 'fulltext';
   else
     Result := 'index';
   end;
@@ -150,7 +156,7 @@ begin
     begin
       if I > 0 then
         SB.Append(', ');
-      SB.Append(QuotedStr(AItems[I].AsString));
+      SB.Append(FClient.EscapeStringLiteral(AItems[I].AsString));
     end;
     Result := SB.ToString;
   finally
@@ -197,7 +203,7 @@ begin
     Exit(R.Template);
   end;
 
-  Result := FClient.EscapeForLog(V);
+  Result := FClient.QuoteLiteral(V);
 end;
 
 function TLzNexSchemaCompilerBase.ColumnTypeFor(const ACol: ILzNexColumnDef): string;
@@ -232,10 +238,10 @@ begin
         Result := 'default ' + DefaultLiteral(ACol);
     mdComment:
       if ACol.HasModifier(mdComment) and InlineComments then
-        Result := 'comment ' + QuotedStr(ACol.CommentText);
+        Result := 'comment ' + FClient.EscapeStringLiteral(ACol.CommentText);
     mdCollate:
       if ACol.HasModifier(mdCollate) then
-        Result := 'collate ' + QuotedStr(ACol.CollateName);
+        Result := 'collate ' + FClient.EscapeStringLiteral(ACol.CollateName);
     mdFirst:
       if ACol.HasModifier(mdFirst) then
         Result := 'first';
@@ -295,6 +301,14 @@ begin
   Result := 'alter column ';
 end;
 
+function TLzNexSchemaCompilerBase.ChangeColumnParts(
+  const ACol: ILzNexColumnDef): TLzNexStringArray;
+begin
+  Result := nil;
+  SetLength(Result, 1);
+  Result[0] := ChangeColumnPrefix + ColumnDefinitionSQL(ACol);
+end;
+
 function TLzNexSchemaCompilerBase.DropColumnPrefix: string;
 begin
   Result := 'drop column ';
@@ -335,6 +349,13 @@ begin
     ixPrimary:
       Result := 'alter table ' + TableRef(ATable) + ' add constraint ' +
                 Wrap(Name) + ' primary key (' + ColumnList(AIndex.Columns) + ')';
+    ixFullText:
+
+      raise ELzNexSchema.CreateFmt(
+        'Dialect "%s" has no full text index on a regular table. In SQLite it ' +
+        'would be an FTS5 virtual table and in Firebird there is nothing ' +
+        'equivalent -- keep the search index outside the database, or filter ' +
+        'with WhereLike.', [FClient.DialectName]);
     ixForeign:
       begin
         if Trim(AIndex.RefTable) = '' then
@@ -383,13 +404,13 @@ function TLzNexSchemaCompilerBase.ColumnCommentSQL(const ATable: ILzNexTable;
   const ACol: ILzNexColumnDef): string;
 begin
   Result := 'comment on column ' + TableRef(ATable) + '.' +
-            Wrap(ACol.ColumnName) + ' is ' + QuotedStr(ACol.CommentText);
+            Wrap(ACol.ColumnName) + ' is ' + FClient.EscapeStringLiteral(ACol.CommentText);
 end;
 
 function TLzNexSchemaCompilerBase.TableCommentSQL(const ATable: ILzNexTable): string;
 begin
   Result := 'comment on table ' + TableRef(ATable) + ' is ' +
-            QuotedStr(ATable.CommentText);
+            FClient.EscapeStringLiteral(ATable.CommentText);
 end;
 
 procedure TLzNexSchemaCompilerBase.PushStmt(var APlan: TLzNexDdlPlan;
@@ -506,8 +527,9 @@ procedure TLzNexSchemaCompilerBase.CompileAlter(const ATable: ILzNexTable;
 var
   Adds, Changes, Drops: TStringBuilder;
   NAdds, NChanges, NDrops: Integer;
-  I: Integer;
+  I, J: Integer;
   Col: ILzNexColumnDef;
+  Parts: TLzNexStringArray;
   Ren: TLzNexNamedValues;
   Head: string;
 begin
@@ -537,11 +559,14 @@ begin
       end
       else if Col.IsChange then
       begin
-        if NChanges > 0 then
-          Changes.Append(', ');
-        Changes.Append(ChangeColumnPrefix);
-        Changes.Append(ColumnDefinitionSQL(Col));
-        Inc(NChanges);
+        Parts := ChangeColumnParts(Col);
+        for J := 0 to High(Parts) do
+        begin
+          if NChanges > 0 then
+            Changes.Append(', ');
+          Changes.Append(Parts[J]);
+          Inc(NChanges);
+        end;
       end
       else
       begin
@@ -722,6 +747,83 @@ begin
     S := S + ' and table_schema = ?';
     B.Add(TLzNexValue.FromString(ASchema));
   end;
+  Result := TLzNexFragment.Make(S, B);
+end;
+
+function TLzNexSchemaCompilerBase.TablesSQL(const ASchema: string): TLzNexFragment;
+var
+  B: TLzNexBindings;
+  S: string;
+begin
+  B := TLzNexBindings.Empty;
+  S := 'select table_name from information_schema.tables ' +
+       'where table_type = ''BASE TABLE''';
+  if Trim(ASchema) <> '' then
+  begin
+    S := S + ' and table_schema = ?';
+    B.Add(TLzNexValue.FromString(ASchema));
+  end;
+  S := S + ' order by table_name';
+  Result := TLzNexFragment.Make(S, B);
+end;
+
+function TLzNexSchemaCompilerBase.ColumnsSQL(
+  const ATable, ASchema: string): TLzNexFragment;
+var
+  B: TLzNexBindings;
+  S: string;
+begin
+  B := TLzNexBindings.Empty;
+  S := 'select column_name from information_schema.columns where table_name = ?';
+  B.Add(TLzNexValue.FromString(ATable));
+  if Trim(ASchema) <> '' then
+  begin
+    S := S + ' and table_schema = ?';
+    B.Add(TLzNexValue.FromString(ASchema));
+  end;
+  S := S + ' order by ordinal_position';
+  Result := TLzNexFragment.Make(S, B);
+end;
+
+function TLzNexSchemaCompilerBase.HasIndexSQL(const ATable: string;
+  const AColumns: TLzNexValues; const ASchema: string): TLzNexFragment;
+var
+  B: TLzNexBindings;
+  S, Marks: string;
+  I: Integer;
+begin
+  if Length(AColumns) = 0 then
+    raise ELzNexSchema.Create('HasIndex without columns.');
+
+  B := TLzNexBindings.Empty;
+  Marks := '';
+  for I := 0 to High(AColumns) do
+  begin
+    if I > 0 then
+      Marks := Marks + ', ';
+    Marks := Marks + '?';
+  end;
+
+  S := 'select count(*) from (' +
+       'select i.indexname from (' +
+       'select s.index_name as indexname, s.column_name ' +
+       'from information_schema.statistics s ' +
+       'where s.table_name = ?';
+  B.Add(TLzNexValue.FromString(ATable));
+  if Trim(ASchema) <> '' then
+  begin
+    S := S + ' and s.table_schema = ?';
+    B.Add(TLzNexValue.FromString(ASchema));
+  end;
+  S := S + ') i group by i.indexname ' +
+       'having sum(case when i.column_name in (' + Marks + ') then 1 else 0 end) = ? ' +
+       'and count(*) = ?) m';
+
+  for I := 0 to High(AColumns) do
+    B.Add(TLzNexValue.FromString(AColumns[I].Text));
+  B.Add(TLzNexValue.FromInteger(Length(AColumns)));
+  B.Add(TLzNexValue.FromInteger(Length(AColumns)));
+
   Result := TLzNexFragment.Make(S, B);
 end;
 

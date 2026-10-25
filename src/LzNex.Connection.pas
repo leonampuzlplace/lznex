@@ -8,6 +8,7 @@ uses
   SysUtils,
   Classes,
   ZDbcIntfs,
+  ZExceptions,
   LzNex.Types,
   LzNex.Value,
   LzNex.Bindings,
@@ -41,6 +42,8 @@ type
   TLzNexCachedStmt = record
     SQL: string;
     Stmt: IZPreparedStatement;
+
+    Busy: Boolean;
   end;
 
   TLzNexConnection = class(TInterfacedObject, ILzNexConnection)
@@ -50,8 +53,25 @@ type
     FCache: array of TLzNexCachedStmt;
     FCacheCount: Integer;
     FTxLevel: Integer;
+    FLogger: ILzNexLogger;
 
+    procedure LogDone(const ASQL: string; const ABindings: TLzNexBindings;
+      const AStartTick: QWord);
+    procedure LogFailed(const ASQL, AError: string);
+
+    function DbError(const AMessage, ASQL: string;
+      const AError: Exception): ELzNexQuery;
+
+    function IndexOfCached(const ASQL: string): Integer;
+    procedure AddToCache(const ASQL: string;
+      const AStmt: IZPreparedStatement; const ABusy: Boolean);
+    function EvictOneFree: Boolean;
+    function PrepareRaw(const ASQL: string): IZPreparedStatement;
     function PrepareCached(const ASQL: string): IZPreparedStatement;
+
+    function PrepareForCursor(const ASQL: string;
+      out ALease: IInterface): IZPreparedStatement;
+    procedure ReleaseCursorStmt(const ASQL: string);
 
     procedure DropCached(const ASQL: string);
     procedure ClearCache;
@@ -59,7 +79,8 @@ type
       const ABindings: TLzNexBindings; const ASQL: string);
     function NeedZ: IZConnection;
   public
-    constructor Create(const AClient: ILzNexClient; const AZConn: IZConnection);
+    constructor Create(const AClient: ILzNexClient; const AZConn: IZConnection;
+      const ALogger: ILzNexLogger = nil);
     destructor Destroy; override;
 
     function Execute(const AFragment: TLzNexFragment): Int64;
@@ -81,7 +102,8 @@ type
   end;
 
 function NewConnection(const AClient: ILzNexClient;
-  const AParams: TLzNexConnectionParams): ILzNexConnection; overload;
+  const AParams: TLzNexConnectionParams;
+  const ALogger: ILzNexLogger = nil): ILzNexConnection; overload;
 
 function NewConnection(const AConfig: ILzNexConfig;
   const AClient: ILzNexClient): ILzNexConnection; overload;
@@ -94,6 +116,93 @@ function ParamsFromConfig(const AConfig: ILzNexConfig): TLzNexConnectionParams;
 function ZeosIsolation(const AIsolation: TLzNexIsolation): TZTransactIsolationLevel;
 
 implementation
+
+const
+
+  LZNEX_MYSQL_DEFAULT_CHARSET = 'utf8mb4';
+
+type
+
+  TLzNexStmtLease = class(TInterfacedObject)
+  private
+    FConn: TLzNexConnection;
+    FKeepAlive: ILzNexConnection;
+    FSQL: string;
+    FStmt: IZPreparedStatement;
+  public
+    constructor Create(const AConn: TLzNexConnection; const ASQL: string;
+      const AStmt: IZPreparedStatement);
+    destructor Destroy; override;
+  end;
+
+constructor TLzNexStmtLease.Create(const AConn: TLzNexConnection;
+  const ASQL: string; const AStmt: IZPreparedStatement);
+begin
+  inherited Create;
+  FConn := AConn;
+  FKeepAlive := AConn as ILzNexConnection;
+  FSQL := ASQL;
+  FStmt := AStmt;
+end;
+
+destructor TLzNexStmtLease.Destroy;
+begin
+  if FConn <> nil then
+  begin
+    try
+      FConn.ReleaseCursorStmt(FSQL);
+    except
+    end;
+  end;
+  FStmt := nil;
+  FKeepAlive := nil;
+  FConn := nil;
+  inherited Destroy;
+end;
+
+function ProtocolIs(const AProtocol, AName: string): Boolean;
+begin
+  Result := Pos(AName, LowerCase(AProtocol)) = 1;
+end;
+
+function ResolveCharset(const AProtocol, ACharset: string): string;
+begin
+
+  Result := ACharset;
+  if not SameText(ACharset, LZNEX_MYSQL_DEFAULT_CHARSET) then
+    Exit;
+
+  if ProtocolIs(AProtocol, 'firebird') or ProtocolIs(AProtocol, 'interbase') then
+    Result := 'UTF8'
+  else if ProtocolIs(AProtocol, 'sqlite') then
+    Result := 'UTF-8';
+end;
+
+procedure ApplyProtocolDefaults(const AProtocol: string; const AProps: TStrings);
+begin
+  if ProtocolIs(AProtocol, 'mysql') or ProtocolIs(AProtocol, 'mariadb') then
+  begin
+    AProps.Values['MySQL_FieldType_Bit_1_IsBoolean'] := 'True';
+    Exit;
+  end;
+
+  if ProtocolIs(AProtocol, 'firebird') or ProtocolIs(AProtocol, 'interbase') then
+  begin
+
+    AProps.Values['hard_commit'] := 'True';
+    Exit;
+  end;
+
+  if ProtocolIs(AProtocol, 'sqlite') then
+  begin
+
+    AProps.Values['busytimeout'] := '5000';
+
+    AProps.Values['journal_mode'] := 'wal';
+
+    AProps.Values['foreign_keys'] := 'on';
+  end;
+end;
 
 class function TLzNexConnectionParams.Empty: TLzNexConnectionParams;
 begin
@@ -122,11 +231,9 @@ begin
       Url.LibLocation := LibLocation;
     if Charset <> '' then
 
-      Url.Properties.Values['codepage'] := Charset;
+      Url.Properties.Values['codepage'] := ResolveCharset(Protocol, Charset);
 
-    if (Pos('mysql', LowerCase(Protocol)) = 1) or
-       (Pos('mariadb', LowerCase(Protocol)) = 1) then
-      Url.Properties.Values['MySQL_FieldType_Bit_1_IsBoolean'] := 'True';
+    ApplyProtocolDefaults(Protocol, Url.Properties);
 
     for I := 0 to High(Props) do
       Url.Properties.Values[Props[I].Name] := Props[I].Value.AsString;
@@ -171,16 +278,54 @@ begin
 end;
 
 constructor TLzNexConnection.Create(const AClient: ILzNexClient;
-  const AZConn: IZConnection);
+  const AZConn: IZConnection; const ALogger: ILzNexLogger);
 begin
   inherited Create;
   if AZConn = nil then
     raise ELzNexConnection.Create('Nil Zeos connection');
   FClient := AClient;
   FZConn := AZConn;
+  FLogger := ALogger;
   FCacheCount := 0;
   FTxLevel := 0;
   SetLength(FCache, 0);
+end;
+
+procedure TLzNexConnection.LogDone(const ASQL: string;
+  const ABindings: TLzNexBindings; const AStartTick: QWord);
+begin
+  if FLogger = nil then
+    Exit;
+  try
+    FLogger.LogQuery(ASQL, ABindings, Int64(GetTickCount64 - AStartTick));
+  except
+  end;
+end;
+
+procedure TLzNexConnection.LogFailed(const ASQL, AError: string);
+begin
+  if FLogger = nil then
+    Exit;
+  try
+    FLogger.LogError(ASQL, AError);
+  except
+  end;
+end;
+
+function TLzNexConnection.DbError(const AMessage, ASQL: string;
+  const AError: Exception): ELzNexQuery;
+var
+  Code: Integer;
+  State: string;
+begin
+  Code := 0;
+  State := '';
+  if AError is EZSQLThrowable then
+  begin
+    Code := EZSQLThrowable(AError).ErrorCode;
+    State := EZSQLThrowable(AError).StatusCode;
+  end;
+  Result := ELzNexQuery.CreateDb(AMessage + AError.Message, ASQL, Code, State);
 end;
 
 destructor TLzNexConnection.Destroy;
@@ -212,6 +357,7 @@ begin
       FCache[I].Stmt := nil;
     end;
     FCache[I].SQL := '';
+    FCache[I].Busy := False;
   end;
   FCacheCount := 0;
   SetLength(FCache, 0);
@@ -224,6 +370,43 @@ begin
   for I := 0 to FCacheCount - 1 do
     if FCache[I].SQL = ASQL then
     begin
+
+      if not FCache[I].Busy then
+      begin
+        try
+          FCache[I].Stmt.Close;
+        except
+        end;
+      end;
+      for J := I to FCacheCount - 2 do
+        FCache[J] := FCache[J + 1];
+      FCache[FCacheCount - 1].SQL := '';
+      FCache[FCacheCount - 1].Stmt := nil;
+      FCache[FCacheCount - 1].Busy := False;
+      Dec(FCacheCount);
+      Exit;
+    end;
+end;
+
+function TLzNexConnection.PrepareRaw(const ASQL: string): IZPreparedStatement;
+begin
+  Result := nil;
+  try
+    Result := NeedZ.PrepareStatement(ASQL);
+  except
+    on E: Exception do
+      raise ELzNexQuery.CreateFmt('Failed to prepare: ' + E.Message, ASQL);
+  end;
+end;
+
+function TLzNexConnection.EvictOneFree: Boolean;
+var
+  I, J: Integer;
+begin
+  Result := False;
+  for I := 0 to FCacheCount - 1 do
+    if not FCache[I].Busy then
+    begin
       try
         FCache[I].Stmt.Close;
       except
@@ -232,46 +415,84 @@ begin
         FCache[J] := FCache[J + 1];
       FCache[FCacheCount - 1].SQL := '';
       FCache[FCacheCount - 1].Stmt := nil;
+      FCache[FCacheCount - 1].Busy := False;
       Dec(FCacheCount);
-      Exit;
+      Exit(True);
     end;
 end;
 
-function TLzNexConnection.PrepareCached(const ASQL: string): IZPreparedStatement;
-var
-  I, J, Len: Integer;
+procedure TLzNexConnection.AddToCache(const ASQL: string;
+  const AStmt: IZPreparedStatement; const ABusy: Boolean);
 begin
-  Result := nil;
-  Len := Length(ASQL);
-
-  for I := 0 to FCacheCount - 1 do
-    if (Length(FCache[I].SQL) = Len) and (FCache[I].SQL = ASQL) then
-      Exit(FCache[I].Stmt);
-
-  try
-    Result := NeedZ.PrepareStatement(ASQL);
-  except
-    on E: Exception do
-      raise ELzNexQuery.CreateFmt('Failed to prepare: ' + E.Message, ASQL);
-  end;
-
   if FCacheCount >= LZNEX_STMT_CACHE_MAX then
-  begin
-
-    try
-      FCache[0].Stmt.Close;
-    except
-    end;
-    for J := 0 to FCacheCount - 2 do
-      FCache[J] := FCache[J + 1];
-    Dec(FCacheCount);
-  end;
+    if not EvictOneFree then
+      Exit;
 
   if FCacheCount >= Length(FCache) then
     SetLength(FCache, FCacheCount + 8);
   FCache[FCacheCount].SQL := ASQL;
-  FCache[FCacheCount].Stmt := Result;
+  FCache[FCacheCount].Stmt := AStmt;
+  FCache[FCacheCount].Busy := ABusy;
   Inc(FCacheCount);
+end;
+
+function TLzNexConnection.IndexOfCached(const ASQL: string): Integer;
+var
+  I, Len: Integer;
+begin
+  Result := -1;
+  Len := Length(ASQL);
+  for I := 0 to FCacheCount - 1 do
+    if (Length(FCache[I].SQL) = Len) and (FCache[I].SQL = ASQL) then
+      Exit(I);
+end;
+
+function TLzNexConnection.PrepareCached(const ASQL: string): IZPreparedStatement;
+var
+  I: Integer;
+begin
+  I := IndexOfCached(ASQL);
+
+  if (I >= 0) and (not FCache[I].Busy) then
+    Exit(FCache[I].Stmt);
+
+  Result := PrepareRaw(ASQL);
+  if I < 0 then
+    AddToCache(ASQL, Result, False);
+end;
+
+function TLzNexConnection.PrepareForCursor(const ASQL: string;
+  out ALease: IInterface): IZPreparedStatement;
+var
+  I: Integer;
+begin
+  ALease := nil;
+  I := IndexOfCached(ASQL);
+
+  if (I >= 0) and (not FCache[I].Busy) then
+  begin
+    FCache[I].Busy := True;
+    Result := FCache[I].Stmt;
+    ALease := TLzNexStmtLease.Create(Self, ASQL, Result) as IInterface;
+    Exit;
+  end;
+
+  Result := PrepareRaw(ASQL);
+  if I >= 0 then
+    Exit;
+
+  AddToCache(ASQL, Result, True);
+  if IndexOfCached(ASQL) >= 0 then
+    ALease := TLzNexStmtLease.Create(Self, ASQL, Result) as IInterface;
+end;
+
+procedure TLzNexConnection.ReleaseCursorStmt(const ASQL: string);
+var
+  I: Integer;
+begin
+  I := IndexOfCached(ASQL);
+  if I >= 0 then
+    FCache[I].Busy := False;
 end;
 
 procedure TLzNexConnection.BindAll(const AStmt: IZPreparedStatement;
@@ -319,6 +540,7 @@ function TLzNexConnection.Execute(const AFragment: TLzNexFragment): Int64;
 var
   Prep: IZPreparedStatement;
   SQL: string;
+  Start: QWord;
 begin
   Result := 0;
   SQL := AFragment.Text;
@@ -326,6 +548,7 @@ begin
     raise ELzNexQuery.CreateFmt('Empty SQL in Execute', SQL);
 
   Prep := PrepareCached(SQL);
+  Start := GetTickCount64;
   try
     BindAll(Prep, AFragment.Bindings, SQL);
     Result := Prep.ExecuteUpdatePrepared;
@@ -333,65 +556,86 @@ begin
     on E: ELzNex do
     begin
       DropCached(SQL);
+      LogFailed(SQL, E.Message);
       raise;
     end;
     on E: Exception do
     begin
       DropCached(SQL);
-      raise ELzNexQuery.CreateFmt('Failed to execute: ' + E.Message, SQL);
+      LogFailed(SQL, E.Message);
+      raise DbError('Failed to execute: ', SQL, E);
     end;
   end;
+  LogDone(SQL, AFragment.Bindings, Start);
 end;
 
 function TLzNexConnection.Query(const AFragment: TLzNexFragment): ILzNexResult;
 var
   Prep: IZPreparedStatement;
   RS: IZResultSet;
+  Lease: IInterface;
   SQL: string;
+  Start: QWord;
 begin
   Result := nil;
   SQL := AFragment.Text;
   if SQL = '' then
     raise ELzNexQuery.CreateFmt('Empty SQL in Query', SQL);
 
-  Prep := PrepareCached(SQL);
+  Prep := PrepareForCursor(SQL, Lease);
+  Start := GetTickCount64;
   try
     BindAll(Prep, AFragment.Bindings, SQL);
     RS := Prep.ExecuteQueryPrepared;
   except
+
     on E: ELzNex do
     begin
+      Lease := nil;
       DropCached(SQL);
+      LogFailed(SQL, E.Message);
       raise;
     end;
     on E: Exception do
     begin
+      Lease := nil;
       DropCached(SQL);
-      raise ELzNexQuery.CreateFmt('Query failed: ' + E.Message, SQL);
+      LogFailed(SQL, E.Message);
+      raise DbError('Query failed: ', SQL, E);
     end;
   end;
+  LogDone(SQL, AFragment.Bindings, Start);
 
   if RS = nil then
     raise ELzNexQuery.CreateFmt('The query did not return a resultset', SQL);
 
-  Result := NewResult(RS, Prep);
+  if Lease <> nil then
+    Result := NewResult(RS, Lease)
+  else
+    Result := NewResult(RS, Prep);
 end;
 
 function TLzNexConnection.ExecuteScript(const ASQL: string): Int64;
 var
   Stmt: IZStatement;
+  Start: QWord;
 begin
   Result := 0;
   if Trim(ASQL) = '' then
     raise ELzNexQuery.CreateFmt('Empty SQL in ExecuteScript', ASQL);
 
   Stmt := NeedZ.CreateStatement;
+  Start := GetTickCount64;
   try
     try
       Result := Stmt.ExecuteUpdate(ASQL);
+      LogDone(ASQL, TLzNexBindings.Empty, Start);
     except
       on E: Exception do
-        raise ELzNexQuery.CreateFmt('Statement failed: ' + E.Message, ASQL);
+      begin
+        LogFailed(ASQL, E.Message);
+        raise DbError('Statement failed: ', ASQL, E);
+      end;
     end;
   finally
     Stmt.Close;
@@ -414,6 +658,11 @@ begin
     SQL := 'select lastval()'
   else if Dialect = 'sqlite' then
     SQL := 'select last_insert_rowid()'
+  else if Dialect = 'firebird' then
+    raise ELzNexQuery.CreateFmt(
+      'Firebird has no "last id of the session": the generator is per table. ' +
+      'Use InsertGetId, which reads the id from the INSERT ... RETURNING ' +
+      'itself.', '')
   else
     SQL := 'select last_insert_id()';
 
@@ -492,6 +741,10 @@ begin
       Exit;
     Result := FZConn.PingServer = 0;
   except
+    on E: EZUnsupportedException do
+
+      Result := not FZConn.IsClosed;
+  else
 
     Result := False;
   end;
@@ -540,7 +793,8 @@ begin
 end;
 
 function NewConnection(const AClient: ILzNexClient;
-  const AParams: TLzNexConnectionParams): ILzNexConnection;
+  const AParams: TLzNexConnectionParams;
+  const ALogger: ILzNexLogger): ILzNexConnection;
 var
   Z: IZConnection;
   Url: string;
@@ -549,6 +803,9 @@ begin
   try
     Z := DriverManager.GetConnection(Url);
     Z.Open;
+
+    if (AClient <> nil) and (AClient.DefaultIsolation <> ilDefault) then
+      Z.SetTransactionIsolation(ZeosIsolation(AClient.DefaultIsolation));
   except
     on E: Exception do
       raise ELzNexConnection.CreateFmt(
@@ -557,19 +814,24 @@ begin
         'only libmariadb.so.3 exists and the Zeos auto-load does not find it.',
         [AParams.Host, AParams.Port, AParams.Database, E.Message]);
   end;
-  Result := TLzNexConnection.Create(AClient, Z) as ILzNexConnection;
+  Result := TLzNexConnection.Create(AClient, Z, ALogger) as ILzNexConnection;
 end;
 
 function NewConnection(const AConfig: ILzNexConfig;
   const AClient: ILzNexClient): ILzNexConnection;
 var
   P: TLzNexConnectionParams;
+  Log: ILzNexLogger;
 begin
   P := ParamsFromConfig(AConfig);
 
   if AClient <> nil then
     P.Protocol := AClient.ZeosProtocol;
-  Result := NewConnection(AClient, P);
+
+  Log := nil;
+  if AConfig <> nil then
+    Log := AConfig.GetLogger;
+  Result := NewConnection(AClient, P, Log);
 end;
 
 end.

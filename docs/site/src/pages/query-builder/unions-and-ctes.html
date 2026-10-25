@@ -25,6 +25,19 @@ select * from `users` union (select 1) order by `id` asc</pre>
   ordem de chamada.
 </p>
 
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Firebird não tem <code>intersect</code> nem <code>except</code></span>
+    <p>
+      Nem no 3, nem no 5. <code>Intersect</code> e <code>Except_</code> levantam
+      <code>ELzNexCompile</code> ali, com a mensagem sugerindo a reescrita:
+      <code>WhereInSub</code> para a interseção, <code>WhereNotExists</code> para a
+      diferença. <code>Union</code> e <code>UnionAll</code> funcionam nos quatro bancos.
+    </p>
+  </div>
+</div>
+
 <h2 id="cte">CTE</h2>
 <div class="code"><pre data-lang="pascal">Recent := Db.Query.Table('logs').Where('d', '>', '2024-01-01');
 

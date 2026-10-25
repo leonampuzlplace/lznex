@@ -35,7 +35,8 @@
     <code>function SupportsNullsOrdering: Boolean</code><br>
     <code>function SupportsDistinctOn: Boolean</code><br>
     <code>function SupportsSavepoints: Boolean</code><br>
-    <code>function DdlIsTransactional: Boolean</code>
+    <code>function DdlIsTransactional: Boolean</code><br>
+    <code>function DefaultIsolation: TLzNexIsolation</code>
   </td>
 </tr>
 <tr>
@@ -72,51 +73,63 @@
 
 <div class="table-wrap">
 <table>
-<thead><tr><th>Capacidade</th><th>MySQL</th><th>PostgreSQL</th><th>Efeito prático</th></tr></thead>
+<thead><tr><th>Capacidade</th><th>MySQL</th><th>PostgreSQL</th><th>Firebird</th><th>SQLite</th><th>Efeito prático</th></tr></thead>
 <tbody>
 <tr>
   <td><code>SupportsReturning</code></td>
   <td><span class="no">não</span></td>
   <td><span class="yes">sim</span></td>
+  <td><span class="yes">sim</span></td>
+  <td><span class="no">não</span></td>
   <td>
-    Em PostgreSQL, <code>Returning(['id'])</code> acrescenta <code>returning "id"</code> a
-    insert, update e delete. Em MySQL a chamada de <code>Returning</code> já levanta
-    <code>ELzNexCompile</code> — use <code>InsertGetId</code> (que lê
-    <code>LastInsertId</code> na mesma conexão) ou um select depois.
+    Em PostgreSQL e Firebird, <code>Returning(['id'])</code> acrescenta
+    <code>returning "id"</code> a insert, update e delete, e <code>InsertGetId</code> lê o id
+    do próprio INSERT. Em MySQL e SQLite a chamada de <code>Returning</code> já levanta
+    <code>ELzNexCompile</code> — ali <code>InsertGetId</code> consulta a conexão
+    (<code>last_insert_id()</code> no MySQL, <code>last_insert_rowid()</code> no SQLite).
   </td>
 </tr>
 <tr>
   <td><code>SupportsOnConflictWhere</code></td>
   <td><span class="no">não</span></td>
   <td><span class="yes">sim</span></td>
+  <td><span class="no">não</span></td>
+  <td><span class="yes">sim</span></td>
   <td>
     Predicado no alvo do upsert (<code>on conflict (…) where …</code>). MySQL resolve conflito
-    com <code>insert ignore into</code> e <code>on duplicate key update</code>, formas que não
-    aceitam condição; o filtro tem de ir para a lógica da aplicação.
+    com <code>insert ignore into</code> e <code>on duplicate key update</code>, e o Firebird com
+    <code>update or insert … matching</code> — formas que não aceitam condição; o filtro tem de
+    ir para a lógica da aplicação.
   </td>
 </tr>
 <tr>
   <td><code>SupportsNullsOrdering</code></td>
   <td><span class="no">não</span></td>
   <td><span class="yes">sim</span></td>
+  <td><span class="yes">sim</span></td>
+  <td><span class="yes">sim</span></td>
   <td>
-    <code>nulls first</code> / <code>nulls last</code> nativos. Em MySQL o compilador
-    <strong>emula</strong>: emite uma chave de ordenação extra <code>(coluna is null)</code>
-    antes da coluna. O resultado é o mesmo, o texto não.
+    <code>nulls first</code> / <code>nulls last</code> nativos (no SQLite desde a 3.30). Em
+    MySQL o compilador <strong>emula</strong>: emite uma chave de ordenação extra
+    <code>(coluna is null)</code> antes da coluna. O resultado é o mesmo, o texto não.
   </td>
 </tr>
 <tr>
   <td><code>SupportsDistinctOn</code></td>
   <td><span class="no">não</span></td>
   <td><span class="yes">sim</span></td>
+  <td><span class="no">não</span></td>
+  <td><span class="no">não</span></td>
   <td>
-    <code>DistinctOn(['x'])</code> vira <code>distinct on ("x")</code>. Em MySQL levanta
+    <code>DistinctOn(['x'])</code> vira <code>distinct on ("x")</code>. Onde não existe levanta
     <code>ELzNexCompile</code> mandando usar <code>Distinct</code> simples ou
     <code>group by</code>, porque não há emulação honesta.
   </td>
 </tr>
 <tr>
   <td><code>SupportsSavepoints</code></td>
+  <td><span class="yes">sim</span></td>
+  <td><span class="yes">sim</span></td>
   <td><span class="yes">sim</span></td>
   <td><span class="yes">sim</span></td>
   <td>
@@ -128,11 +141,48 @@
   <td><code>DdlIsTransactional</code></td>
   <td><span class="no">não</span></td>
   <td><span class="yes">sim</span></td>
+  <td><span class="yes">sim</span></td>
+  <td><span class="yes">sim</span></td>
   <td>
     Em PostgreSQL um <code>create table</code> dentro de transação desaparece no
     <code>Rollback</code>. Em MySQL cada DDL faz <strong>commit implícito</strong>: uma migration
     que falha no meio deixa as tabelas já criadas, e o <code>Down</code> é a única forma de
     voltar.
+  </td>
+</tr>
+<tr>
+  <td><code>SupportsJson</code></td>
+  <td><span class="yes">sim</span></td>
+  <td><span class="yes">sim</span></td>
+  <td><span class="no">não</span></td>
+  <td><span class="yes">sim</span></td>
+  <td>
+    <code>WhereJsonPath</code>, <code>WhereJsonContains</code> e
+    <code>WhereJsonLength</code> existem nos três primeiros, cada um com a sua função
+    (<code>json_extract</code>, operadores <code>#&gt;&gt;</code>/<code>@&gt;</code>,
+    <code>json_extract</code> de novo). No Firebird não há tipo nem função de JSON, e o builder
+    recusa antes de gerar SQL.
+  </td>
+</tr>
+<tr>
+  <td><code>SupportsFullText</code></td>
+  <td><span class="yes">sim</span></td>
+  <td><span class="yes">sim</span></td>
+  <td><span class="no">não</span></td>
+  <td><span class="no">não</span></td>
+  <td>
+    <code>WhereFullText</code> e <code>ILzNexTable.FullText</code> valem em MySQL
+    (<code>fulltext</code> + <code>match … against</code>) e PostgreSQL (GIN sobre
+    <code>to_tsvector</code> + <code>@@</code>). No SQLite seria tabela virtual FTS5, que é outro
+    desenho de schema; no Firebird não há equivalente.
+  </td>
+</tr>
+<tr>
+  <td><code>IsRetryableError</code></td>
+  <td colspan="4">códigos próprios de cada um, mais os SQLSTATE <code>40001</code>/<code>40P01</code> na base</td>
+  <td>
+    É o que <a href="#transactions/transact">Transact</a> consulta para decidir entre repetir a
+    transação e propagar o erro. Deadlock e lock timeout são repetidos; violação de chave, não.
   </td>
 </tr>
 </tbody>
@@ -152,45 +202,112 @@
   </div>
 </div>
 
+<h2 id="default-isolation">Isolamento de abertura</h2>
+<p>
+  <code>DefaultIsolation</code> é a sétima pergunta, e a única que não é booleana: diz em que
+  nível a conexão <strong>nasce</strong>. A base devolve <code>ilDefault</code> — deixa o
+  default do servidor em paz. Só o Firebird sobrescreve, para
+  <code>ilReadCommitted</code>: o default do servidor lá é snapshot, e snapshot num pool
+  significa que a conexão fica presa na foto tirada no início da transação e
+  <strong>não vê o commit das outras</strong>. O sintoma seria leitura velha intermitente,
+  dependendo de qual conexão o pool entregou.
+</p>
+
 <h2 id="lexicon">Léxico</h2>
 <div class="table-wrap">
 <table>
-<thead><tr><th>Aspecto</th><th>MySQL</th><th>PostgreSQL</th></tr></thead>
+<thead><tr><th>Aspecto</th><th>MySQL</th><th>PostgreSQL</th><th>Firebird</th><th>SQLite</th></tr></thead>
 <tbody>
 <tr>
   <td>identificador</td>
   <td><code>`users`</code></td>
+  <td><code>"users"</code></td>
+  <td><code>"users"</code></td>
   <td><code>"users"</code></td>
 </tr>
 <tr>
   <td>escape da própria aspa</td>
   <td>duplica o acento grave: <code>a`b</code> → <code>`a``b`</code></td>
   <td>duplica a aspa dupla: <code>a"b</code> → <code>"a""b"</code></td>
+  <td>duplica a aspa dupla: <code>a"b</code> → <code>"a""b"</code></td>
+  <td>duplica a aspa dupla: <code>a"b</code> → <code>"a""b"</code></td>
 </tr>
 <tr>
   <td>nome qualificado</td>
   <td>segmento por segmento: <code>`db`.`users`.`id`</code></td>
   <td>segmento por segmento: <code>"db"."users"."id"</code></td>
+  <td>segmento por segmento</td>
+  <td>segmento por segmento</td>
 </tr>
 <tr>
   <td>alias</td>
   <td><code>`users` as `u`</code></td>
+  <td><code>"users" as "u"</code></td>
+  <td><code>"users" as "u"</code></td>
   <td><code>"users" as "u"</code></td>
 </tr>
 <tr>
   <td>placeholder</td>
   <td><code>?</code>, posicional</td>
   <td><code>?</code>, posicional</td>
+  <td><code>?</code>, posicional</td>
+  <td><code>?</code>, posicional</td>
+</tr>
+<tr>
+  <td>ano de uma data</td>
+  <td><code>year(col)</code></td>
+  <td><code>extract(year from col)</code></td>
+  <td><code>extract(year from col)</code></td>
+  <td><code>cast(strftime('%Y', col) as integer)</code></td>
+</tr>
+<tr>
+  <td>só a data</td>
+  <td><code>date(col)</code></td>
+  <td><code>cast(col as date)</code></td>
+  <td><code>cast(col as date)</code></td>
+  <td><code>date(col)</code></td>
+</tr>
+<tr>
+  <td>ordem aleatória</td>
+  <td><code>rand()</code></td>
+  <td><code>random()</code></td>
+  <td><code>rand()</code></td>
+  <td><code>random()</code></td>
+</tr>
+<tr>
+  <td>valor num caminho JSON</td>
+  <td><code>json_unquote(json_extract(col, '$.a.b'))</code></td>
+  <td><code>col #&gt;&gt; '{a,b}'</code></td>
+  <td><span class="no">não tem JSON</span></td>
+  <td><code>json_extract(col, '$.a.b')</code></td>
+</tr>
+<tr>
+  <td>busca de texto completo</td>
+  <td><code>match (…) against (? in natural language mode)</code></td>
+  <td><code>to_tsvector(…) @@ plainto_tsquery(?)</code></td>
+  <td><span class="no">não tem</span></td>
+  <td><span class="no">não tem (seria FTS5)</span></td>
 </tr>
 <tr>
   <td><code>ZeosProtocol</code></td>
   <td><code>mysql</code></td>
   <td><code>postgresql</code></td>
+  <td><code>firebird</code></td>
+  <td><code>sqlite</code></td>
 </tr>
 <tr>
   <td><code>Client(…)</code> aceita</td>
   <td><code>'mysql'</code>, <code>'mariadb'</code></td>
   <td><code>'postgresql'</code>, <code>'postgres'</code></td>
+  <td><code>'firebird'</code></td>
+  <td><code>'sqlite'</code>, <code>'sqlite3'</code></td>
+</tr>
+<tr>
+  <td>unit a pôr no <code>uses</code></td>
+  <td><code>LzNex.Client.MySQL</code></td>
+  <td><code>LzNex.Client.Postgres</code></td>
+  <td><code>LzNex.Client.Firebird</code></td>
+  <td><code>LzNex.Client.SQLite</code></td>
 </tr>
 </tbody>
 </table>
@@ -198,10 +315,18 @@
 
 <p>
   O <code>*</code> nunca é citado, e identificador vazio passa intacto. O placeholder é
-  <code>?</code> nos dois porque quem numera os parâmetros é o Zeos, não o LzNex — o dialeto que
+  <code>?</code> nos quatro porque quem numera os parâmetros é o Zeos, não o LzNex — o dialeto que
   precisasse de <code>$1</code>, <code>$2</code> sobrescreveria <code>Placeholder</code>, que já
-  recebe o índice. <code>EscapeForLog</code> é só para o log: produz SQL legível com os valores
-  interpolados, nunca o SQL que vai ao banco. Veja <a href="#logging">Log</a>.
+  recebe o índice.
+</p>
+
+<p>
+  <code>EscapeForLog</code> tem dois usos, e só dois. É o que o <a href="#logging">log</a>
+  mostra no lugar de cada bind — SQL legível com os valores interpolados, nunca o texto que
+  vai ao banco. E é o que vira <strong>literal de <code>DEFAULT</code> no DDL</strong>, que é
+  interpolado e não bindado. É por isso que PostgreSQL e Firebird sobrescrevem o booleano
+  para <code>true</code>/<code>false</code>: o <code>1</code>/<code>0</code> da base é
+  recusado numa coluna <code>boolean</code>.
 </p>
 
 <h2 id="same-chain">A mesma cadeia, dois dialetos</h2>
@@ -253,6 +378,396 @@
   <a href="#column-types">Tipos de coluna</a>.
 </p>
 
+<p>
+  Firebird e SQLite divergem bem mais que esses dois entre si: as duas seções a seguir listam,
+  por dialeto, cada construção que muda de forma — e cada uma que
+  <strong>levanta</strong> em vez de sair torta.
+</p>
+
+<h2 id="firebird">Firebird: o que muda</h2>
+<p>
+  Um dialeto só — <code>LzNex.Client.Firebird</code>, registrado como <code>firebird</code> —
+  e o mesmo SQL serve ao <strong>Firebird 3 e ao 5</strong>. A suíte de integração roda nos
+  dois servidores. A única construção que exige o 5 está marcada abaixo.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Chamada</th><th>O que sai</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>Limit(10)</code></td>
+  <td><code>fetch next ? rows only</code> — não existe <code>limit</code></td>
+</tr>
+<tr>
+  <td><code>Offset(20)</code></td>
+  <td><code>offset ? rows</code>, sozinho, sem precisar de limite artificial</td>
+</tr>
+<tr>
+  <td><code>OrderBy(…).Limit(10).Offset(20)</code></td>
+  <td>
+    <code>order by "id" asc offset ? rows fetch next ? rows only</code> — o offset vem
+    <strong>antes</strong> do fetch, e é por isso que o cliente troca
+    <code>cpOffset</code> com <code>cpLimit</code> em <code>Components</code>
+  </td>
+</tr>
+<tr>
+  <td><code>WhereILike('name', 'ana%')</code></td>
+  <td><code>upper("name") like upper(?)</code> — não há <code>ilike</code></td>
+</tr>
+<tr>
+  <td><code>ForUpdate</code></td>
+  <td><code>with lock</code></td>
+</tr>
+<tr>
+  <td><code>ForUpdate.SkipLocked</code></td>
+  <td><code>with lock skip locked</code> — sintaxe que só existe a partir do Firebird 5</td>
+</tr>
+<tr>
+  <td><code>Truncate</code></td>
+  <td><code>delete from "users"</code> — não existe <code>truncate</code></td>
+</tr>
+<tr>
+  <td><code>OnConflict(['email']).Merge</code></td>
+  <td><code>update or insert into … matching ("email")</code></td>
+</tr>
+<tr>
+  <td><code>OnConflict.Merge</code> sem coluna</td>
+  <td>
+    <code>update or insert into …</code> sem <code>matching</code>: o Firebird casa pela
+    chave primária. No PostgreSQL a mesma chamada levanta, porque o <code>on conflict</code>
+    exige a coluna
+  </td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="code"><pre data-lang="pascal">Q.Table('t').OrderBy('id').Limit(10).Offset(20).ToSQL</pre>
+<div class="code-out">
+  <div class="code-label">SQL</div>
+  <pre data-lang="sql">select * from "t" order by "id" asc offset ? rows fetch next ? rows only</pre>
+  <p class="code-note">binds: 20 | 10 — na ordem em que aparecem no texto, não na da cadeia</p>
+</div>
+</div>
+
+<h3 id="firebird-raises">O que levanta no Firebird</h3>
+<ul>
+  <li>
+    <code>OnConflict(…).Ignore</code> — não há <code>do nothing</code>, e o
+    <code>merge</code> pediria cast em cada parâmetro. A mensagem manda usar
+    <code>Merge</code> ou checar com <code>Exists</code> antes.
+  </li>
+  <li>
+    <code>Merge</code> com lista de colunas ou com <code>MergeValues</code> — o
+    <code>update or insert</code> atualiza <strong>todas</strong> as colunas da linha, então
+    não tem como honrar um subconjunto.
+  </li>
+  <li>Upsert de mais de uma linha — <code>update or insert</code> leva uma linha por chamada.</li>
+  <li>
+    <code>Intersect</code> e <code>Except_</code> — não existem no Firebird 3 nem no 5. A
+    mensagem sugere <code>WhereInSub</code> ou <code>WhereNotExists</code>.
+  </li>
+  <li>
+    <code>NoWait</code> — no Firebird esperar é atributo da <strong>transação</strong>, não
+    cláusula do lock.
+  </li>
+  <li><code>ForShare</code> — <code>with lock</code> é sempre exclusivo.</li>
+  <li><code>Limit</code> e <code>Join</code> em <code>update</code>/<code>delete</code>.</li>
+  <li>
+    <code>LastInsertId</code> — o gerador é por tabela, não há "último id da sessão". Use
+    <code>InsertGetId</code>, que lê o id do <code>insert … returning</code>.
+  </li>
+</ul>
+
+<h3 id="firebird-ddl">DDL do Firebird</h3>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Aspecto</th><th>Como sai</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>Increments</code> / <code>BigIncrements</code></td>
+  <td>
+    <code>integer generated by default as identity primary key</code> (ou
+    <code>bigint</code>) — identity existe desde o Firebird 3
+  </td>
+</tr>
+<tr>
+  <td>ordem dos modificadores</td>
+  <td>
+    <code>default</code> vem <strong>obrigatoriamente</strong> antes de
+    <code>not null</code>: <code>"hits" integer default 0 not null</code>.
+    <code>not null default 0</code> é erro de sintaxe
+  </td>
+</tr>
+<tr>
+  <td><code>Nullable</code></td>
+  <td>não emite nada — o Firebird não aceita <code>null</code> como restrição</td>
+</tr>
+<tr>
+  <td><code>Collate('UNICODE_CI')</code></td>
+  <td><code>collate UNICODE_CI</code> — identificador, não literal entre aspas</td>
+</tr>
+<tr>
+  <td><code>Text</code>, <code>LongText</code>, <code>Json</code></td>
+  <td><code>blob sub_type text</code></td>
+</tr>
+<tr>
+  <td><code>Blob</code></td>
+  <td><code>blob sub_type binary</code></td>
+</tr>
+<tr>
+  <td><code>Binary('sig', 16)</code></td>
+  <td><code>varchar(16) character set octets</code></td>
+</tr>
+<tr>
+  <td><code>Uuid</code></td>
+  <td><code>char(36)</code></td>
+</tr>
+<tr>
+  <td><code>Enum</code></td>
+  <td><code>varchar(255)</code> mais um <code>check (… in (…))</code></td>
+</tr>
+<tr>
+  <td><code>Bool</code></td>
+  <td><code>boolean</code> nativo, com <code>default true</code> / <code>false</code> — o booleano do Firebird 3+ recusa <code>1</code>/<code>0</code></td>
+</tr>
+<tr>
+  <td><code>alter table</code></td>
+  <td>
+    <code>add "nick" varchar(50)</code> (sem a palavra <code>column</code>),
+    <code>drop "legacy"</code>, e <code>alter column "nick" to "nickname"</code> para
+    renomear
+  </td>
+</tr>
+<tr>
+  <td><code>Change</code></td>
+  <td>
+    uma ação por aspecto: <code>alter column "hits" type integer</code>,
+    <code>alter column "hits" drop not null</code>,
+    <code>alter column "hits" set default 0</code>
+  </td>
+</tr>
+<tr>
+  <td><code>HasTable</code> / <code>HasColumn</code></td>
+  <td>
+    leem <code>rdb$relations</code> e <code>rdb$relation_fields</code> — não há
+    <code>information_schema</code>
+  </td>
+</tr>
+<tr>
+  <td>nome de índice e de constraint</td>
+  <td>
+    cortado em <strong>31 bytes</strong> (limite do Firebird 3), com um hash do nome inteiro
+    no fim para duas colunas diferentes não desaguarem no mesmo índice. Nome curto passa
+    intacto
+  </td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<p>
+  <code>drop table if exists</code> não existe no Firebird 3 nem no 5, e o plano de DDL manda
+  um statement só — daí o <code>execute block</code> que consulta o catálogo antes de
+  executar o drop:
+</p>
+
+<div class="code"><pre data-lang="sql">execute block as begin if (exists(select 1 from rdb$relations where trim(rdb$relation_name) = 'users')) then execute statement 'drop table "users"'; end</pre></div>
+
+<div class="callout warn">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t">Renomear tabela não existe no Firebird 3/5</span>
+    <p>
+      <code>RenameTableSQL</code> levanta <code>ELzNexSchema</code> dizendo que a tabela tem
+      de ser <strong>recriada</strong>, copiada e apagada — três passos na migration, não um
+      <code>alter</code>.
+    </p>
+  </div>
+</div>
+
+<h2 id="sqlite">SQLite: o que muda</h2>
+<p>
+  <code>LzNex.Client.SQLite</code> registra dois nomes, <code>sqlite</code> e
+  <code>sqlite3</code>, e ambos resolvem para o dialeto <code>sqlite</code>. É o único banco
+  <strong>em arquivo</strong> da lista: <code>Database</code> é o caminho do arquivo e
+  <code>Host</code> não se aplica. Veja <a href="#configuration/file-based">Configuração</a>.
+</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>Chamada</th><th>O que sai</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>Limit(10).Offset(20)</code></td>
+  <td><code>limit ? offset ?</code> — ANSI</td>
+</tr>
+<tr>
+  <td><code>Offset(20)</code> sozinho</td>
+  <td>
+    <code>limit -1 offset ?</code> — o SQLite recusa <code>offset</code> sem
+    <code>limit</code>, e <code>-1</code> é o "sem limite" dele
+  </td>
+</tr>
+<tr>
+  <td><code>OnConflict(['email']).Ignore</code></td>
+  <td><code>on conflict ("email") do nothing</code>, nativo</td>
+</tr>
+<tr>
+  <td><code>OnConflict(['email']).Merge</code></td>
+  <td>
+    <code>on conflict ("email") do update set "name" = excluded."name", …</code> — igual ao
+    PostgreSQL, inclusive o <code>where</code> no upsert
+  </td>
+</tr>
+<tr>
+  <td><code>WhereILike</code></td>
+  <td>
+    sai igual a <code>WhereLike</code>: não há <code>ilike</code>, e o <code>like</code> do
+    SQLite já ignora caixa <strong>em ASCII</strong> — e só em ASCII
+  </td>
+</tr>
+<tr>
+  <td><code>Truncate</code></td>
+  <td><code>delete from "users"</code> — não existe <code>truncate</code></td>
+</tr>
+<tr>
+  <td><code>InsertGetId</code></td>
+  <td>
+    <code>last_insert_rowid()</code>, que é por conexão — e o pool garante que o insert e a
+    leitura do id usam a mesma
+  </td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="sqlite-raises">O que levanta no SQLite</h3>
+<ul>
+  <li>
+    <code>Returning</code> — recusado pelo builder. O insert roda por
+    <code>ExecuteUpdatePrepared</code>, que não devolve cursor;
+    <code>InsertGetId</code> não depende disso.
+  </li>
+  <li>
+    <code>ForUpdate</code> e <code>ForShare</code> — não há lock de linha: uma transação de
+    escrita tranca <strong>o banco inteiro</strong>. A mensagem manda tirar a cláusula ou
+    serializar os escritores na aplicação.
+  </li>
+  <li><code>DistinctOn</code>.</li>
+  <li><code>Limit</code> e <code>Join</code> em <code>update</code>/<code>delete</code>.</li>
+</ul>
+
+<h3 id="sqlite-ddl">DDL do SQLite</h3>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Aspecto</th><th>Como sai</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>Increments</code> e <code>BigIncrements</code></td>
+  <td>
+    os dois viram <code>integer primary key autoincrement</code>: só
+    <code>integer primary key</code> é apelido do <code>rowid</code>, que já é de 64 bits.
+    <code>bigint primary key</code> criaria outra coluna
+  </td>
+</tr>
+<tr>
+  <td><code>Unique</code> e chave estrangeira na criação</td>
+  <td>
+    nascem <strong>dentro</strong> do <code>create table</code>, como
+    <code>constraint "users_email_unique" unique ("email")</code> — não há
+    <code>alter table add constraint</code> no SQLite
+  </td>
+</tr>
+<tr>
+  <td><code>Unique</code> em tabela existente</td>
+  <td><code>create unique index "users_email_unique" on "users" ("email")</code></td>
+</tr>
+<tr>
+  <td><code>Index</code></td>
+  <td><code>create index …</code>, statement próprio depois do <code>create table</code></td>
+</tr>
+<tr>
+  <td><code>alter table</code></td>
+  <td>
+    uma ação por statement: duas colunas novas saem como <strong>dois</strong>
+    <code>alter table … add column …</code>
+  </td>
+</tr>
+<tr>
+  <td><code>Collate('NOCASE')</code></td>
+  <td><code>collate NOCASE</code> — identificador, não literal</td>
+</tr>
+<tr>
+  <td><code>Enum</code></td>
+  <td><code>varchar(255)</code> mais um <code>check (… in (…))</code></td>
+</tr>
+<tr>
+  <td>data e hora</td>
+  <td>
+    <code>date</code>, <code>time</code>, <code>datetime</code>,
+    <code>timestamp</code> — o tipo declarado é o que o driver lê de volta como data; nome
+    trocado aqui viraria string no resultado
+  </td>
+</tr>
+<tr>
+  <td>texto e binário</td>
+  <td><code>text</code> e <code>blob</code></td>
+</tr>
+<tr>
+  <td><code>RenameColumn</code> / renomear tabela</td>
+  <td>
+    <code>alter table "users" rename column "nick" to "nickname"</code> e
+    <code>alter table "a" rename to "b"</code> — ANSI, os dois
+  </td>
+</tr>
+<tr>
+  <td><code>drop table if exists</code></td>
+  <td>nativo</td>
+</tr>
+<tr>
+  <td><code>HasTable</code> / <code>HasColumn</code></td>
+  <td>
+    <code>sqlite_master</code> (filtrando <code>type in ('table', 'view')</code>) e
+    <code>pragma_table_info(?)</code>
+  </td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<p>Três casos do DDL merecem nome próprio, porque são restrições do banco e não da lib:</p>
+<ul>
+  <li>
+    <code>Change</code> levanta: <strong>não há <code>alter column</code></strong> no SQLite.
+    A saída é recriar a tabela na migration — criar a nova, copiar, apagar a antiga,
+    renomear.
+  </li>
+  <li>
+    <code>add column … not null</code> <strong>sem default</strong> levanta: as linhas que já
+    existem não teriam valor. Com <code>Default_</code> passa:
+    <code>alter table "users" add column "age" integer not null default 0</code>.
+  </li>
+  <li>
+    <code>Primary</code> e chave estrangeira em tabela <strong>existente</strong> levantam,
+    citando a falta de <code>ADD CONSTRAINT</code>. Declare na criação da tabela.
+  </li>
+</ul>
+
+<div class="callout trap">
+  <span class="ico">⚠</span>
+  <div class="body">
+    <span class="t"><code>Comment</code> é ignorado em silêncio no SQLite</span>
+    <p>
+      Não existe <code>comment on</code> no SQLite, e o comentário é documentação: não vale
+      derrubar a migration por causa dele. O <code>create table</code> sai sem o comentário e
+      sem statement extra. No Firebird o <code>Comment</code> sai como
+      <code>comment on column "users"."email" is '…'</code>, um statement depois da tabela.
+    </p>
+  </div>
+</div>
+
 <h2 id="new-dialect">Implementar um dialeto novo</h2>
 <p>
   Um dialeto são duas classes — um <code>TLzNexClientBase</code> e um
@@ -272,12 +787,15 @@
     <code>ColumnTypeSQL</code> traduz cada <code>TLzNexColumnType</code> para o tipo nativo;
     <code>ModifierOrder</code> diz em que sequência os modificadores saem. A ordem importa: MySQL
     exige <code>mdUnsigned, mdNullable, mdDefault, mdComment, mdCollate, mdAfter</code>;
-    PostgreSQL só reconhece <code>mdNullable, mdDefault</code> e ignora o resto.
+    PostgreSQL só reconhece <code>mdNullable, mdDefault</code> e ignora o resto; o Firebird
+    exige <code>mdDefault</code> antes de <code>mdNullable</code>, porque
+    <code>not null default 0</code> é erro de sintaxe lá.
   </li>
   <li>
     <strong>As capacidades.</strong> Sobrescreva apenas as que diferem dos padrões da base —
     que são conservadores: sem <code>returning</code>, sem <code>on conflict … where</code>, sem
-    ordenação de NULL, sem <code>distinct on</code>, com savepoint e com DDL transacional.
+    ordenação de NULL, sem <code>distinct on</code>, com savepoint, com DDL transacional e
+    com <code>DefaultIsolation</code> em <code>ilDefault</code>.
   </li>
   <li>
     <strong><code>WrapIdentifier</code>, <code>Alias</code>, <code>Placeholder</code>.</strong>
@@ -369,6 +887,7 @@ Remove the clause or change the verb.</pre>
 
 <div class="cards">
   <a class="card" href="#api-client"><h4>Referência do ILzNexClient →</h4><p>Assinaturas completas e os padrões da classe base.</p></a>
-  <a class="card" href="#column-types"><h4>Tipos de coluna →</h4><p>O que cada tipo vira em MySQL e em PostgreSQL.</p></a>
+  <a class="card" href="#column-types"><h4>Tipos de coluna →</h4><p>O que cada tipo vira em cada banco.</p></a>
+  <a class="card" href="#limitations"><h4>Limitações →</h4><p>O que levanta erro em cada dialeto, e por quê.</p></a>
 </div>
 </article>
